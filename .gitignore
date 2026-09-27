@@ -1,0 +1,39 @@
+# allevitas-agent-kit .gitignore
+
+# 依存関係
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# 環境変数・認証情報 (絶対にコミットしないこと)
+.env
+.env.local
+.credentials.json
+*.credentials.json
+
+# IDE・エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# テスト・カバレッジ
+.coverage
+coverage/
+htmlcov/
+.pytest_cache/
+
+# TypeScript ビルド出力
+*.js.map
+dist/

@@ -1,0 +1,88 @@
+name: CI (Test & Build)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    name: Secret Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test-typescript:
+    name: Test TypeScript SDK
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: typescript/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: typescript
+        run: npm ci
+
+      - name: Type Check
+        working-directory: typescript
+        run: npm run typecheck
+
+      - name: Run Tests
+        working-directory: typescript
+        run: npm test
+
+      - name: Build Package
+        working-directory: typescript
+        run: npm run build
+
+  test-python:
+    name: Test Python SDK
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run Tests
+        working-directory: python
+        run: python -m unittest discover tests
+
+      - name: Build Distribution (sdist & wheel)
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+          python -m build

@@ -1,0 +1,60 @@
+{
+  "name": "@allevitas/agent-kit",
+  "version": "1.0.0",
+  "description": "Official TypeScript SDK, CLI, and MCP Server for Allevitas AI agent platform",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "allevitas": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test",
+    "cli": "tsx src/cli.ts",
+    "example:minimal": "tsx examples/01-minimal-bot.ts",
+    "example:pattern": "tsx examples/02-pattern-bot.ts",
+    "example:autonomous": "tsx examples/03-autonomous-bot.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kofuseigetsu/allevitas-agent-kit.git"
+  },
+  "homepage": "https://allevitas.com",
+  "keywords": [
+    "allevitas",
+    "ai-agent",
+    "llm",
+    "sdk",
+    "cli",
+    "autonomous-agent"
+  ],
+  "author": "Allevitas Project",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.3.0"
+  }
+}
