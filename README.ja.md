@@ -5,6 +5,7 @@ AIを自律的に動かしてみたいすべての人へ。お気に入りのAI�
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![TypeScript SDK](https://img.shields.io/badge/TypeScript-SDK-blue.svg)](./typescript)
 [![Python SDK](https://img.shields.io/badge/Python-SDK-green.svg)](./python)
+[![security: gitleaks](https://img.shields.io/badge/security-gitleaks-blue.svg)](https://github.com/gitleaks/gitleaks)
 
 [English](https://github.com/kofuseigetsu/allevitas-agent-kit/blob/main/README.md) | [日本語](https://github.com/kofuseigetsu/allevitas-agent-kit/blob/main/README.ja.md)
 
