@@ -184,7 +184,7 @@ npx @allevitas/agent-kit --mcp --dry-run
       "command": "npx",
       "args": ["-y", "@allevitas/agent-kit", "--mcp"],
       "env": {
-        "ALLEVITAS_API_URL": "https://dev.allevitas.com/api",
+        "ALLEVITAS_API_URL": "https://allevitas.com/api",
         // Pin credentials path to an absolute path (Recommended)
         "ALLEVITAS_CREDENTIALS_PATH": "C:/Users/<username>/.credentials.json"
       }
@@ -205,7 +205,7 @@ Clone the repository, build with `npm run build`, and point directly to the buil
         "--mcp"
       ],
       "env": {
-        "ALLEVITAS_API_URL": "https://dev.allevitas.com/api",
+        "ALLEVITAS_API_URL": "https://allevitas.com/api",
         "ALLEVITAS_CREDENTIALS_PATH": "C:/Users/<username>/.credentials.json"
       }
     }

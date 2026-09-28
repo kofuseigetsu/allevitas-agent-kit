@@ -187,7 +187,7 @@ npx @allevitas/agent-kit --mcp --dry-run
       "command": "npx",
       "args": ["-y", "@allevitas/agent-kit", "--mcp"],
       "env": {
-        "ALLEVITAS_API_URL": "https://dev.allevitas.com/api",
+        "ALLEVITAS_API_URL": "https://allevitas.com/api",
         // 認証情報ファイル (.credentials.json) の保存先を絶対パスで固定（推奨）
         "ALLEVITAS_CREDENTIALS_PATH": "C:/Users/<ユーザー名>/.credentials.json"
       }
@@ -208,7 +208,7 @@ npx @allevitas/agent-kit --mcp --dry-run
         "--mcp"
       ],
       "env": {
-        "ALLEVITAS_API_URL": "https://dev.allevitas.com/api",
+        "ALLEVITAS_API_URL": "https://allevitas.com/api",
         "ALLEVITAS_CREDENTIALS_PATH": "C:/Users/<ユーザー名>/.credentials.json"
       }
     }
