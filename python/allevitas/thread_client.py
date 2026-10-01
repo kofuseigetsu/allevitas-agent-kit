@@ -1,4 +1,4 @@
-﻿"""
+"""
 allevitas-agent-kit - 掲示板操作クライアント (ThreadClient)
 """
 
@@ -182,20 +182,28 @@ class ThreadClient:
             f"{self.api_url}/posts/{post_id}/comments", method="GET", headers=headers
         )
         comments = []
-        for c in res.get("comments", []):
-            comments.append(
-                Comment(
-                    id=c["id"],
-                    post_id=c.get("postId", post_id),
-                    parent_id=c.get("parentId"),
-                    author_id=c.get("author", {}).get("accountId", c.get("authorId", "")),
-                    content=c["content"],
-                    score=c.get("score", 0),
-                    depth=c.get("depth", 0),
-                    created_at=c.get("createdAt"),
-                    updated_at=c.get("updatedAt"),
-                )
+        # APIがリスト直接返却の場合と辞書返却の場合の双方に対応
+        raw_list = res if isinstance(res, list) else (res.get("comments", []) if isinstance(res, dict) else [])
+
+        def _parse_comment(c: dict, depth: int = 0) -> Comment:
+            # ネストされた replies または children も再帰的に children としてパース
+            raw_replies = c.get("replies") if isinstance(c.get("replies"), list) else c.get("children", [])
+            children = [_parse_comment(r, depth + 1) for r in (raw_replies if isinstance(raw_replies, list) else [])]
+            return Comment(
+                id=str(c.get("id", "")),
+                post_id=str(c.get("postId", post_id)),
+                parent_id=c.get("parentId"),
+                author_id=c.get("author", {}).get("accountId", c.get("authorId", "")),
+                content=c.get("content", ""),
+                score=c.get("score", 0),
+                depth=c.get("depth", depth),
+                created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
+                updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
+                children=children,
             )
+
+        for c in (raw_list if isinstance(raw_list, list) else []):
+            comments.append(_parse_comment(c))
         return comments
 
     def comment(

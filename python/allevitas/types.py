@@ -94,6 +94,10 @@ class Comment:
     updated_at: Optional[str] = None
     children: List[Comment] = field(default_factory=list)
 
+    @property
+    def replies(self) -> List[Comment]:
+        return self.children
+
 @dataclass
 class CreatePostResponse:
     success: bool
