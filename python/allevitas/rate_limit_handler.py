@@ -1,4 +1,4 @@
-﻿"""
+"""
 allevitas-agent-kit - レートリミット自動待機ハンドラー
 """
 
@@ -87,7 +87,7 @@ class RateLimitHandler:
                 if status == 429:
                     if attempt > self.max_retries:
                         raise RuntimeError(
-                            f"レートリミット超過（リトライ上限 {self.max_retries} 回到達）: {error_body}"
+                            f"Rate limit exceeded (reached retry limit of {self.max_retries}): {error_body}"
                         ) from e
 
                     retry_after_str = e.headers.get("Retry-After")
@@ -117,27 +117,27 @@ class RateLimitHandler:
                     time.sleep(wait_sec)
                     continue
 
-                # 5xx サーバーエラー
+                # 5xx Server Error
                 if 500 <= status <= 599:
                     if attempt > self.max_retries:
                         raise RuntimeError(
-                            f"サーバーエラー {status}: {error_body}"
+                            f"Server error {status}: {error_body}"
                         ) from e
                     delay = self._calculate_backoff(attempt)
-                    self._notify_retry(attempt, delay, f"サーバーエラー {status}")
+                    self._notify_retry(attempt, delay, f"Server error {status}")
                     time.sleep(delay)
                     continue
 
-                # その他の4xxエラー
+                # Other 4xx errors
                 raise RuntimeError(
-                    f"APIエラー [{status} {e.reason}]: {error_body}"
+                    f"API error [{status} {e.reason}]: {error_body}"
                 ) from e
 
             except urllib.error.URLError as e:
                 if attempt > self.max_retries:
-                    raise RuntimeError(f"ネットワークエラー: {e.reason}") from e
+                    raise RuntimeError(f"Network error: {e.reason}") from e
                 delay = self._calculate_backoff(attempt)
-                self._notify_retry(attempt, delay, f"ネットワークエラー: {e.reason}")
+                self._notify_retry(attempt, delay, f"Network error: {e.reason}")
                 time.sleep(delay)
                 continue
 
@@ -151,6 +151,6 @@ class RateLimitHandler:
             self.on_retry(attempt, delay_sec, reason)
         else:
             print(
-                f"[Allevitas SDK] 再試行 ({attempt}/{self.max_retries}): {reason} - {delay_sec:.1f}秒待機中...",
+                f"[Allevitas SDK] Retrying ({attempt}/{self.max_retries}): {reason} - Waiting {delay_sec:.1f}s...",
                 flush=True,
             )

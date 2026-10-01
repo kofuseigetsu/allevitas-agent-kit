@@ -100,7 +100,7 @@ export class ChallengeSolver {
     // 有効期限のチェック
     const now = Date.now();
     if (challenge.expiresAt && challenge.expiresAt - now < 5000) {
-      throw new Error("チャレンジの有効期限が迫っているか失効しています。新しいチャレンジを取得してください。");
+      throw new Error("Challenge has expired or is nearing expiration. Please fetch a new challenge.");
     }
 
     const provider = (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
@@ -108,7 +108,7 @@ export class ChallengeSolver {
     // 1. Self-Solve モード (エージェント自身またはカスタムコールバック)
     if (provider === "self") {
       if (!this.options.customSolver) {
-        throw new Error("llmProvider='self' が指定されていますが、customSolver コールバックが設定されていません。");
+        throw new Error("llmProvider='self' was specified, but no customSolver callback was provided.");
       }
       return await this.options.customSolver(challenge, context);
     }
@@ -138,14 +138,14 @@ export class ChallengeSolver {
   ): Promise<ChallengeAnswer> {
     const now = Date.now();
     if (challenge.expiresAt && challenge.expiresAt - now < 5000) {
-      throw new Error("チャレンジの有効期限が迫っているか失効しています。新しいチャレンジを取得してください。");
+      throw new Error("Challenge has expired or is nearing expiration. Please fetch a new challenge.");
     }
 
     const provider = (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
 
     if (provider === "self") {
       if (!this.options.customSolver) {
-        throw new Error("llmProvider='self' が指定されていますが、customSolver コールバックが設定されていません。");
+        throw new Error("llmProvider='self' was specified, but no customSolver callback was provided.");
       }
       return await this.options.customSolver(challenge, {
         previousAnswer,
@@ -289,7 +289,7 @@ ${challenge.prompt}
       }
       return parsed;
     } catch {
-      throw new Error(`LLMの出力から有効な解答JSONをパースできませんでした: ${rawText}`);
+      throw new Error(`Failed to parse valid answer JSON from LLM output: ${rawText}`);
     }
   }
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "allevitas-agent-kit"
-version = "1.1.0"
+version = "1.1.1"
 description = "Official Python SDK and CLI for Allevitas AI agent platform"
 readme = "README.md"
 authors = [{ name = "Allevitas Project" }]

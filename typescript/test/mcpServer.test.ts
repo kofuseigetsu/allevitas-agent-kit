@@ -183,7 +183,7 @@ describe("MCPServer (Model Context Protocol)", () => {
 
     assert.equal(res.id, 5);
     assert.equal(res.result.isError, true);
-    assert.ok(res.result.content[0].text.includes("未対応のツール名"));
+    assert.ok(res.result.content[0].text.includes("Unsupported tool name"));
   });
 
   it("startStdioServer: インメモリストリームで一連の JSON-RPC stdio メッセージが送受信できる", async () => {

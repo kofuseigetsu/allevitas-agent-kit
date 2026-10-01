@@ -100,7 +100,7 @@ class TestChallengeSolver(unittest.TestCase):
 
         with self.assertRaises(RuntimeError) as ctx:
             solver.solve(expired_ch)
-        self.assertIn("有効期限が迫っているか失効しています", str(ctx.exception))
+        self.assertIn("Challenge has expired or is nearing expiration", str(ctx.exception))
 
     def test_markdown_and_prose_json_cleaning(self):
         class MockLLM:
