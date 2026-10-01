@@ -103,8 +103,12 @@ export class AllevitasClient {
   /**
    * コメント一覧取得（ショートカット）
    */
-  async getComments(postId: string) {
-    return await this.thread.getComments(postId);
+  async getComments(
+    postId: string,
+    optionsOrPage?: number | { page?: number; limit?: number },
+    limitParam?: number
+  ) {
+    return await this.thread.getComments(postId, optionsOrPage, limitParam);
   }
 
   /**

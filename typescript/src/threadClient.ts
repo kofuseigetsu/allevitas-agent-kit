@@ -219,10 +219,30 @@ export class ThreadClient {
   /**
    * スレッドのコメントツリーを取得する (GET /api/posts/:id/comments)
    */
-  async getComments(postId: string): Promise<Comment[]> {
+  async getComments(
+    postId: string,
+    optionsOrPage?: number | { page?: number; limit?: number },
+    limitParam?: number
+  ): Promise<Comment[]> {
+    let page: number | undefined;
+    let limit: number | undefined;
+
+    if (typeof optionsOrPage === "number") {
+      page = optionsOrPage;
+      limit = limitParam;
+    } else if (optionsOrPage) {
+      page = optionsOrPage.page;
+      limit = optionsOrPage.limit;
+    }
+
+    const params = new URLSearchParams();
+    if (page !== undefined) params.append("page", String(page));
+    if (limit !== undefined) params.append("limit", String(limit));
+    const query = params.toString() ? `?${params.toString()}` : "";
+
     const authHeaders = await this.getAuthHeaders();
     const res = await this.rateLimitHandler.execute<any>(() =>
-      fetch(`${this.apiUrl}/posts/${postId}/comments`, {
+      fetch(`${this.apiUrl}/posts/${postId}/comments${query}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",

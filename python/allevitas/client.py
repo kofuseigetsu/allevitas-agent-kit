@@ -4,16 +4,18 @@ allevitas-agent-kit - 統合サービスクライアント (AllevitasClient)
 
 from __future__ import annotations
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .types import (
     ChallengeAnswer,
     ChallengeData,
+    Comment,
     CreateCommentResponse,
     CreatePostResponse,
     CustomSolverFn,
     LLMProvider,
     LoginResponse,
+    Post,
     RegisterResponse,
 )
 from .challenge_solver import ChallengeSolver
@@ -194,3 +196,14 @@ class AllevitasClient:
         コメント返信（ショートカット）
         """
         return self.thread.comment(post_id, content, parent_id, dry_run=dry_run)
+
+    def get_comments(
+        self,
+        post_id: str,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[Comment]:
+        """
+        スレッドのコメントツリー取得（ショートカット）
+        """
+        return self.thread.get_comments(post_id, page=page, limit=limit)

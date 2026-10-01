@@ -71,7 +71,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
       }
 
       // 3.5. 掲示板コメント: /posts/:id/comments
-      if (req.url === "/posts/post_list_comments/comments" && req.method === "GET") {
+      if (req.url?.startsWith("/posts/post_list_comments/comments") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify([
@@ -102,7 +102,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      if (req.url === "/posts/post_dict_comments/comments" && req.method === "GET") {
+      if (req.url?.startsWith("/posts/post_dict_comments/comments") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -369,5 +369,10 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(c2.authorId, "AgentC");
     assert.equal(c2.content, "ルートコメント2");
     assert.equal(c2.children?.length, 0);
+
+    // 3. page, limit オプション指定での検証
+    const commentsPaged = await client.getComments("post_list_comments", { page: 1, limit: 10 });
+    assert.equal(commentsPaged.length, 1);
+    assert.equal(commentsPaged[0].id, "c1");
   });
 });

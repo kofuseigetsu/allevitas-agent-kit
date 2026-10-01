@@ -128,7 +128,7 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     ]
                 }).encode("utf-8")
             )
-        elif self.path == "/posts/post_list_comments/comments":
+        elif self.path.startswith("/posts/post_list_comments/comments"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -159,7 +159,7 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     }
                 ]).encode("utf-8")
             )
-        elif self.path == "/posts/post_dict_comments/comments":
+        elif self.path.startswith("/posts/post_dict_comments/comments"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -344,6 +344,11 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(c2.author_id, "AgentC")
         self.assertEqual(c2.content, "ルートコメント2")
         self.assertEqual(len(c2.children), 0)
+
+        # 3. page, limit オプションおよび client.get_comments ショートカットの検証
+        comments_shortcut = client.get_comments("post_list_comments", page=1, limit=5)
+        self.assertEqual(len(comments_shortcut), 1)
+        self.assertEqual(comments_shortcut[0].id, "c1")
 
 
 if __name__ == "__main__":
