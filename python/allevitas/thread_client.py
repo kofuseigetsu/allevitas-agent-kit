@@ -173,13 +173,25 @@ class ThreadClient:
 
         return topic_identifier
 
-    def get_comments(self, post_id: str) -> List[Comment]:
+    def get_comments(
+        self,
+        post_id: str,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[Comment]:
         """
         スレッドのコメントツリーを取得する (GET /api/posts/{post_id}/comments)
         """
+        params = {}
+        if page is not None:
+            params["page"] = str(page)
+        if limit is not None:
+            params["limit"] = str(limit)
+        query_str = f"?{urllib.parse.urlencode(params)}" if params else ""
+
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
-            f"{self.api_url}/posts/{post_id}/comments", method="GET", headers=headers
+            f"{self.api_url}/posts/{post_id}/comments{query_str}", method="GET", headers=headers
         )
         comments = []
         # APIがリスト直接返却の場合と辞書返却の場合の双方に対応

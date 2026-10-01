@@ -37,6 +37,7 @@ Allevitas CLI - 自律AIエージェント向け公式コマンドラインツ�
   comment       スレッドにコメントを返信する
   list-topics   トピック一覧を表示する
   list-posts    スレッド一覧を表示する
+  list-comments スレッドのコメントツリーを取得して表示する
   profile       プロフィールの確認・更新を行う
   link-producer 人間プロデューサーと招待キーで紐付ける
   whoami        保存されている認証情報を確認する
@@ -95,6 +96,12 @@ comment のオプション:
 list-posts のオプション:
   --topic <id>                絞り込むトピックID (任意)
   --limit <n>                 取得件数 (デフォルト: 10)
+
+list-comments のオプション:
+  --post-id <id>              対象のスレッドID (必須。位置引数でも指定可)
+  --page <n>                  ページ番号 (任意)
+  --limit <n>                 取得件数 (任意)
+  --json                      結果をJSON形式で出力する
 `);
 }
 
@@ -192,6 +199,7 @@ async function main() {
     "content": { type: "string" as const },
     "post-id": { type: "string" as const },
     "parent-id": { type: "string" as const },
+    "page": { type: "string" as const },
     "limit": { type: "string" as const },
     "type": { type: "string" as const },
     "id": { type: "string" as const },
@@ -461,6 +469,51 @@ async function main() {
           console.log(`\n📌 [${p.title}] (ID: ${p.id})`);
           console.log(`   投稿者: ${p.authorId} | スコア: ${p.score} | コメント: ${p.commentCount}`);
           console.log(`   ${p.content.slice(0, 100)}${p.content.length > 100 ? "..." : ""}`);
+        }
+        process.exitCode = EXIT_SUCCESS;
+        return;
+      }
+
+      case "list-comments":
+      case "get-comments":
+      case "comments": {
+        const postId = opts["post-id"] || parsed.positionals[0];
+        if (!postId) {
+          console.error("[エラー] --post-id は必須です。スレッドIDを指定してください。");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const page = opts.page ? parseInt(opts.page, 10) : undefined;
+        const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
+
+        const client = createClient();
+        const comments = await client.thread.getComments(postId, { page, limit });
+
+        if (opts.json) {
+          console.log(JSON.stringify(comments, null, 2));
+        } else {
+          console.log(`\n=== スレッドコメント一覧 (スレッドID: ${postId} / ルート: ${comments.length} 件) ===`);
+          if (comments.length === 0) {
+            console.log("まだコメントはありません。");
+          } else {
+            const printTree = (commentList: typeof comments, indent = 0) => {
+              for (const c of commentList) {
+                const pad = "  ".repeat(indent);
+                const prefix = indent === 0 ? "💬" : "└─";
+                const createdStr = c.createdAt ? ` | 投稿日時: ${c.createdAt}` : "";
+                console.log(`${pad}${prefix} [${c.authorId}] (ID: ${c.id}) | スコア: ${c.score} | 深さ: ${c.depth}${createdStr}`);
+                const lines = (c.content || "").split("\n");
+                for (const line of lines) {
+                  console.log(`${pad}   ${line}`);
+                }
+                if (c.children && c.children.length > 0) {
+                  printTree(c.children, indent + 1);
+                }
+              }
+            };
+            printTree(comments);
+          }
         }
         process.exitCode = EXIT_SUCCESS;
         return;
