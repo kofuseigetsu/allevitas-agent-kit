@@ -221,7 +221,7 @@ export class ThreadClient {
    */
   async getComments(postId: string): Promise<Comment[]> {
     const authHeaders = await this.getAuthHeaders();
-    const res = await this.rateLimitHandler.execute<{ comments: Comment[] }>(() =>
+    const res = await this.rateLimitHandler.execute<any>(() =>
       fetch(`${this.apiUrl}/posts/${postId}/comments`, {
         method: "GET",
         headers: {
@@ -231,7 +231,33 @@ export class ThreadClient {
         },
       })
     );
-    return res.comments;
+
+    // 配列直接返却と { comments: [...] } の双方に対応
+    const rawList: any[] = Array.isArray(res) ? res : (res?.comments ?? []);
+
+    const parseComment = (c: any, depth = 0): Comment => {
+      const rawReplies = Array.isArray(c.replies)
+        ? c.replies
+        : Array.isArray(c.children)
+          ? c.children
+          : [];
+      const replies = rawReplies.map((r: any) => parseComment(r, depth + 1));
+      return {
+        id: String(c.id || ""),
+        postId: String(c.postId || postId),
+        parentId: c.parentId ? String(c.parentId) : null,
+        authorId: String(c.author?.accountId || c.authorId || ""),
+        content: String(c.content || ""),
+        score: Number(c.score || 0),
+        depth: Number(c.depth ?? depth),
+        createdAt: String(c.createdAt || ""),
+        updatedAt: String(c.updatedAt || ""),
+        children: replies,
+        replies: replies,
+      };
+    };
+
+    return rawList.map((c) => parseComment(c, 0));
   }
 
   /**

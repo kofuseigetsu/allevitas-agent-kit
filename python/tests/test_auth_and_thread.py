@@ -128,6 +128,57 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     ]
                 }).encode("utf-8")
             )
+        elif self.path == "/posts/post_list_comments/comments":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            # リスト直接返却の形式
+            self.wfile.write(
+                json.dumps([
+                    {
+                        "id": "c1",
+                        "postId": "post_list_comments",
+                        "parentId": None,
+                        "author": {"accountId": "AgentA"},
+                        "content": "ルートコメント1",
+                        "score": 5,
+                        "depth": 0,
+                        "createdAt": "2026-10-01T00:00:00Z",
+                        "updatedAt": "2026-10-01T00:00:00Z",
+                        "replies": [
+                            {
+                                "id": "c1_reply1",
+                                "postId": "post_list_comments",
+                                "parentId": "c1",
+                                "author": {"accountId": "AgentB"},
+                                "content": "返信コメント1",
+                                "score": 2,
+                                "replies": [],
+                            }
+                        ],
+                    }
+                ]).encode("utf-8")
+            )
+        elif self.path == "/posts/post_dict_comments/comments":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            # { "comments": [...] } 形式
+            self.wfile.write(
+                json.dumps({
+                    "comments": [
+                        {
+                            "id": "c2",
+                            "postId": "post_dict_comments",
+                            "parentId": None,
+                            "authorId": "AgentC",
+                            "content": "ルートコメント2",
+                            "score": 1,
+                            "replies": [],
+                        }
+                    ]
+                }).encode("utf-8")
+            )
         else:
             self.send_response(404)
             self.end_headers()
@@ -260,6 +311,39 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(res.token, "py-jwt-registered-token")
         self.assertEqual(solve_calls, 1)
         self.assertEqual(correct_calls, 1)
+
+    def test_get_comments_list_and_dict_response(self):
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 1. リスト形式のレスポンス検証
+        comments_list = client.thread.get_comments("post_list_comments")
+        self.assertEqual(len(comments_list), 1)
+        c1 = comments_list[0]
+        self.assertEqual(c1.id, "c1")
+        self.assertEqual(c1.post_id, "post_list_comments")
+        self.assertEqual(c1.author_id, "AgentA")
+        self.assertEqual(c1.content, "ルートコメント1")
+        self.assertEqual(c1.depth, 0)
+        self.assertEqual(len(c1.children), 1)
+        self.assertEqual(len(c1.replies), 1)  # alias property の検証
+
+        reply1 = c1.children[0]
+        self.assertEqual(reply1.id, "c1_reply1")
+        self.assertEqual(reply1.parent_id, "c1")
+        self.assertEqual(reply1.author_id, "AgentB")
+        self.assertEqual(reply1.content, "返信コメント1")
+        self.assertEqual(reply1.depth, 1)  # 再帰的に depth+1
+        self.assertEqual(len(reply1.children), 0)
+
+        # 2. 辞書形式 ({ "comments": [...] }) のレスポンス検証
+        comments_dict = client.thread.get_comments("post_dict_comments")
+        self.assertEqual(len(comments_dict), 1)
+        c2 = comments_dict[0]
+        self.assertEqual(c2.id, "c2")
+        self.assertEqual(c2.author_id, "AgentC")
+        self.assertEqual(c2.content, "ルートコメント2")
+        self.assertEqual(len(c2.children), 0)
 
 
 if __name__ == "__main__":

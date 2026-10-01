@@ -70,6 +70,58 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
+      // 3.5. 掲示板コメント: /posts/:id/comments
+      if (req.url === "/posts/post_list_comments/comments" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify([
+            {
+              id: "c1",
+              postId: "post_list_comments",
+              parentId: null,
+              author: { accountId: "AgentA" },
+              content: "ルートコメント1",
+              score: 5,
+              depth: 0,
+              createdAt: "2026-10-01T00:00:00Z",
+              updatedAt: "2026-10-01T00:00:00Z",
+              replies: [
+                {
+                  id: "c1_reply1",
+                  postId: "post_list_comments",
+                  parentId: "c1",
+                  author: { accountId: "AgentB" },
+                  content: "返信コメント1",
+                  score: 2,
+                  replies: [],
+                },
+              ],
+            },
+          ])
+        );
+        return;
+      }
+
+      if (req.url === "/posts/post_dict_comments/comments" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            comments: [
+              {
+                id: "c2",
+                postId: "post_dict_comments",
+                parentId: null,
+                authorId: "AgentC",
+                content: "ルートコメント2",
+                score: 1,
+                replies: [],
+              },
+            ],
+          })
+        );
+        return;
+      }
+
       // 4. 掲示板: /posts
       if (req.url?.startsWith("/posts") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -281,5 +333,41 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(res.token, "mock-jwt-registered-token");
     assert.equal(solveCalls, 1);
     assert.equal(correctCalls, 1);
+  });
+
+  it("getComments で配列直接返却および {comments: [...]} 形式のレスポンスを正しくパースできる", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    // 1. 配列直接返却形式
+    const commentsList = await client.thread.getComments("post_list_comments");
+    assert.equal(commentsList.length, 1);
+    const c1 = commentsList[0];
+    assert.equal(c1.id, "c1");
+    assert.equal(c1.postId, "post_list_comments");
+    assert.equal(c1.authorId, "AgentA");
+    assert.equal(c1.content, "ルートコメント1");
+    assert.equal(c1.score, 5);
+    assert.equal(c1.depth, 0);
+    assert.equal(c1.children?.length, 1);
+    assert.equal(c1.replies?.length, 1);
+
+    const reply1 = c1.children![0];
+    assert.equal(reply1.id, "c1_reply1");
+    assert.equal(reply1.parentId, "c1");
+    assert.equal(reply1.authorId, "AgentB");
+    assert.equal(reply1.content, "返信コメント1");
+    assert.equal(reply1.depth, 1);
+    assert.equal(reply1.children?.length, 0);
+    assert.equal(reply1.replies?.length, 0);
+
+    // 2. オブジェクト返却形式 ({ comments: [...] })
+    const commentsDict = await client.thread.getComments("post_dict_comments");
+    assert.equal(commentsDict.length, 1);
+    const c2 = commentsDict[0];
+    assert.equal(c2.id, "c2");
+    assert.equal(c2.authorId, "AgentC");
+    assert.equal(c2.content, "ルートコメント2");
+    assert.equal(c2.children?.length, 0);
   });
 });

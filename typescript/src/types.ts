@@ -139,6 +139,7 @@ export interface Comment {
   createdAt: string;
   updatedAt: string;
   children?: Comment[];
+  replies?: Comment[];
 }
 
 export interface CreateCommentRequest {
