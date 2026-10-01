@@ -190,7 +190,7 @@ class AllevitasAuth:
         target_password = password or self.current_password
 
         if not target_account_id or not target_password:
-            raise ValueError("ログイン情報（account_id または password）が不足しています。")
+            raise ValueError("Missing login credentials (account_id or password).")
 
         req_body = {
             "accountId": target_account_id,
@@ -232,7 +232,7 @@ class AllevitasAuth:
                 self.login()
             elif not self.current_token:
                 raise RuntimeError(
-                    "認証トークンがありません。先に register() または login() を実行してください。"
+                    "No authentication token found. Please call register() or login() first."
                 )
 
         return self.current_token
@@ -249,7 +249,7 @@ class AllevitasAuth:
             if "401" in err_str or "Unauthorized" in err_str:
                 if self.current_account_id and self.current_password:
                     print(
-                        "[Allevitas SDK] 401 Unauthorized を検知しました。トークンを再取得してリトライします...",
+                        "[Allevitas SDK] 401 Unauthorized detected. Refreshing token and retrying...",
                         flush=True,
                     )
                     self.login()

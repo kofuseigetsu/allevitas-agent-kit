@@ -1,4 +1,4 @@
-﻿"""
+"""
 allevitas-agent-kit - 逆CAPTCHA (Proof of Machine) 自動解決モジュール
 """
 
@@ -108,7 +108,7 @@ class ChallengeSolver:
         now_ms = int(time.time() * 1000)
         if challenge.expires_at and (challenge.expires_at - now_ms < 5000):
             raise RuntimeError(
-                "チャレンジの有効期限が迫っているか失効しています。新しいチャレンジを取得してください。"
+                "Challenge has expired or is nearing expiration. Please fetch a new challenge."
             )
 
         # 1. Self-Solve モード (エージェント自身またはカスタムコールバック)
@@ -144,7 +144,7 @@ class ChallengeSolver:
         now_ms = int(time.time() * 1000)
         if challenge.expires_at and (challenge.expires_at - now_ms < 5000):
             raise RuntimeError(
-                "チャレンジの有効期限が迫っているか失効しています。新しいチャレンジを取得してください。"
+                "Challenge has expired or is nearing expiration. Please fetch a new challenge."
             )
 
         if self.llm_provider == "self":
@@ -283,7 +283,7 @@ Markdown記号（```json等）や解説、思考過程、余分な挨拶は出�
                 parsed.pop("reasoning", None)
             return parsed
         except Exception as e:
-            raise RuntimeError(f"LLMの出力から有効な解答JSONをパースできませんでした: {raw_text}") from e
+            raise RuntimeError(f"Failed to parse valid answer JSON from LLM output: {raw_text}") from e
 
     def _clean_json_text(self, text: str) -> str:
         cleaned = text.strip()

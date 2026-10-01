@@ -181,7 +181,7 @@ export class AllevitasAuth {
     const targetPassword = password || this.currentPassword;
 
     if (!targetAccountId || !targetPassword) {
-      throw new Error("ログイン情報（accountId または password）が不足しています。");
+      throw new Error("Missing login credentials (accountId or password).");
     }
 
     const reqBody: LoginRequest = {
@@ -222,7 +222,7 @@ export class AllevitasAuth {
       if (this.currentAccountId && this.currentPassword) {
         await this.login();
       } else if (!this.currentToken) {
-        throw new Error("認証トークンがありません。先に register() または login() を実行してください。");
+        throw new Error("No authentication token found. Please call register() or login() first.");
       }
     }
 
@@ -241,7 +241,7 @@ export class AllevitasAuth {
       if (errMsg.includes("401") || errMsg.includes("Unauthorized")) {
         // 再ログインを試行
         if (this.currentAccountId && this.currentPassword) {
-          console.warn("[Allevitas SDK] 401 Unauthorized を検知しました。トークンを再取得してリトライします...");
+          console.warn("[Allevitas SDK] 401 Unauthorized detected. Refreshing token and retrying...");
           await this.login();
           const newToken = await this.getValidToken();
           return await requestFn(newToken);

@@ -52,7 +52,7 @@ export class RateLimitHandler {
       if (response.status === 429) {
         if (attempt > this.maxRetries) {
           const bodyText = await response.text().catch(() => "");
-          throw new Error(`レートリミット超過（リトライ上限 ${this.maxRetries} 回到達）: ${bodyText}`);
+          throw new Error(`Rate limit exceeded (reached retry limit of ${this.maxRetries}): ${bodyText}`);
         }
 
         const retryAfterHeader = response.headers.get("retry-after");
@@ -72,14 +72,14 @@ export class RateLimitHandler {
               waitMs = Number(body.retry_after_seconds) * 1000;
             }
           } catch {
-            // JSONパース不可の場合は指数バックオフ
+            // Fall back to exponential backoff
           }
         }
 
         if (waitMs === 0) {
           waitMs = this.calculateBackoff(attempt);
         } else {
-          // ジッターを加算（0〜1000ms）
+          // Add jitter (0〜1000ms)
           waitMs += Math.floor(Math.random() * 1000);
         }
 
@@ -89,25 +89,25 @@ export class RateLimitHandler {
         continue;
       }
 
-      // 5xx サーバーエラーの一時的リトライ
+      // 5xx Server Error retry
       if (response.status >= 500 && response.status <= 599) {
         if (attempt > this.maxRetries) {
           const errText = await response.text().catch(() => "");
-          throw new Error(`サーバーエラー ${response.status}: ${errText}`);
+          throw new Error(`Server error ${response.status}: ${errText}`);
         }
         const delay = this.calculateBackoff(attempt);
-        this.notifyRetry(attempt, delay, `サーバーエラー ${response.status}`);
+        this.notifyRetry(attempt, delay, `Server error ${response.status}`);
         await this.sleep(delay);
         continue;
       }
 
-      // 4xx クライアントエラー（429以外）は即座に例外
+      // 4xx Client Error (except 429) throws immediately
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "");
-        throw new Error(`APIエラー [${response.status} ${response.statusText}]: ${errorBody}`);
+        throw new Error(`API error [${response.status} ${response.statusText}]: ${errorBody}`);
       }
 
-      // 2xx 成功時
+      // 2xx Success
       const contentType = response.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
         return (await response.json()) as T;
@@ -131,7 +131,7 @@ export class RateLimitHandler {
     if (this.onRetry) {
       this.onRetry(attempt, delayMs, reason);
     } else {
-      console.warn(`[Allevitas SDK] 再試行 (${attempt}/${this.maxRetries}): ${reason} - ${Math.round(delayMs / 1000)}秒待機中...`);
+      console.warn(`[Allevitas SDK] Retrying (${attempt}/${this.maxRetries}): ${reason} - Waiting ${Math.round(delayMs / 1000)}s...`);
     }
   }
 }

@@ -101,7 +101,7 @@ describe("ChallengeSolver (Mocked)", () => {
       },
       {
         name: "Error",
-        message: "チャレンジの有効期限が迫っているか失効しています。新しいチャレンジを取得してください。",
+        message: "Challenge has expired or is nearing expiration. Please fetch a new challenge.",
       }
     );
   });
