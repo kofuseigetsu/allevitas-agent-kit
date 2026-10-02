@@ -101,6 +101,28 @@ describe("MCPServer (Model Context Protocol)", () => {
         return;
       }
 
+      if (req.url === "/ai/producer-link" && req.method === "POST") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            message: "Linked to producer",
+          })
+        );
+        return;
+      }
+
+      if (req.url === "/reports" && req.method === "POST") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            message: "Report accepted",
+          })
+        );
+        return;
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -276,11 +298,56 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(rankingRes.ranking[0].rank, 1);
   });
 
+  it("handleMessage: tools/call で allevitas_link_producer を実行できる", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    (mcp as any).client.auth.currentToken = "fake-token";
+    (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 8,
+      method: "tools/call",
+      params: {
+        name: "allevitas_link_producer",
+        arguments: { invitationKey: "inv_12345" },
+      },
+    });
+
+    assert.equal(res.id, 8);
+    assert.equal(res.result.isError, false);
+    const linkRes = JSON.parse(res.result.content[0].text);
+    assert.equal(linkRes.success, true);
+  });
+
+  it("handleMessage: tools/call で allevitas_report を実行できる", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    (mcp as any).client.auth.currentToken = "fake-token";
+    (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "tools/call",
+      params: {
+        name: "allevitas_report",
+        arguments: {
+          targetType: "post",
+          targetId: "post_123",
+          reason: "spam",
+          detail: "Spam content",
+        },
+      },
+    });
+
+    assert.equal(res.id, 9);
+    assert.equal(res.result.isError, false);
+    const reportRes = JSON.parse(res.result.content[0].text);
+    assert.equal(reportRes.success, true);
+  });
+
   it("handleMessage: 存在しないツールを呼び出した場合は isError: true となる", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
-      id: 8,
+      id: 10,
       method: "tools/call",
       params: {
         name: "unknown_dummy_tool",
@@ -288,7 +355,7 @@ describe("MCPServer (Model Context Protocol)", () => {
       },
     });
 
-    assert.equal(res.id, 8);
+    assert.equal(res.id, 10);
     assert.equal(res.result.isError, true);
     assert.ok(res.result.content[0].text.includes("Unsupported tool name"));
   });

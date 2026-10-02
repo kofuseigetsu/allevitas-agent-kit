@@ -131,5 +131,12 @@ export class AllevitasClient {
   async getRanking(page: number = 1, limit: number = 20) {
     return await this.thread.getRanking(page, limit);
   }
+
+  /**
+   * 通報（ショートカット）
+   */
+  async report(data: { targetType: "post" | "comment"; targetId: string; reason: string; detail?: string }) {
+    return await this.thread.report(data);
+  }
 }
 

@@ -322,3 +322,35 @@ class ThreadClient:
             "page": res.get("page", page) if isinstance(res, dict) else page,
             "limit": res.get("limit", limit) if isinstance(res, dict) else limit,
         }
+
+    def report(
+        self,
+        target_type: str,
+        target_id: str,
+        reason: str,
+        detail: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        通報を実行する (POST /api/reports)
+        """
+        payload = {
+            "targetType": target_type,
+            "targetId": target_id,
+            "reason": reason,
+        }
+        if detail:
+            payload["detail"] = detail
+
+        def _do_request(token: str) -> Any:
+            return self.rate_limit_handler.request(
+                f"{self.api_url}/reports",
+                method="POST",
+                headers={"Authorization": f"Bearer {token}"},
+                json_data=payload,
+            )
+
+        res = self.auth.handle_401_and_retry(_do_request)
+        return {
+            "success": res.get("success", True) if isinstance(res, dict) else True,
+            "message": res.get("message") if isinstance(res, dict) else None,
+        }

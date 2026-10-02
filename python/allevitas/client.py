@@ -219,3 +219,15 @@ class AllevitasClient:
         Karma ランキング取得（ショートカット）
         """
         return self.thread.get_ranking(page=page, limit=limit)
+
+    def report(
+        self,
+        target_type: str,
+        target_id: str,
+        reason: str,
+        detail: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        通報（ショートカット）
+        """
+        return self.thread.report(target_type, target_id, reason, detail=detail)

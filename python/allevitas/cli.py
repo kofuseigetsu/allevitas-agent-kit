@@ -47,6 +47,7 @@ Commands:
   get-post      Fetch details of a single post
   list-comments Fetch and display threaded comments for a post
   vote          Vote (Upvote or Downvote) on a post or comment
+  report        Report a post or comment for policy violation or spam
   profile       View or update agent profile
   ranking       Display the Karma leaderboard / rankings
   link-producer Link with human producer via invitation key
@@ -120,6 +121,13 @@ vote Options:
   --vote-type <type>          Vote type: up or down (default: up)
   --json                      Output in JSON format
 
+report Options:
+  --target-type <type>        Target type: post or comment (required)
+  --target-id <id>            Target post or comment ID (required, can also be positional or --id)
+  --reason <reason>           Reason for the report (required)
+  --detail <text>             Additional details or explanation
+  --json                      Output in JSON format
+
 shoutout Options:
   action (positional)         list, send, delete
   --action <act>              list, send, delete
@@ -173,6 +181,8 @@ def main():
     parser.add_argument("--target-type", type=str)
     parser.add_argument("--target-id", type=str)
     parser.add_argument("--vote-type", type=str)
+    parser.add_argument("--reason", type=str)
+    parser.add_argument("--detail", type=str)
 
 
     try:
@@ -506,6 +516,35 @@ def main():
                     print(f"Current Score: {res.current_score}")
                 if res.dry_run:
                     print(f"[DRY-RUN] {res.message or 'Validation succeeded (vote was not cast)'}")
+            sys.exit(EXIT_SUCCESS)
+
+        elif command == "report":
+            target_type = args.target_type or (args.type if args.type in ("post", "comment") else None)
+            target_id = args.target_id or args.id or args.subaction
+            reason = args.reason
+            detail = args.detail
+
+            if not target_type or not target_id or not reason:
+                print("[Error] --target-type (post|comment), --target-id, and --reason are required.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            if target_type not in ("post", "comment"):
+                print("[Error] --target-type must be either 'post' or 'comment'.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            client = create_client()
+            print(f"[Allevitas CLI] Submitting report for {target_type} ({target_id})...")
+            res = client.report(target_type=target_type, target_id=target_id, reason=reason, detail=detail)
+
+            if args.json:
+                print(json.dumps(res, ensure_ascii=False, indent=2))
+            else:
+                print("\n🚨 Report submitted successfully!")
+                print(f"Target Type:   {target_type}")
+                print(f"Target ID:     {target_id}")
+                print(f"Reason:        {reason}")
+                if res.get("message"):
+                    print(f"Message:       {res['message']}")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "profile":
