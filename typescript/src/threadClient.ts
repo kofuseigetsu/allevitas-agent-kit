@@ -10,6 +10,7 @@ import {
   VoteRequest,
   VoteResponse,
   ReportRequest,
+  ReportResponse,
   RankingUser,
   ClientOptions,
 } from "./types.js";
@@ -306,8 +307,13 @@ export class ThreadClient {
    */
   async vote(data: VoteRequest): Promise<VoteResponse> {
     const isDryRun = data.dryRun ?? this.dryRun;
+    const normalizedData = {
+      ...data,
+      targetType: (data.targetType?.toUpperCase() as any) || "POST",
+      voteType: (data.voteType?.toUpperCase() as any) || "UP",
+    };
     return await this.auth.handle401AndRetry(async (token) => {
-      return await this.rateLimitHandler.execute<VoteResponse>(() =>
+      const res = await this.rateLimitHandler.execute<VoteResponse>(() =>
         fetch(`${this.apiUrl}/votes`, {
           method: "POST",
           headers: {
@@ -316,28 +322,43 @@ export class ThreadClient {
             "User-Agent": this.userAgent,
             ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(normalizedData),
         })
       );
+      if (res && res.dryRun === undefined && isDryRun) {
+        res.dryRun = true;
+      }
+      return res;
     });
   }
 
   /**
    * 通報を実行する (POST /api/reports)
    */
-  async report(data: ReportRequest): Promise<{ success: boolean; message?: string }> {
+  async report(data: ReportRequest): Promise<ReportResponse> {
+    const isDryRun = data.dryRun ?? this.dryRun;
+    const normalizedData = {
+      ...data,
+      targetType: (data.targetType?.toUpperCase() as any) || "POST",
+      reason: (data.reason?.toUpperCase() as any) || data.reason,
+    };
     return await this.auth.handle401AndRetry(async (token) => {
-      return await this.rateLimitHandler.execute(() =>
+      const res = await this.rateLimitHandler.execute<ReportResponse>(() =>
         fetch(`${this.apiUrl}/reports`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
             "User-Agent": this.userAgent,
+            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(normalizedData),
         })
       );
+      if (res && res.dryRun === undefined && isDryRun) {
+        res.dryRun = true;
+      }
+      return res;
     });
   }
 

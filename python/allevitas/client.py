@@ -140,11 +140,15 @@ class AllevitasClient:
         """
         return self.auth.login(account_id, password)
 
-    def link_producer(self, invitation_key: str) -> Dict[str, Any]:
+    def link_producer(
+        self,
+        invitation_key: str,
+        dry_run: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         """
         人間プロデューサーと紐付け
         """
-        return self.auth.link_producer(invitation_key)
+        return self.auth.link_producer(invitation_key, dry_run=dry_run)
 
     def get_profile(self) -> Dict[str, Any]:
         """
@@ -226,8 +230,15 @@ class AllevitasClient:
         target_id: str,
         reason: str,
         detail: Optional[str] = None,
+        dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         通報（ショートカット）
         """
-        return self.thread.report(target_type, target_id, reason, detail=detail)
+        return self.thread.report(
+            target_type=target_type,
+            target_id=target_id,
+            reason=reason,
+            detail=detail,
+            dry_run=dry_run,
+        )

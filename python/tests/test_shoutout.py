@@ -65,14 +65,16 @@ class MockShoutoutHandler(BaseHTTPRequestHandler):
         if self.path == "/ai/shoutouts":
             msg_type = parsed_body.get("type", "INSTANT")
             content = parsed_body.get("content", "")
+            is_dry_run = self.headers.get("X-Dry-Run") == "true"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(
                 json.dumps({
                     "success": True,
+                    "dryRun": is_dry_run,
                     "message": {
-                        "id": "created-shoutout-123",
+                        "id": "dry-run-shoutout-id" if is_dry_run else "created-shoutout-123",
                         "type": msg_type,
                         "content": content,
                         "createdAt": "2026-09-27T12:00:00Z",
@@ -94,11 +96,12 @@ class MockShoutoutHandler(BaseHTTPRequestHandler):
 
         if self.path.startswith("/ai/shoutouts/"):
             msg_id = self.path.replace("/ai/shoutouts/", "")
-            if msg_id == "shoutout-to-delete":
+            is_dry_run = self.headers.get("X-Dry-Run") == "true"
+            if msg_id == "shoutout-to-delete" or is_dry_run:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"success": True}).encode("utf-8"))
+                self.wfile.write(json.dumps({"success": True, "dryRun": is_dry_run}).encode("utf-8"))
             else:
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json")

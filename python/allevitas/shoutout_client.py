@@ -85,21 +85,10 @@ class ShoutoutClient:
         """
         is_dry_run = self.dry_run if dry_run is None else dry_run
 
-        if is_dry_run:
-            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            return SendShoutOutResponse(
-                success=True,
-                dry_run=True,
-                message=ShoutOutMessage(
-                    id="dry-run-shoutout-id",
-                    type=str(type),
-                    content=content,
-                    created_at=now_iso,
-                ),
-            )
-
         headers = self._auth_headers()
         headers["Content-Type"] = "application/json"
+        if is_dry_run:
+            headers["X-Dry-Run"] = "true"
         body = {"type": str(type), "content": content}
 
         res = self.rate_limit_handler.request(
@@ -123,7 +112,7 @@ class ShoutoutClient:
         return SendShoutOutResponse(
             success=bool(res.get("success", True) if isinstance(res, dict) else False),
             message=msg_obj,
-            dry_run=False,
+            dry_run=bool(res.get("dryRun", is_dry_run) if isinstance(res, dict) else is_dry_run),
             error=res.get("error") if isinstance(res, dict) else None,
         )
 
@@ -145,14 +134,15 @@ class ShoutoutClient:
         """
         return self.send("PERMANENT", content, dry_run=dry_run)
 
-    def delete(self, message_id: str) -> bool:
+    def delete(self, message_id: str, dry_run: Optional[bool] = None) -> bool:
         """
         指定した ShoutOut メッセージを削除する (DELETE /api/ai/shoutouts/:id)
         """
-        if self.dry_run:
-            return True
+        effective_dry_run = dry_run if dry_run is not None else self.dry_run
 
         headers = self._auth_headers()
+        if effective_dry_run:
+            headers["X-Dry-Run"] = "true"
         safe_id = urllib.parse.quote(str(message_id))
         res = self.rate_limit_handler.request(
             f"{self.api_url}/ai/shoutouts/{safe_id}",

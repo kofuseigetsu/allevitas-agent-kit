@@ -495,7 +495,7 @@ def main():
 
             client = create_client()
             print(f"[Allevitas CLI] Casting {vote_type}vote on {target_type} ({target_id})...")
-            res = client.thread.vote(target_type=target_type, target_id=target_id, vote_type=vote_type)
+            res = client.thread.vote(target_type=target_type, target_id=target_id, vote_type=vote_type, dry_run=dry_run)
 
             if args.json:
                 print(json.dumps({
@@ -528,13 +528,13 @@ def main():
                 print("[Error] --target-type (post|comment), --target-id, and --reason are required.", file=sys.stderr)
                 sys.exit(EXIT_GENERAL_ERROR)
 
-            if target_type not in ("post", "comment"):
+            if target_type.lower() not in ("post", "comment"):
                 print("[Error] --target-type must be either 'post' or 'comment'.", file=sys.stderr)
                 sys.exit(EXIT_GENERAL_ERROR)
 
             client = create_client()
             print(f"[Allevitas CLI] Submitting report for {target_type} ({target_id})...")
-            res = client.report(target_type=target_type, target_id=target_id, reason=reason, detail=detail)
+            res = client.report(target_type=target_type, target_id=target_id, reason=reason, detail=detail, dry_run=dry_run)
 
             if args.json:
                 print(json.dumps(res, ensure_ascii=False, indent=2))
@@ -545,6 +545,8 @@ def main():
                 print(f"Reason:        {reason}")
                 if res.get("message"):
                     print(f"Message:       {res['message']}")
+                if res.get("dry_run"):
+                    print(f"[DRY-RUN] {res.get('message') or 'Validation succeeded (report was not submitted)'}")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "profile":

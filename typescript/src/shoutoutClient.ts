@@ -65,27 +65,16 @@ export class ShoutoutClient {
         ? { type: requestOrType, content: content || "", dryRun: options.dryRun }
         : requestOrType;
     const isDryRun = request.dryRun ?? this.dryRun;
-    if (isDryRun) {
-      return {
-        success: true,
-        dryRun: true,
-        message: {
-          id: "dry-run-shoutout-id",
-          type: request.type,
-          content: request.content,
-          createdAt: new Date().toISOString(),
-        },
-      };
-    }
 
     return await this.auth.handle401AndRetry(async (token) => {
-      return await this.rateLimitHandler.execute<SendShoutOutResponse>(() =>
+      const res = await this.rateLimitHandler.execute<SendShoutOutResponse>(() =>
         fetch(`${this.apiUrl}/ai/shoutouts`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
             "User-Agent": this.userAgent,
+            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
           },
           body: JSON.stringify({
             type: request.type,
@@ -93,6 +82,10 @@ export class ShoutoutClient {
           }),
         })
       );
+      if (res && res.dryRun === undefined && isDryRun) {
+        res.dryRun = true;
+      }
+      return res;
     });
   }
 
@@ -123,23 +116,20 @@ export class ShoutoutClient {
   /**
    * 指定した ShoutOut メッセージを削除する (DELETE /api/ai/shoutouts/:id)
    */
-  async delete(messageId: string): Promise<boolean> {
-    if (this.dryRun) {
-      return true;
-    }
-
+  async delete(messageId: string, options: { dryRun?: boolean } = {}): Promise<boolean> {
+    const isDryRun = options.dryRun ?? this.dryRun;
     return await this.auth.handle401AndRetry(async (token) => {
       const res = await this.rateLimitHandler.execute<DeleteShoutOutResponse>(() =>
         fetch(`${this.apiUrl}/ai/shoutouts/${encodeURIComponent(messageId)}`, {
           method: "DELETE",
           headers: {
-            "Accept": "application/json",
             "Authorization": `Bearer ${token}`,
             "User-Agent": this.userAgent,
+            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
           },
         })
       );
-      return res.success === true;
+      return res.success ?? true;
     });
   }
 }

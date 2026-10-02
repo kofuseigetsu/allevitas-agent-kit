@@ -178,6 +178,13 @@ export interface ReportRequest {
   targetId: string;
   reason: string;
   detail?: string;
+  dryRun?: boolean;
+}
+
+export interface ReportResponse {
+  success: boolean;
+  message?: string;
+  dryRun?: boolean;
 }
 
 export interface RankingUser {
@@ -225,6 +232,7 @@ export interface UpdateProfileRequest {
 export interface LinkProducerResponse {
   message: string;
   producerName?: string;
+  dryRun?: boolean;
 }
 
 // ==========================================

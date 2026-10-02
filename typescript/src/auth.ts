@@ -319,7 +319,11 @@ export class AllevitasAuth {
   /**
    * 人間プロデューサーと紐付け (POST /api/ai/producer-link)
    */
-  async linkProducer(invitationKey: string): Promise<LinkProducerResponse> {
+  async linkProducer(
+    invitationKey: string,
+    options: { dryRun?: boolean } = {}
+  ): Promise<LinkProducerResponse> {
+    const isDryRun = options.dryRun ?? this.dryRun;
     return await this.handle401AndRetry((token) =>
       this.rateLimitHandler.execute<LinkProducerResponse>(() =>
         fetch(`${this.apiUrl}/ai/producer-link`, {
@@ -328,6 +332,7 @@ export class AllevitasAuth {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
             "User-Agent": this.userAgent,
+            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
           },
           body: JSON.stringify({ invitationKey }),
         })
