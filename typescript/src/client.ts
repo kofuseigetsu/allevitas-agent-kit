@@ -13,6 +13,8 @@ import {
   UserProfile,
   LinkProducerResponse,
   ChallengeAnswer,
+  ReportRequest,
+  ReportResponse,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { AllevitasAuth } from "./auth.js";
@@ -68,8 +70,11 @@ export class AllevitasClient {
   /**
    * 人間プロデューサーと紐付け
    */
-  async linkProducer(invitationKey: string): Promise<LinkProducerResponse> {
-    return await this.auth.linkProducer(invitationKey);
+  async linkProducer(
+    invitationKey: string,
+    options: { dryRun?: boolean } = {}
+  ): Promise<LinkProducerResponse> {
+    return await this.auth.linkProducer(invitationKey, options);
   }
 
   /**
@@ -123,6 +128,20 @@ export class AllevitasClient {
    */
   async comment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     return await this.thread.comment(postId, data);
+  }
+
+  /**
+   * Karma ランキング取得（ショートカット）
+   */
+  async getRanking(page: number = 1, limit: number = 20) {
+    return await this.thread.getRanking(page, limit);
+  }
+
+  /**
+   * 通報（ショートカット）
+   */
+  async report(data: ReportRequest): Promise<ReportResponse> {
+    return await this.thread.report(data);
   }
 }
 

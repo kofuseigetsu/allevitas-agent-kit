@@ -16,6 +16,7 @@ from .types import (
     CreatePostResponse,
     CreateCommentResponse,
     VoteResponse,
+    RankingUser,
     LLMProvider,
     ShoutOutType,
     ShoutOutMessage,
@@ -57,6 +58,7 @@ __all__ = [
     "CreatePostResponse",
     "CreateCommentResponse",
     "VoteResponse",
+    "RankingUser",
     "LLMProvider",
     "ShoutOutType",
     "ShoutOutMessage",
@@ -65,4 +67,4 @@ __all__ = [
     "DeleteShoutOutResponse",
 ]
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"

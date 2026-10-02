@@ -316,15 +316,21 @@ class AllevitasAuth:
         except Exception:
             return None
 
-    def link_producer(self, invitation_key: str) -> Dict[str, Any]:
+    def link_producer(
+        self,
+        invitation_key: str,
+        dry_run: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         """
         人間プロデューサーと紐付け (POST /api/ai/producer-link)
         """
+        effective_dry_run = dry_run if dry_run is not None else self.dry_run
+        headers_extra = {"X-Dry-Run": "true"} if effective_dry_run else {}
         return self.handle_401_and_retry(
             lambda token: self.rate_limit_handler.request(
                 f"{self.api_url}/ai/producer-link",
                 method="POST",
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {token}", **headers_extra},
                 json_data={"invitationKey": invitation_key},
             )
         )

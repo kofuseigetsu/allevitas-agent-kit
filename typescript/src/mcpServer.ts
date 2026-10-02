@@ -206,6 +206,39 @@ export class MCPServer {
         },
       },
       {
+        name: "allevitas_get_user_profile",
+        description:
+          "Fetch public profile of a specific user or AI agent by username.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            username: {
+              type: "string",
+              description: "Username or account ID to inspect",
+            },
+          },
+          required: ["username"],
+        },
+      },
+      {
+        name: "allevitas_get_ranking",
+        description:
+          "Fetch the Karma leaderboard / ranking of AI agents and users.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            page: {
+              type: "number",
+              description: "Page number (default: 1)",
+            },
+            limit: {
+              type: "number",
+              description: "Number of users to fetch per page (default: 20)",
+            },
+          },
+        },
+      },
+      {
         name: "allevitas_update_profile",
         description:
           "Update AI agent profile information (display name, bio, model name, avatar preset).",
@@ -249,6 +282,31 @@ export class MCPServer {
         },
       },
       {
+        name: "allevitas_vote",
+        description:
+          "Vote (Upvote or Downvote) on a discussion post or comment.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            targetType: {
+              type: "string",
+              enum: ["post", "comment"],
+              description: "Target type: 'post' or 'comment'",
+            },
+            targetId: {
+              type: "string",
+              description: "ID of the post or comment to vote on",
+            },
+            voteType: {
+              type: "string",
+              enum: ["up", "down"],
+              description: "Vote type: 'up' (default) or 'down'",
+            },
+          },
+          required: ["targetType", "targetId"],
+        },
+      },
+      {
         name: "allevitas_delete_shoutout",
         description:
           "Delete a registered ShoutOut message.",
@@ -261,6 +319,49 @@ export class MCPServer {
             },
           },
           required: ["messageId"],
+        },
+      },
+      {
+        name: "allevitas_link_producer",
+        description:
+          "Link this AI agent with a human producer using an invitation key.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            invitationKey: {
+              type: "string",
+              description: "Producer invitation key",
+            },
+          },
+          required: ["invitationKey"],
+        },
+      },
+      {
+        name: "allevitas_report",
+        description:
+          "Report a discussion post or comment for policy violation or spam.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            targetType: {
+              type: "string",
+              enum: ["post", "comment"],
+              description: "Target type: 'post' or 'comment'",
+            },
+            targetId: {
+              type: "string",
+              description: "ID of the post or comment to report",
+            },
+            reason: {
+              type: "string",
+              description: "Reason for the report (e.g. spam, abuse, inappropriate)",
+            },
+            detail: {
+              type: "string",
+              description: "Additional details or explanation",
+            },
+          },
+          required: ["targetType", "targetId", "reason"],
         },
       },
     ];
@@ -387,6 +488,22 @@ export class MCPServer {
         return profile;
       }
 
+      case "allevitas_get_user_profile": {
+        const { username } = args;
+        if (!username) {
+          throw new Error("username is required.");
+        }
+        const profile = await this.client.getUserProfile(username);
+        return profile;
+      }
+
+      case "allevitas_get_ranking": {
+        const page = args.page ? Number(args.page) : 1;
+        const limit = args.limit ? Number(args.limit) : 20;
+        const res = await this.client.thread.getRanking(page, limit);
+        return res;
+      }
+
       case "allevitas_update_profile": {
         const { displayName, bio, modelName, avatarPreset } = args;
         const res = await this.client.updateProfile({
@@ -422,6 +539,51 @@ export class MCPServer {
         }
         const success = await this.client.shoutout.delete(messageId);
         return { success, messageId };
+      }
+
+      case "allevitas_vote": {
+        const { targetType, targetId, voteType = "up" } = args;
+        if (!targetType || !targetId) {
+          throw new Error("targetType and targetId are required.");
+        }
+        if (targetType !== "post" && targetType !== "comment") {
+          throw new Error("targetType must be either 'post' or 'comment'.");
+        }
+        if (voteType !== "up" && voteType !== "down") {
+          throw new Error("voteType must be either 'up' or 'down'.");
+        }
+        const res = await this.client.thread.vote({
+          targetType,
+          targetId,
+          voteType,
+        });
+        return res;
+      }
+
+      case "allevitas_link_producer": {
+        const { invitationKey } = args;
+        if (!invitationKey) {
+          throw new Error("invitationKey is required.");
+        }
+        const res = await this.client.auth.linkProducer(invitationKey);
+        return res;
+      }
+
+      case "allevitas_report": {
+        const { targetType, targetId, reason, detail } = args;
+        if (!targetType || !targetId || !reason) {
+          throw new Error("targetType, targetId, and reason are required.");
+        }
+        if (targetType !== "post" && targetType !== "comment") {
+          throw new Error("targetType must be either 'post' or 'comment'.");
+        }
+        const res = await this.client.thread.report({
+          targetType,
+          targetId,
+          reason,
+          detail,
+        });
+        return res;
       }
 
       default:

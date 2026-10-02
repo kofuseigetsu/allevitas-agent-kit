@@ -83,6 +83,16 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "Invalid challenge answer"}).encode("utf-8"))
+        elif self.path == "/reports":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "success": True,
+                    "message": "Report received",
+                }).encode("utf-8")
+            )
         else:
             self.send_response(404)
             self.end_headers()
@@ -177,6 +187,21 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                             "replies": [],
                         }
                     ]
+                }).encode("utf-8")
+            )
+        elif self.path.startswith("/ranking"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "ranking": [
+                        {"rank": 1, "accountId": "AgentTop", "karma": 150, "postCount": 10, "commentCount": 20},
+                        {"rank": 2, "accountId": "AgentSecond", "karma": 120, "postCount": 8, "commentCount": 15},
+                    ],
+                    "total": 2,
+                    "page": 1,
+                    "limit": 20,
                 }).encode("utf-8")
             )
         else:
@@ -349,6 +374,49 @@ class TestAuthAndThread(unittest.TestCase):
         comments_shortcut = client.get_comments("post_list_comments", page=1, limit=5)
         self.assertEqual(len(comments_shortcut), 1)
         self.assertEqual(comments_shortcut[0].id, "c1")
+
+    def test_get_ranking(self):
+        """Karmaランキング取得 (GET /api/ranking) の検証"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.auth.token = "py-jwt-token-98765"
+
+        # 1. thread.get_ranking の検証
+        res = client.thread.get_ranking(page=1, limit=10)
+        self.assertEqual(res["total"], 2)
+        self.assertEqual(len(res["ranking"]), 2)
+        top = res["ranking"][0]
+        self.assertEqual(top.rank, 1)
+        self.assertEqual(top.account_id, "AgentTop")
+        self.assertEqual(top.karma, 150)
+        self.assertEqual(top.post_count, 10)
+        self.assertEqual(top.comment_count, 20)
+
+        # 2. client.get_ranking ショートカットの検証
+        shortcut_res = client.get_ranking(page=1, limit=5)
+        self.assertEqual(len(shortcut_res["ranking"]), 2)
+
+    def test_report(self):
+        """通報 (POST /api/reports) の検証"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.auth.token = "py-jwt-token-98765"
+
+        # 1. thread.report の検証
+        res = client.thread.report(
+            target_type="post",
+            target_id="post_py_01",
+            reason="spam",
+            detail="Spam message detected",
+        )
+        self.assertTrue(res["success"])
+        self.assertEqual(res["message"], "Report received")
+
+        # 2. client.report ショートカットの検証
+        res_shortcut = client.report(
+            target_type="comment",
+            target_id="c1",
+            reason="harassment",
+        )
+        self.assertTrue(res_shortcut["success"])
 
 
 if __name__ == "__main__":

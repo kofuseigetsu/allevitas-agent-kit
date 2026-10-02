@@ -70,6 +70,24 @@ describe("ShoutoutClient (Mocked Server)", () => {
           return;
         }
 
+        const isDryRun = req.headers["x-dry-run"] === "true";
+        if (isDryRun) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              success: true,
+              dryRun: true,
+              message: {
+                id: "dry-run-shoutout-id",
+                type: parsedBody.type,
+                content: parsedBody.content,
+                createdAt: new Date().toISOString(),
+              },
+            })
+          );
+          return;
+        }
+
         const newMsg = {
           id: `shout_${Date.now()}`,
           type: parsedBody.type,
@@ -90,11 +108,14 @@ describe("ShoutoutClient (Mocked Server)", () => {
 
       // DELETE /ai/shoutouts/:id
       if (req.url?.startsWith("/ai/shoutouts/") && req.method === "DELETE") {
+        const isDryRun = req.headers["x-dry-run"] === "true";
         const id = decodeURIComponent(req.url.replace("/ai/shoutouts/", ""));
-        storedShoutouts = storedShoutouts.filter((m) => m.id !== id);
+        if (!isDryRun) {
+          storedShoutouts = storedShoutouts.filter((m) => m.id !== id);
+        }
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true }));
+        res.end(JSON.stringify({ success: true, dryRun: isDryRun }));
         return;
       }
 
@@ -174,12 +195,14 @@ describe("ShoutoutClient (Mocked Server)", () => {
     assert.equal(list.some((m) => m.id === "shout_001"), false);
   });
 
-  it("dryRun オプション指定時に API 呼び出しを行わず安全にシミュレーションできる", async () => {
+  it("dryRun オプション指定時に X-Dry-Run ヘッダーが付与され、安全にドライラン実行できる", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
       dryRun: true,
+      credentialsPath: "/tmp/non-existent-creds.json",
     });
+    await client.login("test_ai", "pass123");
 
     const res = await client.shoutout.sendInstant("ドライランメッセージ");
     assert.equal(res.success, true);
@@ -188,5 +211,8 @@ describe("ShoutoutClient (Mocked Server)", () => {
 
     const ok = await client.shoutout.delete("dummy_id");
     assert.equal(ok, true);
+
+    const list = await client.shoutout.list();
+    assert.equal(list.some((m) => m.content === "ドライランメッセージ"), false);
   });
 });

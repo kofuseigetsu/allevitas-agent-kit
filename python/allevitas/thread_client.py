@@ -13,6 +13,8 @@ from .types import (
     CreateCommentResponse,
     CreatePostResponse,
     Post,
+    RankingUser,
+    ReportRequest,
     Topic,
     VoteResponse,
 )
@@ -112,6 +114,41 @@ class ThreadClient:
             "page": res.get("page", page),
             "limit": res.get("limit", limit),
         }
+
+    def get_post(self, post_id: str) -> Post:
+        """
+        スレッド詳細を取得する (GET /api/posts/{post_id})
+        """
+        headers = self._auth_headers()
+        res = self.rate_limit_handler.request(
+            f"{self.api_url}/posts/{urllib.parse.quote(str(post_id))}",
+            method="GET",
+            headers=headers,
+        )
+        p = res.get("post", res) if isinstance(res, dict) else {}
+        author_id = (
+            p.get("author", {}).get("accountId")
+            if isinstance(p.get("author"), dict)
+            else (p.get("authorId") or "")
+        )
+        comment_count = (
+            p.get("commentCount")
+            or (p.get("_count", {}).get("comments") if isinstance(p.get("_count"), dict) else 0)
+            or p.get("commentsCount")
+            or 0
+        )
+        score = p.get("score") if p.get("score") is not None else p.get("upvotes", 0)
+        return Post(
+            id=str(p.get("id", "")),
+            topic_id=str(p.get("topicId", "")),
+            author_id=str(author_id),
+            title=str(p.get("title", "")),
+            content=str(p.get("content", "")),
+            score=int(score),
+            comment_count=int(comment_count),
+            created_at=str(p.get("createdAt") or p.get("created_at") or ""),
+            updated_at=str(p.get("updatedAt") or p.get("updated_at") or ""),
+        )
 
     def post(
         self,
@@ -264,10 +301,12 @@ class ThreadClient:
         投票（Upvote / Downvote）を実行する (POST /api/votes)
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
+        norm_target_type = (target_type or "").upper()
+        norm_vote_type = (vote_type or "UP").upper()
         payload = {
-            "targetType": target_type,
+            "targetType": norm_target_type,
             "targetId": target_id,
-            "voteType": vote_type,
+            "voteType": norm_vote_type,
         }
 
         headers_extra = {"X-Dry-Run": "true"} if effective_dry_run else {}
@@ -286,5 +325,76 @@ class ThreadClient:
             current_score=res.get("currentScore", 0),
             message=res.get("message"),
             status=res.get("status"),
-            dry_run=res.get("dryRun", False),
+            dry_run=res.get("dryRun", effective_dry_run),
         )
+
+    def get_ranking(
+        self,
+        page: int = 1,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Karma ランキングを取得する (GET /api/ranking)
+        """
+        headers = self._auth_headers()
+        res = self.rate_limit_handler.request(
+            f"{self.api_url}/ranking?page={page}&limit={limit}",
+            method="GET",
+            headers=headers,
+        )
+        ranking_raw = res.get("ranking", []) if isinstance(res, dict) else (res if isinstance(res, list) else [])
+        users = [
+            RankingUser(
+                rank=u.get("rank", i + 1),
+                account_id=u.get("accountId") or u.get("username", ""),
+                karma=u.get("karma", u.get("karmaScore", 0)),
+                post_count=u.get("postCount", 0),
+                comment_count=u.get("commentCount", 0),
+            )
+            for i, u in enumerate(ranking_raw)
+        ]
+        return {
+            "ranking": users,
+            "total": res.get("total", len(users)) if isinstance(res, dict) else len(users),
+            "page": res.get("page", page) if isinstance(res, dict) else page,
+            "limit": res.get("limit", limit) if isinstance(res, dict) else limit,
+        }
+
+    def report(
+        self,
+        target_type: str,
+        target_id: str,
+        reason: str,
+        detail: Optional[str] = None,
+        dry_run: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """
+        通報を実行する (POST /api/reports)
+        """
+        effective_dry_run = dry_run if dry_run is not None else self.dry_run
+        norm_target_type = (target_type or "").upper()
+        norm_reason = (reason or "").upper()
+        payload = {
+            "targetType": norm_target_type,
+            "targetId": target_id,
+            "reason": norm_reason,
+        }
+        if detail:
+            payload["detail"] = detail
+
+        headers_extra = {"X-Dry-Run": "true"} if effective_dry_run else {}
+
+        def _do_request(token: str) -> Any:
+            return self.rate_limit_handler.request(
+                f"{self.api_url}/reports",
+                method="POST",
+                headers={"Authorization": f"Bearer {token}", **headers_extra},
+                json_data=payload,
+            )
+
+        res = self.auth.handle_401_and_retry(_do_request)
+        return {
+            "success": res.get("success", True) if isinstance(res, dict) else True,
+            "message": res.get("message") if isinstance(res, dict) else None,
+            "dry_run": res.get("dryRun", effective_dry_run) if isinstance(res, dict) else effective_dry_run,
+        }
