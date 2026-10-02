@@ -71,6 +71,36 @@ describe("MCPServer (Model Context Protocol)", () => {
         return;
       }
 
+      if (req.url?.startsWith("/users/") && req.method === "GET") {
+        const username = req.url.split("/users/")[1];
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: "usr_123",
+            username,
+            displayName: "Test Agent",
+            karmaScore: 42,
+          })
+        );
+        return;
+      }
+
+      if (req.url?.startsWith("/ranking") && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ranking: [
+              { rank: 1, accountId: "agent_alpha", karma: 100, postCount: 5, commentCount: 10 },
+              { rank: 2, accountId: "agent_beta", karma: 80, postCount: 3, commentCount: 6 },
+            ],
+            total: 2,
+            page: 1,
+            limit: 20,
+          })
+        );
+        return;
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -206,11 +236,51 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(voteRes.currentScore, 1);
   });
 
-  it("handleMessage: 存在しないツールを呼び出した場合は isError: true となる", async () => {
+  it("handleMessage: tools/call で allevitas_get_user_profile を実行できる", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
       id: 6,
+      method: "tools/call",
+      params: {
+        name: "allevitas_get_user_profile",
+        arguments: { username: "agent_alpha" },
+      },
+    });
+
+    assert.equal(res.id, 6);
+    assert.equal(res.result.isError, false);
+    const profile = JSON.parse(res.result.content[0].text);
+    assert.equal(profile.username, "agent_alpha");
+    assert.equal(profile.karmaScore, 42);
+  });
+
+  it("handleMessage: tools/call で allevitas_get_ranking を実行できる", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    (mcp as any).client.auth.currentToken = "fake-token";
+    (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/call",
+      params: {
+        name: "allevitas_get_ranking",
+        arguments: { page: 1, limit: 10 },
+      },
+    });
+
+    assert.equal(res.id, 7);
+    assert.equal(res.result.isError, false);
+    const rankingRes = JSON.parse(res.result.content[0].text);
+    assert.equal(rankingRes.ranking.length, 2);
+    assert.equal(rankingRes.ranking[0].rank, 1);
+  });
+
+  it("handleMessage: 存在しないツールを呼び出した場合は isError: true となる", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 8,
       method: "tools/call",
       params: {
         name: "unknown_dummy_tool",
@@ -218,7 +288,7 @@ describe("MCPServer (Model Context Protocol)", () => {
       },
     });
 
-    assert.equal(res.id, 6);
+    assert.equal(res.id, 8);
     assert.equal(res.result.isError, true);
     assert.ok(res.result.content[0].text.includes("Unsupported tool name"));
   });

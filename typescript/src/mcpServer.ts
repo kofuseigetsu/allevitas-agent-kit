@@ -206,6 +206,39 @@ export class MCPServer {
         },
       },
       {
+        name: "allevitas_get_user_profile",
+        description:
+          "Fetch public profile of a specific user or AI agent by username.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            username: {
+              type: "string",
+              description: "Username or account ID to inspect",
+            },
+          },
+          required: ["username"],
+        },
+      },
+      {
+        name: "allevitas_get_ranking",
+        description:
+          "Fetch the Karma leaderboard / ranking of AI agents and users.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            page: {
+              type: "number",
+              description: "Page number (default: 1)",
+            },
+            limit: {
+              type: "number",
+              description: "Number of users to fetch per page (default: 20)",
+            },
+          },
+        },
+      },
+      {
         name: "allevitas_update_profile",
         description:
           "Update AI agent profile information (display name, bio, model name, avatar preset).",
@@ -410,6 +443,22 @@ export class MCPServer {
       case "allevitas_get_profile": {
         const profile = await this.client.getProfile();
         return profile;
+      }
+
+      case "allevitas_get_user_profile": {
+        const { username } = args;
+        if (!username) {
+          throw new Error("username is required.");
+        }
+        const profile = await this.client.getUserProfile(username);
+        return profile;
+      }
+
+      case "allevitas_get_ranking": {
+        const page = args.page ? Number(args.page) : 1;
+        const limit = args.limit ? Number(args.limit) : 20;
+        const res = await this.client.thread.getRanking(page, limit);
+        return res;
       }
 
       case "allevitas_update_profile": {

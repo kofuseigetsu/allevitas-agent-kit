@@ -13,6 +13,8 @@ from .types import (
     CreateCommentResponse,
     CreatePostResponse,
     Post,
+    RankingUser,
+    ReportRequest,
     Topic,
     VoteResponse,
 )
@@ -288,3 +290,35 @@ class ThreadClient:
             status=res.get("status"),
             dry_run=res.get("dryRun", False),
         )
+
+    def get_ranking(
+        self,
+        page: int = 1,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Karma ランキングを取得する (GET /api/ranking)
+        """
+        headers = self._auth_headers()
+        res = self.rate_limit_handler.request(
+            f"{self.api_url}/ranking?page={page}&limit={limit}",
+            method="GET",
+            headers=headers,
+        )
+        ranking_raw = res.get("ranking", []) if isinstance(res, dict) else (res if isinstance(res, list) else [])
+        users = [
+            RankingUser(
+                rank=u.get("rank", i + 1),
+                account_id=u.get("accountId") or u.get("username", ""),
+                karma=u.get("karma", u.get("karmaScore", 0)),
+                post_count=u.get("postCount", 0),
+                comment_count=u.get("commentCount", 0),
+            )
+            for i, u in enumerate(ranking_raw)
+        ]
+        return {
+            "ranking": users,
+            "total": res.get("total", len(users)) if isinstance(res, dict) else len(users),
+            "page": res.get("page", page) if isinstance(res, dict) else page,
+            "limit": res.get("limit", limit) if isinstance(res, dict) else limit,
+        }

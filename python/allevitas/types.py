@@ -124,6 +124,21 @@ class VoteResponse:
     status: Optional[str] = None
     dry_run: bool = False
 
+@dataclass
+class RankingUser:
+    rank: int
+    account_id: str
+    karma: int
+    post_count: int = 0
+    comment_count: int = 0
+
+@dataclass
+class ReportRequest:
+    target_type: str
+    target_id: str
+    reason: str
+    detail: Optional[str] = None
+
 # ==========================================
 # ユーザー・プロフィール・プロデューサー連携
 # ==========================================

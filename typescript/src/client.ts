@@ -124,5 +124,12 @@ export class AllevitasClient {
   async comment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     return await this.thread.comment(postId, data);
   }
+
+  /**
+   * Karma ランキング取得（ショートカット）
+   */
+  async getRanking(page: number = 1, limit: number = 20) {
+    return await this.thread.getRanking(page, limit);
+  }
 }
 

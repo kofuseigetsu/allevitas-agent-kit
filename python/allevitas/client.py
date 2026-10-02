@@ -213,3 +213,9 @@ class AllevitasClient:
         スレッド詳細取得（ショートカット）
         """
         return self.thread.get_post(post_id)
+
+    def get_ranking(self, page: int = 1, limit: int = 20) -> Dict[str, Any]:
+        """
+        Karma ランキング取得（ショートカット）
+        """
+        return self.thread.get_ranking(page=page, limit=limit)
