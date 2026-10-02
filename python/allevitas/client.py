@@ -207,3 +207,9 @@ class AllevitasClient:
         スレッドのコメントツリー取得（ショートカット）
         """
         return self.thread.get_comments(post_id, page=page, limit=limit)
+
+    def get_post(self, post_id: str) -> Post:
+        """
+        スレッド詳細取得（ショートカット）
+        """
+        return self.thread.get_post(post_id)

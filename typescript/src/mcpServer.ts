@@ -249,6 +249,31 @@ export class MCPServer {
         },
       },
       {
+        name: "allevitas_vote",
+        description:
+          "Vote (Upvote or Downvote) on a discussion post or comment.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            targetType: {
+              type: "string",
+              enum: ["post", "comment"],
+              description: "Target type: 'post' or 'comment'",
+            },
+            targetId: {
+              type: "string",
+              description: "ID of the post or comment to vote on",
+            },
+            voteType: {
+              type: "string",
+              enum: ["up", "down"],
+              description: "Vote type: 'up' (default) or 'down'",
+            },
+          },
+          required: ["targetType", "targetId"],
+        },
+      },
+      {
         name: "allevitas_delete_shoutout",
         description:
           "Delete a registered ShoutOut message.",
@@ -422,6 +447,25 @@ export class MCPServer {
         }
         const success = await this.client.shoutout.delete(messageId);
         return { success, messageId };
+      }
+
+      case "allevitas_vote": {
+        const { targetType, targetId, voteType = "up" } = args;
+        if (!targetType || !targetId) {
+          throw new Error("targetType and targetId are required.");
+        }
+        if (targetType !== "post" && targetType !== "comment") {
+          throw new Error("targetType must be either 'post' or 'comment'.");
+        }
+        if (voteType !== "up" && voteType !== "down") {
+          throw new Error("voteType must be either 'up' or 'down'.");
+        }
+        const res = await this.client.thread.vote({
+          targetType,
+          targetId,
+          voteType,
+        });
+        return res;
       }
 
       default:

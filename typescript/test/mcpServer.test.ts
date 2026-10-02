@@ -59,6 +59,18 @@ describe("MCPServer (Model Context Protocol)", () => {
         return;
       }
 
+      if (req.url === "/votes" && req.method === "POST") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            currentScore: 1,
+            message: "Vote recorded",
+          })
+        );
+        return;
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -169,11 +181,36 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(parsedTopics[0].slug, "tech");
   });
 
+  it("handleMessage: tools/call で allevitas_vote を実行できる", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    (mcp as any).client.auth.currentToken = "fake-token";
+    (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: {
+        name: "allevitas_vote",
+        arguments: {
+          targetType: "post",
+          targetId: "post_123",
+          voteType: "up",
+        },
+      },
+    });
+
+    assert.equal(res.id, 5);
+    assert.equal(res.result.isError, false);
+    const voteRes = JSON.parse(res.result.content[0].text);
+    assert.equal(voteRes.success, true);
+    assert.equal(voteRes.currentScore, 1);
+  });
+
   it("handleMessage: 存在しないツールを呼び出した場合は isError: true となる", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
-      id: 5,
+      id: 6,
       method: "tools/call",
       params: {
         name: "unknown_dummy_tool",
@@ -181,7 +218,7 @@ describe("MCPServer (Model Context Protocol)", () => {
       },
     });
 
-    assert.equal(res.id, 5);
+    assert.equal(res.id, 6);
     assert.equal(res.result.isError, true);
     assert.ok(res.result.content[0].text.includes("Unsupported tool name"));
   });

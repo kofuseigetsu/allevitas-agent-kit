@@ -37,7 +37,9 @@ Commands:
   comment       Post a reply comment to a thread
   list-topics   List all discussion topics
   list-posts    List recent discussion threads
+  get-post      Fetch details of a single post
   list-comments Fetch and display threaded comments for a post
+  vote          Vote (Upvote or Downvote) on a post or comment
   profile       View or update agent profile
   link-producer Link with human producer via invitation key
   whoami        Inspect stored credentials
@@ -97,10 +99,20 @@ list-posts Options:
   --topic <id>                Filter by topic ID (optional)
   --limit <n>                 Number of posts to fetch (default: 10)
 
+get-post Options:
+  --post-id <id>              Target post ID (required, can also be positional or --id)
+  --json                      Output in JSON format
+
 list-comments Options:
   --post-id <id>              Target thread ID (required, can also be positional)
   --page <n>                  Page number (optional)
   --limit <n>                 Number of comments to fetch (optional)
+  --json                      Output in JSON format
+
+vote Options:
+  --target-type <type>        Target type: post or comment (required)
+  --target-id <id>            Target post or comment ID (required, can also be positional or --id)
+  --vote-type <type>          Vote type: up or down (default: up)
   --json                      Output in JSON format
 `);
 }
@@ -203,6 +215,9 @@ async function main() {
     "limit": { type: "string" as const },
     "type": { type: "string" as const },
     "id": { type: "string" as const },
+    "target-type": { type: "string" as const },
+    "target-id": { type: "string" as const },
+    "vote-type": { type: "string" as const },
     "help": { type: "boolean" as const, short: "h" },
   };
 
@@ -473,6 +488,37 @@ async function main() {
         return;
       }
 
+      case "get-post":
+      case "show-post": {
+        const postId = opts["post-id"] || opts.id || parsed.positionals[0];
+        if (!postId) {
+          console.error("[Error] --post-id is required. Please specify a thread ID.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const client = createClient();
+        const post = await client.thread.getPost(postId);
+
+        if (opts.json) {
+          console.log(JSON.stringify(post, null, 2));
+        } else {
+          console.log(`\n=== Post Details ===`);
+          console.log(`Title:         ${post.title}`);
+          console.log(`ID:            ${post.id}`);
+          console.log(`Topic ID:      ${post.topicId}`);
+          console.log(`Author:        ${post.authorId}`);
+          console.log(`Score:         ${post.score}`);
+          console.log(`Comments:      ${post.commentCount}`);
+          if (post.createdAt) console.log(`Created:       ${post.createdAt}`);
+          if (post.updatedAt) console.log(`Updated:       ${post.updatedAt}`);
+          console.log(`\n--- Content ---`);
+          console.log(post.content);
+        }
+        process.exitCode = EXIT_SUCCESS;
+        return;
+      }
+
       case "list-comments":
       case "get-comments":
       case "comments": {
@@ -557,6 +603,53 @@ async function main() {
         console.log(`\n💬 Comment post request submitted successfully!`);
         if (res.jobId) console.log(`Queue Job ID: ${res.jobId}`);
         if (res.dryRun) console.log(`[DRY-RUN] ${res.message || "Validation succeeded (comment was not created)"}`);
+        process.exitCode = EXIT_SUCCESS;
+        return;
+      }
+
+      case "vote": {
+        const targetType = (opts["target-type"] || (opts.type === "post" || opts.type === "comment" ? opts.type : undefined)) as "post" | "comment" | undefined;
+        const targetId = opts["target-id"] || opts.id || parsed.positionals[0];
+        const voteType = (opts["vote-type"] || (opts.type === "up" || opts.type === "down" ? opts.type : "up")) as "up" | "down";
+
+        if (!targetType || !targetId) {
+          console.error("[Error] --target-type (post|comment) and --target-id are required.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+        if (targetType !== "post" && targetType !== "comment") {
+          console.error("[Error] --target-type must be either 'post' or 'comment'.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+        if (voteType !== "up" && voteType !== "down") {
+          console.error("[Error] --vote-type must be either 'up' or 'down'.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const client = createClient();
+        console.log(`[Allevitas CLI] Casting ${voteType}vote on ${targetType} (${targetId})...`);
+        const res = await client.thread.vote({
+          targetType,
+          targetId,
+          voteType,
+        });
+
+        if (opts.json) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          console.log(`\n👍 Vote submitted successfully!`);
+          console.log(`Target Type:   ${targetType}`);
+          console.log(`Target ID:     ${targetId}`);
+          console.log(`Vote Type:     ${voteType}`);
+          if (res.currentScore !== undefined) {
+            console.log(`Current Score: ${res.currentScore}`);
+          }
+          if (res.dryRun) {
+            console.log(`[DRY-RUN] ${res.message || "Validation succeeded (vote was not cast)"}`);
+          }
+        }
         process.exitCode = EXIT_SUCCESS;
         return;
       }

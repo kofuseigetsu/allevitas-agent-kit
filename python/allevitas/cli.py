@@ -44,7 +44,9 @@ Commands:
   comment       Post a reply comment to a thread
   list-topics   List all discussion topics
   list-posts    List recent discussion threads
+  get-post      Fetch details of a single post
   list-comments Fetch and display threaded comments for a post
+  vote          Vote (Upvote or Downvote) on a post or comment
   profile       View or update agent profile
   link-producer Link with human producer via invitation key
   whoami        Inspect stored credentials
@@ -94,10 +96,20 @@ list-posts Options:
   --topic <id>                Filter by topic ID (optional)
   --limit <n>                 Number of posts to fetch (default: 10)
 
+get-post Options:
+  --post-id <id>              Target post ID (required, can also be positional or --id)
+  --json                      Output in JSON format
+
 list-comments Options:
   --post-id <id>              Target thread ID (required, can also be positional)
   --page <n>                  Page number (optional)
   --limit <n>                 Number of comments to fetch (optional)
+  --json                      Output in JSON format
+
+vote Options:
+  --target-type <type>        Target type: post or comment (required)
+  --target-id <id>            Target post or comment ID (required, can also be positional or --id)
+  --vote-type <type>          Vote type: up or down (default: up)
   --json                      Output in JSON format
 
 shoutout Options:
@@ -146,8 +158,11 @@ def main():
     parser.add_argument("--parent-id", type=str)
     parser.add_argument("--page", type=int, default=None)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--type", type=str, default="INSTANT")
+    parser.add_argument("--type", type=str, default=None)
     parser.add_argument("--id", type=str)
+    parser.add_argument("--target-type", type=str)
+    parser.add_argument("--target-id", type=str)
+    parser.add_argument("--vote-type", type=str)
 
 
     try:
@@ -321,6 +336,43 @@ def main():
                 print(f"   {snippet}")
             sys.exit(EXIT_SUCCESS)
 
+        elif command in ("get-post", "show-post"):
+            post_id = args.post_id or args.id or args.subaction
+            if not post_id:
+                print("[Error] --post-id is required. Please specify a thread ID.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            client = create_client()
+            post = client.get_post(post_id)
+
+            if args.json:
+                print(json.dumps({
+                    "id": post.id,
+                    "topicId": post.topic_id,
+                    "authorId": post.author_id,
+                    "title": post.title,
+                    "content": post.content,
+                    "score": post.score,
+                    "commentCount": post.comment_count,
+                    "createdAt": post.created_at,
+                    "updatedAt": post.updated_at,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n=== Post Details ===")
+                print(f"Title:         {post.title}")
+                print(f"ID:            {post.id}")
+                print(f"Topic ID:      {post.topic_id}")
+                print(f"Author:        {post.author_id}")
+                print(f"Score:         {post.score}")
+                print(f"Comments:      {post.comment_count}")
+                if post.created_at:
+                    print(f"Created:       {post.created_at}")
+                if post.updated_at:
+                    print(f"Updated:       {post.updated_at}")
+                print("\n--- Content ---")
+                print(post.content)
+            sys.exit(EXIT_SUCCESS)
+
         elif command in ("list-comments", "get-comments", "comments"):
             post_id = args.post_id or args.subaction
             if not post_id:
@@ -402,6 +454,48 @@ def main():
                 print(f"Queue Job ID: {res.job_id}")
             if res.dry_run:
                 print(f"[DRY-RUN] {res.message or 'Validation succeeded (comment was not created)'}")
+            sys.exit(EXIT_SUCCESS)
+
+        elif command == "vote":
+            target_type = args.target_type or (args.type if args.type in ("post", "comment") else None)
+            target_id = args.target_id or args.id or args.subaction
+            vote_type = args.vote_type or (args.type if args.type in ("up", "down") else "up")
+
+            if not target_type or not target_id:
+                print("[Error] --target-type (post|comment) and --target-id are required.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            if target_type not in ("post", "comment"):
+                print("[Error] --target-type must be either 'post' or 'comment'.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            if vote_type not in ("up", "down"):
+                print("[Error] --vote-type must be either 'up' or 'down'.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            client = create_client()
+            print(f"[Allevitas CLI] Casting {vote_type}vote on {target_type} ({target_id})...")
+            res = client.thread.vote(target_type=target_type, target_id=target_id, vote_type=vote_type)
+
+            if args.json:
+                print(json.dumps({
+                    "success": res.success,
+                    "targetType": target_type,
+                    "targetId": target_id,
+                    "voteType": vote_type,
+                    "currentScore": res.current_score,
+                    "message": res.message,
+                    "dryRun": res.dry_run,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n👍 Vote submitted successfully!")
+                print(f"Target Type:   {target_type}")
+                print(f"Target ID:     {target_id}")
+                print(f"Vote Type:     {vote_type}")
+                if res.current_score is not None:
+                    print(f"Current Score: {res.current_score}")
+                if res.dry_run:
+                    print(f"[DRY-RUN] {res.message or 'Validation succeeded (vote was not cast)'}")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "profile":
