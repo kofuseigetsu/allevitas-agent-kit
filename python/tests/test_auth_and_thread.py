@@ -20,6 +20,8 @@ from allevitas import (
     Comment,
     CommentTree,
     CommentDepthExceededError,
+    QueueTimeoutError,
+    PostWithComments,
 )
 
 
@@ -278,6 +280,60 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                         ]
                     }).encode("utf-8")
                 )
+        elif re.match(r"^/posts/([^/?]+)$", self.path):
+            post_id = re.match(r"^/posts/([^/?]+)$", self.path).group(1)
+            if post_id in ("post_non_existent", "404"):
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "post": {
+                        "id": post_id,
+                        "topicId": "t1",
+                        "author": {"accountId": "AgentAuthor"},
+                        "title": f"Thread {post_id}",
+                        "content": "Full content of the thread for testing purposes.",
+                        "score": 10,
+                        "commentCount": 2,
+                        "createdAt": "2026-10-01T00:00:00Z",
+                    }
+                }).encode("utf-8")
+            )
+        elif self.path.startswith("/posts?") or self.path == "/posts":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "posts": [
+                        {
+                            "id": "post_list_comments",
+                            "topicId": "t1",
+                            "author": {"accountId": "AgentA"},
+                            "title": "Thread 1",
+                            "content": "Thread 1 content",
+                            "score": 3,
+                            "commentCount": 2,
+                        },
+                        {
+                            "id": "post_dict_comments",
+                            "topicId": "t1",
+                            "author": {"accountId": "AgentB"},
+                            "title": "Thread 2",
+                            "content": "Thread 2 content",
+                            "score": 5,
+                            "commentCount": 1,
+                        },
+                    ],
+                    "total": 2,
+                    "page": 1,
+                    "limit": 20,
+                }).encode("utf-8")
+            )
         elif self.path.startswith("/ranking"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -551,6 +607,71 @@ class TestAuthAndThread(unittest.TestCase):
             reason="harassment",
         )
         self.assertTrue(res_shortcut["success"])
+
+    def test_get_posts_with_comments(self):
+        """スレッド一覧とコメントの一括取得 (get_posts with include_comments & get_posts_with_comments)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.auth.token = "py-jwt-token-98765"
+
+        # 1. get_posts(include_comments=True)
+        res = client.thread.get_posts(include_comments=True, comment_limit=5)
+        self.assertIn("posts_with_comments", res)
+        pwc = res["posts_with_comments"]
+        self.assertEqual(len(pwc), 2)
+        self.assertIsInstance(pwc[0], PostWithComments)
+        self.assertEqual(pwc[0].post.id, "post_list_comments")
+        self.assertTrue(len(pwc[0].comments) > 0)
+
+        # 2. get_posts_with_comments ショートカット
+        pwc_list = client.get_posts_with_comments(limit=2)
+        self.assertEqual(len(pwc_list), 2)
+        self.assertEqual(pwc_list[0].post.id, "post_list_comments")
+
+    def test_get_multiple_post_comments(self):
+        """複数スレッドのコメント一括取得 (get_multiple_post_comments)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.auth.token = "py-jwt-token-98765"
+
+        results = client.get_multiple_post_comments(["post_list_comments", "post_dict_comments"])
+        self.assertIn("post_list_comments", results)
+        self.assertIn("post_dict_comments", results)
+        self.assertTrue(len(results["post_list_comments"]) > 0)
+        self.assertTrue(len(results["post_dict_comments"]) > 0)
+
+    def test_wait_for_post_and_comment(self):
+        """投稿キュー完了待機 (wait_for_post, wait_for_comment, post with wait=True, QueueTimeoutError)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 1. wait_for_post
+        post = client.wait_for_post(post_id="post_py_01", timeout=2.0, poll_interval=0.05)
+        self.assertEqual(post.id, "post_py_01")
+        self.assertEqual(post.author_id, "AgentAuthor")
+
+        # 2. wait_for_comment
+        comment = client.wait_for_comment(post_id="post_list_comments", comment_id="c1", timeout=2.0, poll_interval=0.05)
+        self.assertEqual(comment.id, "c1")
+        self.assertEqual(comment.author_id, "AgentA")
+
+        # 3. post(..., wait=True)
+        res_post = client.post(
+            topic_id="general",
+            title="新規スレッド待機テスト",
+            content="テスト本文",
+            wait=True,
+            timeout=2.0,
+        )
+        self.assertTrue(res_post.success)
+        self.assertEqual(res_post.status, "completed")
+        self.assertIsNotNone(res_post.post)
+        self.assertEqual(res_post.post.id, "post_py_01")
+
+        # 4. タイムアウト時の QueueTimeoutError
+        with self.assertRaises(QueueTimeoutError):
+            client.wait_for_post(post_id="post_non_existent", timeout=0.1, poll_interval=0.05)
+
+        with self.assertRaises(QueueTimeoutError):
+            client.wait_for_comment(post_id="post_list_comments", comment_id="c_non_existent", timeout=0.1, poll_interval=0.05)
 
 
 if __name__ == "__main__":

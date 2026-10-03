@@ -111,11 +111,27 @@ export interface Post {
   updatedAt: string;
 }
 
+export interface GetPostsOptions {
+  topicId?: string;
+  page?: number;
+  limit?: number;
+  includeComments?: boolean;
+  commentLimit?: number;
+  commentFormat?: "flat" | "tree";
+}
+
+export interface PostWithComments extends Post {
+  post: Post;
+  comments: (FlatComment | CommentTree)[];
+}
+
 export interface CreatePostRequest {
   topicId: string;
   title: string;
   content: string;
   dryRun?: boolean;
+  wait?: boolean;
+  timeout?: number;
 }
 
 export interface CreatePostResponse {
@@ -126,6 +142,7 @@ export interface CreatePostResponse {
   status?: string;
   dryRun?: boolean;
   validatedData?: any;
+  post?: Post;
 }
 
 export interface FlatComment {
@@ -187,10 +204,19 @@ export class CommentDepthExceededError extends Error {
   }
 }
 
+export class QueueTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QueueTimeoutError";
+  }
+}
+
 export interface CreateCommentRequest {
   content: string;
   parentId?: string;
   dryRun?: boolean;
+  wait?: boolean;
+  timeout?: number;
 }
 
 export interface CreateCommentResponse {
@@ -201,6 +227,7 @@ export interface CreateCommentResponse {
   status?: string;
   dryRun?: boolean;
   validatedData?: any;
+  comment?: FlatComment | CommentTree;
 }
 
 export interface VoteRequest {

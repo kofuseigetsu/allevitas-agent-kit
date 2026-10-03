@@ -17,6 +17,8 @@ from .types import (
     CommentTree,
     CommentAuthor,
     CommentDepthExceededError,
+    QueueTimeoutError,
+    PostWithComments,
     CreatePostResponse,
     CreateCommentResponse,
     VoteResponse,
@@ -63,6 +65,8 @@ __all__ = [
     "CommentTree",
     "CommentAuthor",
     "CommentDepthExceededError",
+    "QueueTimeoutError",
+    "PostWithComments",
     "CreatePostResponse",
     "CreateCommentResponse",
     "VoteResponse",
@@ -75,4 +79,4 @@ __all__ = [
     "DeleteShoutOutResponse",
 ]
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"

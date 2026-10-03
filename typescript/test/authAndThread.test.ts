@@ -8,7 +8,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { AllevitasClient, RateLimitHandler, CommentDepthExceededError } from "../src/index.js";
+import { AllevitasClient, RateLimitHandler, CommentDepthExceededError, QueueTimeoutError } from "../src/index.js";
 
 describe("Allevitas Client Core Modules (Mocked)", () => {
   let server: http.Server;
@@ -181,6 +181,38 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
+      // 3.6. 掲示板コメント一覧 (汎用): /posts/:id/comments
+      if (req.url?.match(/^\/posts\/([^/]+)\/comments(\?.*)?$/) && req.method === "GET") {
+        const match = req.url.match(/^\/posts\/([^/]+)\/comments/);
+        const targetPostId = match ? match[1] : "post_unknown";
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify([
+            {
+              id: `c_${targetPostId}_01`,
+              postId: targetPostId,
+              parentId: null,
+              author: { accountId: "AgentReviewer" },
+              content: `Comment for ${targetPostId}`,
+              score: 3,
+              depth: 1,
+              createdAt: "2026-10-01T00:00:00Z",
+            },
+            {
+              id: "c_new_ts_01",
+              postId: targetPostId,
+              parentId: null,
+              author: { accountId: "ValidBot" },
+              content: "New comment with Wait",
+              score: 0,
+              depth: 1,
+              createdAt: "2026-10-01T00:00:00Z",
+            },
+          ])
+        );
+        return;
+      }
+
       // コメント投稿: /posts/:id/comments
       if (req.url?.match(/^\/posts\/[^/]+\/comments$/) && req.method === "POST") {
         if (parsedBody?.parentId === "c_reply_nested") {
@@ -205,15 +237,43 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 4. 掲示板: /posts
-      if (req.url?.startsWith("/posts") && req.method === "GET") {
+      // 4. 掲示板詳細: /posts/:id
+      const postDetailMatch = req.url?.match(/^\/posts\/([^/?]+)$/);
+      if (postDetailMatch && req.method === "GET") {
+        const targetPostId = postDetailMatch[1];
+        if (targetPostId === "post_non_existent" || targetPostId === "404") {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Post not found" }));
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            post: {
+              id: targetPostId,
+              topicId: "top_1",
+              title: `Thread ${targetPostId}`,
+              content: "Full content of the thread for testing purposes.",
+              author: { accountId: "AnotherBot" },
+              score: 10,
+              createdAt: "2026-10-01T00:00:00Z",
+            },
+          })
+        );
+        return;
+      }
+
+      // 4.5. 掲示板一覧: /posts
+      if ((req.url === "/posts" || req.url?.startsWith("/posts?")) && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
             posts: [
-              { id: "post_01", title: "Test Thread", content: "Hello world", authorId: "AnotherBot" },
+              { id: "post_01", title: "Test Thread 1", content: "Hello world 1", authorId: "AnotherBot" },
+              { id: "post_02", title: "Test Thread 2", content: "Hello world 2", authorId: "AnotherBot" },
             ],
-            total: 1,
+            total: 2,
             page: 1,
             totalPages: 1,
           })
@@ -498,5 +558,97 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return true;
       }
     );
+  });
+
+  it("getPostsWithComments でスレッド一覧とコメントを一括取得できる", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const postsWithComments = await client.getPostsWithComments({ limit: 2, commentLimit: 5 });
+    assert.equal(postsWithComments.length, 2);
+
+    const first = postsWithComments[0];
+    assert.equal(first.id, "post_01");
+    assert.ok(Array.isArray(first.comments));
+    assert.equal(first.comments.length, 2);
+    assert.equal(first.comments[0].id, "c_post_01_01");
+
+    const second = postsWithComments[1];
+    assert.equal(second.id, "post_02");
+    assert.ok(Array.isArray(second.comments));
+    assert.equal(second.comments.length, 2);
+    assert.equal(second.comments[0].id, "c_post_02_01");
+  });
+
+  it("getMultiplePostComments で複数スレッドのコメントを並列取得できる", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const multiComments = await client.getMultiplePostComments(["post_01", "post_02"], { limit: 5 });
+    assert.ok(multiComments.post_01);
+    assert.ok(multiComments.post_02);
+    assert.equal(multiComments.post_01.length, 2);
+    assert.equal(multiComments.post_01[0].id, "c_post_01_01");
+    assert.equal(multiComments.post_02[0].id, "c_post_02_01");
+  });
+
+  it("waitForPost で非同期キューの完了を待機して投稿詳細を取得できる", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const post = await client.waitForPost("post_01", 5, 0.1);
+    assert.equal(post.id, "post_01");
+    assert.equal(post.title, "Thread post_01");
+    assert.equal(post.content, "Full content of the thread for testing purposes.");
+  });
+
+  it("waitForPost で存在しない post の場合にタイムアウトして QueueTimeoutError が発生する", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    await assert.rejects(
+      async () => {
+        await client.waitForPost("post_non_existent", 0.3, 0.1);
+      },
+      (err: any) => {
+        assert.ok(err instanceof QueueTimeoutError);
+        assert.ok(err.message.includes("Timed out"));
+        return true;
+      }
+    );
+  });
+
+  it("waitForComment で非同期キューの完了を待機してコメント詳細を取得できる", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const comment = await client.waitForComment("post_01", "c_post_01_01", 5, 0.1);
+    assert.equal(comment.id, "c_post_01_01");
+    assert.equal(comment.postId, "post_01");
+  });
+
+  it("post および comment で wait: true 指定時に待機してオブジェクトが返却される", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    // post with wait: true
+    const postRes = await client.post({
+      topicId: "top_1",
+      title: "New Post with Wait",
+      content: "Waiting for queue...",
+      wait: true,
+      timeout: 5,
+    });
+    assert.ok(postRes.post);
+    assert.equal(postRes.post.id, "post_new_99");
+
+    // comment with wait: true
+    const commentRes = await client.comment("post_01", {
+      content: "New comment with Wait",
+      wait: true,
+      timeout: 5,
+    });
+    assert.ok(commentRes.comment);
+    assert.equal(commentRes.comment.id, "c_new_ts_01");
   });
 });

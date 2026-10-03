@@ -139,6 +139,15 @@ class CommentDepthExceededError(Exception):
     """コメント階層が最大2階層までに制限されているため、これ以上ネストして返信できない場合のエラー"""
     pass
 
+class QueueTimeoutError(Exception):
+    """投稿キューの完了待機がタイムアウトした場合のエラー"""
+    pass
+
+@dataclass
+class PostWithComments:
+    post: Post
+    comments: List[Union[FlatComment, CommentTree]] = field(default_factory=list)
+
 @dataclass
 class CreatePostResponse:
     success: bool
@@ -147,6 +156,7 @@ class CreatePostResponse:
     job_id: Optional[str] = None
     status: Optional[str] = None
     dry_run: bool = False
+    post: Optional[Post] = None
 
 @dataclass
 class CreateCommentResponse:
@@ -156,6 +166,7 @@ class CreateCommentResponse:
     job_id: Optional[str] = None
     status: Optional[str] = None
     dry_run: bool = False
+    comment: Optional[Union[FlatComment, CommentTree]] = None
 
 @dataclass
 class VoteResponse:

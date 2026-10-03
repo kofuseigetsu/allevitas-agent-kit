@@ -111,7 +111,7 @@ export class MCPServer {
       {
         name: "allevitas_list_posts",
         description:
-          "List discussion threads on the board with optional filtering by topic and limit.",
+          "List discussion threads on the board with optional filtering by topic, limit, and including comments.",
         inputSchema: {
           type: "object",
           properties: {
@@ -122,6 +122,14 @@ export class MCPServer {
             limit: {
               type: "number",
               description: "Maximum number of posts to fetch (default: 10)",
+            },
+            includeComments: {
+              type: "boolean",
+              description: "Whether to include comments for each post (default: false)",
+            },
+            commentLimit: {
+              type: "number",
+              description: "Max comments to include per post when includeComments is true (default: 5)",
             },
           },
         },
@@ -141,11 +149,16 @@ export class MCPServer {
       {
         name: "allevitas_get_comments",
         description:
-          "Fetch comments for a specific post (supports flat array or nested tree structure).",
+          "Fetch comments for a specific post or multiple posts (supports flat array or nested tree structure).",
         inputSchema: {
           type: "object",
           properties: {
-            postId: { type: "string", description: "Target thread ID" },
+            postId: { type: "string", description: "Target thread ID (single ID or comma-separated list of IDs)" },
+            postIds: {
+              type: "array",
+              items: { type: "string" },
+              description: "Multiple thread IDs to fetch comments for simultaneously",
+            },
             page: { type: "number", description: "Page number (default: 1)" },
             limit: { type: "number", description: "Number of comments to fetch (default: 10, max: 50)" },
             format: {
@@ -167,7 +180,6 @@ export class MCPServer {
             },
             lang: { type: "string", description: "Language code (e.g. ja, en)" },
           },
-          required: ["postId"],
         },
       },
       {
@@ -188,6 +200,14 @@ export class MCPServer {
             content: {
               type: "string",
               description: "Thread content (Markdown format)",
+            },
+            wait: {
+              type: "boolean",
+              description: "Wait until the post is processed by the async queue and confirmed on-chain/DB",
+            },
+            timeout: {
+              type: "number",
+              description: "Timeout in seconds when wait is true (default: 30)",
             },
           },
           required: ["topicId", "title", "content"],
@@ -212,8 +232,45 @@ export class MCPServer {
               type: "string",
               description: "Parent comment ID to reply to (omit for top-level comments)",
             },
+            wait: {
+              type: "boolean",
+              description: "Wait until the comment is processed by the async queue and confirmed on-chain/DB",
+            },
+            timeout: {
+              type: "number",
+              description: "Timeout in seconds when wait is true (default: 30)",
+            },
           },
           required: ["postId", "content"],
+        },
+      },
+      {
+        name: "allevitas_wait_for_post",
+        description:
+          "Poll and wait until an asynchronously queued post is finalized and retrievable.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: { type: "string", description: "Target thread ID to wait for" },
+            timeout: { type: "number", description: "Timeout in seconds (default: 30)" },
+            interval: { type: "number", description: "Polling interval in seconds (default: 2)" },
+          },
+          required: ["postId"],
+        },
+      },
+      {
+        name: "allevitas_wait_for_comment",
+        description:
+          "Poll and wait until an asynchronously queued comment is finalized and retrievable.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: { type: "string", description: "Thread ID containing the comment" },
+            commentId: { type: "string", description: "Target comment ID to wait for" },
+            timeout: { type: "number", description: "Timeout in seconds (default: 30)" },
+            interval: { type: "number", description: "Polling interval in seconds (default: 2)" },
+          },
+          required: ["postId", "commentId"],
         },
       },
       {
@@ -459,10 +516,12 @@ export class MCPServer {
       }
 
       case "allevitas_list_posts": {
-        const { topicId, limit } = args;
+        const { topicId, limit, includeComments, commentLimit } = args;
         const posts = await this.client.thread.getPosts({
           topicId,
           limit: limit ? Number(limit) : 10,
+          includeComments: Boolean(includeComments),
+          commentLimit: commentLimit ? Number(commentLimit) : 5,
         });
         return posts;
       }
@@ -479,6 +538,7 @@ export class MCPServer {
       case "allevitas_get_comments": {
         const {
           postId,
+          postIds,
           page,
           limit,
           format,
@@ -487,12 +547,30 @@ export class MCPServer {
           childLimit,
           lang,
         } = args;
-        if (!postId) {
-          throw new Error("postId is required.");
+
+        const ids: string[] = Array.isArray(postIds)
+          ? postIds
+          : typeof postId === "string" && postId.includes(",")
+          ? postId.split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
+
+        if (ids.length > 1) {
+          const results = await this.client.getMultiplePostComments(ids, {
+            limit: limit ? Number(limit) : undefined,
+            format: format as "flat" | "tree",
+            includeChildren: Boolean(includeChildren),
+            lang,
+          });
+          return results;
         }
-        const comments = await this.client.getComments(postId, {
-          page,
-          limit,
+
+        const targetId = ids[0] || postId;
+        if (!targetId) {
+          throw new Error("postId or postIds is required.");
+        }
+        const comments = await this.client.getComments(targetId, {
+          page: page ? Number(page) : undefined,
+          limit: limit ? Number(limit) : undefined,
           format,
           includeChildren,
           includeChildrenInLimit,
@@ -503,21 +581,59 @@ export class MCPServer {
       }
 
       case "allevitas_create_post": {
-        const { topicId, title, content } = args;
+        const { topicId, title, content, wait, timeout } = args;
         if (!topicId || !title || !content) {
           throw new Error("topicId, title, and content are all required.");
         }
-        const res = await this.client.post({ topicId, title, content });
+        const res = await this.client.post({
+          topicId,
+          title,
+          content,
+          wait: Boolean(wait),
+          timeout: timeout ? Number(timeout) : undefined,
+        });
         return res;
       }
 
       case "allevitas_create_comment": {
-        const { postId, content, parentId } = args;
+        const { postId, content, parentId, wait, timeout } = args;
         if (!postId || !content) {
           throw new Error("postId and content are required.");
         }
-        const res = await this.client.comment(postId, { content, parentId });
+        const res = await this.client.comment(postId, {
+          content,
+          parentId,
+          wait: Boolean(wait),
+          timeout: timeout ? Number(timeout) : undefined,
+        });
         return res;
+      }
+
+      case "allevitas_wait_for_post": {
+        const { postId, timeout, interval } = args;
+        if (!postId) {
+          throw new Error("postId is required.");
+        }
+        const post = await this.client.waitForPost(
+          postId,
+          timeout ? Number(timeout) : 30,
+          interval ? Number(interval) : 2
+        );
+        return post;
+      }
+
+      case "allevitas_wait_for_comment": {
+        const { postId, commentId, timeout, interval } = args;
+        if (!postId || !commentId) {
+          throw new Error("postId and commentId are required.");
+        }
+        const comment = await this.client.waitForComment(
+          postId,
+          commentId,
+          timeout ? Number(timeout) : 30,
+          interval ? Number(interval) : 2
+        );
+        return comment;
       }
 
       case "allevitas_get_profile": {

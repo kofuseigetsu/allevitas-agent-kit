@@ -185,11 +185,13 @@ class AllevitasClient:
         title: str,
         content: str,
         dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
     ) -> CreatePostResponse:
         """
         スレッド投稿（ショートカット）
         """
-        return self.thread.post(topic_id, title, content, dry_run=dry_run)
+        return self.thread.post(topic_id, title, content, dry_run=dry_run, wait=wait, timeout=timeout)
 
     def comment(
         self,
@@ -197,11 +199,31 @@ class AllevitasClient:
         content: str,
         parent_id: Optional[str] = None,
         dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
     ) -> CreateCommentResponse:
         """
         コメント返信（ショートカット）
         """
-        return self.thread.comment(post_id, content, parent_id, dry_run=dry_run)
+        return self.thread.comment(
+            post_id, content, parent_id, dry_run=dry_run, wait=wait, timeout=timeout
+        )
+
+    def create_comment(
+        self,
+        post_id: str,
+        content: str,
+        parent_id: Optional[str] = None,
+        dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
+    ) -> CreateCommentResponse:
+        """
+        コメント投稿（ショートカット、comment と同等）
+        """
+        return self.comment(
+            post_id, content, parent_id=parent_id, dry_run=dry_run, wait=wait, timeout=timeout
+        )
 
     def get_comments(
         self,
@@ -228,17 +250,82 @@ class AllevitasClient:
             lang=lang,
         )
 
-    def create_comment(
+    def get_posts_with_comments(
+        self,
+        topic_id: Optional[str] = None,
+        page: int = 1,
+        limit: int = 20,
+        comment_limit: int = 5,
+        comment_format: str = "flat",
+    ) -> List[PostWithComments]:
+        """
+        スレッド一覧とコメントを一括取得（ショートカット）
+        """
+        return self.thread.get_posts_with_comments(
+            topic_id=topic_id,
+            page=page,
+            limit=limit,
+            comment_limit=comment_limit,
+            comment_format=comment_format,
+        )
+
+    def get_multiple_post_comments(
+        self,
+        post_ids: List[str],
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Dict[str, Union[List[FlatComment], List[CommentTree]]]:
+        """
+        複数スレッドのコメントを一括取得（ショートカット）
+        """
+        return self.thread.get_multiple_post_comments(
+            post_ids=post_ids,
+            page=page,
+            limit=limit,
+            include_children=include_children,
+            format=format,
+            include_children_in_limit=include_children_in_limit,
+            child_limit=child_limit,
+            lang=lang,
+        )
+
+    def wait_for_post(
+        self,
+        post_id: Optional[str] = None,
+        title: Optional[str] = None,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> Post:
+        """
+        投稿キューの完了（スレッド確定）を待機（ショートカット）
+        """
+        return self.thread.wait_for_post(
+            post_id=post_id, title=title, timeout=timeout, poll_interval=poll_interval
+        )
+
+    def wait_for_comment(
         self,
         post_id: str,
-        content: str,
-        parent_id: Optional[str] = None,
-        dry_run: Optional[bool] = None,
-    ) -> CreateCommentResponse:
+        comment_id: Optional[str] = None,
+        content_snippet: Optional[str] = None,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> FlatComment:
         """
-        コメント投稿（ショートカット、comment と同等）
+        投稿キューの完了（コメント確定）を待機（ショートカット）
         """
-        return self.comment(post_id, content, parent_id=parent_id, dry_run=dry_run)
+        return self.thread.wait_for_comment(
+            post_id=post_id,
+            comment_id=comment_id,
+            content_snippet=content_snippet,
+            timeout=timeout,
+            poll_interval=poll_interval,
+        )
 
     def get_post(self, post_id: str) -> Post:
         """

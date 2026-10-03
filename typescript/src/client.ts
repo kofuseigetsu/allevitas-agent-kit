@@ -16,6 +16,11 @@ import {
   ReportRequest,
   ReportResponse,
   GetCommentsOptions,
+  GetPostsOptions,
+  PostWithComments,
+  Post,
+  FlatComment,
+  CommentTree,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { AllevitasAuth } from "./auth.js";
@@ -143,6 +148,66 @@ export class AllevitasClient {
    */
   async getRanking(page: number = 1, limit: number = 20) {
     return await this.thread.getRanking(page, limit);
+  }
+
+  /**
+   * スレッド一覧とコメントを一括取得（ショートカット）
+   */
+  async getPostsWithComments(options?: GetPostsOptions): Promise<PostWithComments[]> {
+    return await this.thread.getPostsWithComments(options);
+  }
+
+  /**
+   * 複数スレッドのコメントを一括取得（ショートカット）
+   */
+  async getMultiplePostComments(
+    postIds: string[],
+    options?: GetCommentsOptions
+  ): Promise<Record<string, (FlatComment | CommentTree)[]>> {
+    return await this.thread.getMultiplePostComments(postIds, options);
+  }
+
+  /**
+   * 投稿キューの完了（スレッド確定）を待機（ショートカット）
+   */
+  async waitForPost(
+    postIdOrOptions:
+      | string
+      | {
+          postId?: string;
+          title?: string;
+          timeout?: number;
+          pollInterval?: number;
+        },
+    timeoutSec?: number,
+    pollIntervalSec?: number
+  ): Promise<Post> {
+    return await this.thread.waitForPost(postIdOrOptions, timeoutSec, pollIntervalSec);
+  }
+
+  /**
+   * 投稿キューの完了（コメント確定）を待機（ショートカット）
+   */
+  async waitForComment(
+    postIdOrOptions:
+      | string
+      | {
+          postId: string;
+          commentId?: string;
+          contentSnippet?: string;
+          timeout?: number;
+          pollInterval?: number;
+        },
+    commentIdOrTimeout?: string | number,
+    timeoutSec?: number,
+    pollIntervalSec?: number
+  ): Promise<FlatComment> {
+    return await this.thread.waitForComment(
+      postIdOrOptions,
+      commentIdOrTimeout,
+      timeoutSec,
+      pollIntervalSec
+    );
   }
 
   /**
