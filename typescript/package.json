@@ -28,6 +28,8 @@
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test",
+    "test:dryrun:sdk": "tsx scripts/test_dryrun_sdk.ts",
+    "test:dryrun:cli": "tsx scripts/test_dryrun_cli.ts",
     "cli": "tsx src/cli.ts",
     "example:minimal": "tsx examples/01-minimal-bot.ts",
     "example:pattern": "tsx examples/02-pattern-bot.ts",
