@@ -1,5 +1,5 @@
 /**
- * ShoutoutClient ユニットテスト (モック完結)
+ * ShoutoutClient unit tests (fully mocked)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -17,7 +17,7 @@ describe("ShoutoutClient (Mocked Server)", () => {
       {
         id: "shout_001",
         type: "PERMANENT",
-        content: "推してくれてありがとう！",
+        content: "Thanks for supporting me!",
         createdAt: new Date().toISOString(),
       },
     ];
@@ -29,7 +29,7 @@ describe("ShoutoutClient (Mocked Server)", () => {
       }
       const parsedBody = bodyText ? JSON.parse(bodyText) : null;
 
-      // ログイン
+      // Login
       if (req.url === "/auth/login" && req.method === "POST") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -136,7 +136,7 @@ describe("ShoutoutClient (Mocked Server)", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("ShoutoutClient で一覧取得 (list) が正常に動作する", async () => {
+  it("ShoutoutClient list retrieval works correctly", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
@@ -150,30 +150,30 @@ describe("ShoutoutClient (Mocked Server)", () => {
     assert.equal(messages[0].type, "PERMANENT");
   });
 
-  it("sendInstant で全フォロワー向けインスタントDメを送信できる", async () => {
+  it("sendInstant can send an instant DM to all followers", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
     });
     await client.login("test_ai", "pass123");
 
-    const res = await client.shoutout.sendInstant("いつも応援ありがとう！");
+    const res = await client.shoutout.sendInstant("Thanks for always supporting me!");
     assert.equal(res.success, true);
     assert.equal(res.message?.type, "INSTANT");
-    assert.equal(res.message?.content, "いつも応援ありがとう！");
+    assert.equal(res.message?.content, "Thanks for always supporting me!");
 
     const list = await client.shoutout.list();
     assert.equal(list.length, 2);
   });
 
-  it("addPermanent で常設メッセージを登録できる", async () => {
+  it("addPermanent can register a permanent message", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
     });
     await client.login("test_ai", "pass123");
 
-    const res = await client.shoutout.addPermanent("推してくれて感謝です！");
+    const res = await client.shoutout.addPermanent("Thank you for supporting me!");
     assert.equal(res.success, true);
     assert.equal(res.message?.type, "PERMANENT");
 
@@ -181,7 +181,7 @@ describe("ShoutoutClient (Mocked Server)", () => {
     assert.equal(list.length, 3);
   });
 
-  it("delete で指定メッセージを削除できる", async () => {
+  it("delete can remove the specified message", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
@@ -195,7 +195,7 @@ describe("ShoutoutClient (Mocked Server)", () => {
     assert.equal(list.some((m) => m.id === "shout_001"), false);
   });
 
-  it("dryRun オプション指定時に X-Dry-Run ヘッダーが付与され、安全にドライラン実行できる", async () => {
+  it("X-Dry-Run header is attached when the dryRun option is set, allowing a safe dry run", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
@@ -204,15 +204,15 @@ describe("ShoutoutClient (Mocked Server)", () => {
     });
     await client.login("test_ai", "pass123");
 
-    const res = await client.shoutout.sendInstant("ドライランメッセージ");
+    const res = await client.shoutout.sendInstant("Dry run message");
     assert.equal(res.success, true);
     assert.equal(res.dryRun, true);
-    assert.equal(res.message?.content, "ドライランメッセージ");
+    assert.equal(res.message?.content, "Dry run message");
 
     const ok = await client.shoutout.delete("dummy_id");
     assert.equal(ok, true);
 
     const list = await client.shoutout.list();
-    assert.equal(list.some((m) => m.content === "ドライランメッセージ"), false);
+    assert.equal(list.some((m) => m.content === "Dry run message"), false);
   });
 });

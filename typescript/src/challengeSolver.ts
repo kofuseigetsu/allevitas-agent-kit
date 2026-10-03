@@ -1,5 +1,5 @@
 /**
- * @allevitas/agent-kit - 逆CAPTCHA (Proof of Machine) 自動解決モジュール
+ * @allevitas/agent-kit - Reverse CAPTCHA (Proof of Machine) solver module
  */
 
 import process from "node:process";
@@ -41,14 +41,14 @@ export class ChallengeSolver {
   }
 
   /**
-   * 蓄積された失敗反省ナレッジを取得する
+   * Get accumulated reflection knowledge.
    */
   getReflectionKnowledge(): string[] {
     return [...this.reflectionKnowledge];
   }
 
   /**
-   * 失敗の教訓ナレッジを追加する（最大5件、FIFO）
+   * Add reflection knowledge (maximum 5 entries, FIFO).
    */
   addReflection(lesson: string): void {
     const trimmed = lesson.trim();
@@ -62,14 +62,14 @@ export class ChallengeSolver {
   }
 
   /**
-   * ナレッジをリセットする
+   * Clear reflection knowledge.
    */
   clearReflectionKnowledge(): void {
     this.reflectionKnowledge = [];
   }
 
   /**
-   * 逆CAPTCHA課題を取得する (GET /api/challenge)
+   * Fetch reverse CAPTCHA puzzle (GET /api/challenge).
    */
   async fetchChallenge(): Promise<ChallengeData> {
     const data = await this.rateLimitHandler.execute<any>(() =>
@@ -92,12 +92,12 @@ export class ChallengeSolver {
   }
 
   /**
-   * チャレンジ課題を推論・解答する
-   * @param challenge 課題データ
-   * @param context 前回の回答や試行回数、反省ナレッジ等のコンテキスト
+   * Solve the reverse CAPTCHA puzzle.
+   * @param challenge Puzzle data
+   * @param context Context containing previous answer, attempt count, reflection knowledge, etc.
    */
   async solve(challenge: ChallengeData, context?: SolverContext): Promise<ChallengeAnswer> {
-    // 有効期限のチェック
+    // Check expiration
     const now = Date.now();
     if (challenge.expiresAt && challenge.expiresAt - now < 5000) {
       throw new Error("Challenge has expired or is nearing expiration. Please fetch a new challenge.");
@@ -105,7 +105,7 @@ export class ChallengeSolver {
 
     const provider = (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
 
-    // 1. Self-Solve モード (エージェント自身またはカスタムコールバック)
+    // 1. Self-Solve mode (agent itself or custom callback)
     if (provider === "self") {
       if (!this.options.customSolver) {
         throw new Error("llmProvider='self' was specified, but no customSolver callback was provided.");
@@ -113,7 +113,7 @@ export class ChallengeSolver {
       return await this.options.customSolver(challenge, context);
     }
 
-    // 2. 外部 LLM API モード (共通 LLMClient を活用)
+    // 2. External LLM API mode (using shared LLMClient)
     const prompt = this.buildSolverPrompt(challenge, context);
     const rawText = await this.llmClient.call({
       prompt,
@@ -129,7 +129,7 @@ export class ChallengeSolver {
   }
 
   /**
-   * 同一の課題に対して、前回の誤答を提示して見直し（Self-Correction）を行う
+   * Perform self-correction by providing the previous incorrect answer for the same puzzle.
    */
   async correctAnswer(
     challenge: ChallengeData,
@@ -169,7 +169,7 @@ export class ChallengeSolver {
   }
 
   /**
-   * 誤答となった課題から失敗原因と教訓（反省点）を抽出しナレッジとして記憶する
+   * Extract failure causes and lessons (reflections) from incorrect challenge attempts and remember as knowledge
    */
   async generateReflection(
     challenge: ChallengeData,
@@ -180,15 +180,15 @@ export class ChallengeSolver {
       return "";
     }
 
-    const prompt = `あなたは逆CAPTCHAの課題に挑戦したAIです。以下の課題に対して提出した解答が不正解（403 Forbidden）となりました。
+    const prompt = `You are an AI agent attempting a reverse CAPTCHA puzzle. The submitted answer failed (403 Forbidden).
 
-【問題文】
+[Challenge Prompt]
 ${challenge.prompt}
 
-【提出した誤答】
+[Previous Incorrect Answer]
 ${JSON.stringify(failedAnswer)}
 
-次回類似の課題を解く際に二度と同じ間違いを繰り返さないための「具体的な反省点と計算・抽出上の教訓・注意点」を日本語で1〜2文（100文字以内）で簡潔に出力してください。余分な挨拶や解説、マークダウン装飾は不要です。教訓のみを1行で出力してください。`;
+Output a concise lesson or point of caution (1-2 sentences) in English to avoid repeating this calculation or parsing error in similar future challenges. Do NOT include greetings, thinking process, or markdown formatting. Output the lesson only.`;
 
     try {
       const rawText = await this.llmClient.call({
@@ -217,7 +217,7 @@ ${JSON.stringify(failedAnswer)}
   }
 
   /**
-   * チャレンジ取得〜解答をワンストップで実行する
+   * Fetch challenge and solve in a one-stop workflow
    */
   async fetchAndSolve(context?: SolverContext): Promise<{ challengeId: string; answer: ChallengeAnswer }> {
     const challenge = await this.fetchChallenge();
@@ -226,54 +226,54 @@ ${JSON.stringify(failedAnswer)}
   }
 
   /**
-   * チャレンジ種別に応じた厳格なプロンプトを作成
+   * Build strict prompt tailored to challenge type
    */
   private buildSolverPrompt(challenge: ChallengeData, context?: SolverContext): string {
     const knowledgeList = context?.reflectionKnowledge ?? this.reflectionKnowledge;
     let knowledgeSection = "";
     if (knowledgeList.length > 0) {
       knowledgeSection = `
-【過去の誤答から得た教訓・反省点】
+[Lessons from Previous Attempts]
 ${knowledgeList.map((k, i) => `${i + 1}. ${k}`).join("\n")}
-上記の反省点を念頭に置き、同じ計算ミスや判定漏れを絶対に繰り返さないよう厳重に注意してください。
+Keep these lessons in mind and strictly avoid repeating these calculation or parsing mistakes.
 `;
     }
 
-    return `あなたはデータ処理と論理推論を厳密に行う自律型AIです。
-以下の逆CAPTCHA課題を慎重かつ正確に解き、指定されたJSONスキーマに完全に準拠したJSONのみを出力してください。
-Markdown記号（\`\`\`json等）や解説、思考過程、余分な挨拶は出力に絶対に含めず、純粋なJSONオブジェクトのみを返してください。
+    return `You are an autonomous AI specialized in rigorous data processing and logical reasoning.
+Carefully solve the following reverse CAPTCHA puzzle and output ONLY valid JSON that strictly adheres to the specified JSON schema.
+Do NOT include Markdown code blocks (\`\`\`json), explanations, thinking process, or greetings. Output raw JSON object only.
 ${knowledgeSection}
-【厳格な計算・判定の指示】
-- ログ抽出の場合: 各行のSTATUSとTIMEを1件ずつ厳密に判定してください。「300msを超える(>300)」は300以下は含みません。SIZEの合計値と対象IDのリスト、件数が正確に一致するように慎重に合算してください。
-- ループシミュレーションの場合: 指定された回数の各ステップにおいて、変数の更新値および偶数判定（各ステップで更新された3変数が偶数か）を正確に追跡・計算してください。
-- メトリクス分析の場合: 配列の全数値を正確に昇順ソートし、指定された計算式 Math.floor(length * 0.95) - 1 のインデックス値（35件ならインデックス32、すなわち小さい方から33番目）を正確に特定し、最大値とルール通りの判定を行ってください。
+[Strict Calculation & Logic Instructions]
+- For Log Extraction: Strictly check STATUS and TIME for each row. ">300ms" does not include 300. Accurately sum SIZE, match the target ID list and count.
+- For Loop Simulation: Accurately trace updated variable values and check parity (whether all 3 updated variables are even) at each step for the specified count.
+- For Metrics Analysis: Sort all numbers in ascending order, locate the value at index Math.floor(length * 0.95) - 1, and determine the maximum value according to the specified rule.
 
-【問題文】
+[Challenge Prompt]
 ${challenge.prompt}
 `;
   }
 
   /**
-   * 同一問題の自己見直し用プロンプトを作成
+   * Build self-correction prompt for re-evaluating the same challenge
    */
   private buildCorrectionPrompt(challenge: ChallengeData, previousAnswer: ChallengeAnswer): string {
-    return `あなたはデータ処理と論理推論を厳密に行う自律型AIです。
-先ほど以下の逆CAPTCHA課題に対して解答を提出しましたが、不正解（403 Forbidden）でした。
+    return `You are an autonomous AI specialized in rigorous data processing and logical reasoning.
+You previously submitted an answer to the following reverse CAPTCHA puzzle, but it was incorrect (403 Forbidden).
 
-【前回の誤答】
+[Previous Incorrect Answer]
 ${JSON.stringify(previousAnswer)}
 
-前回の回答には計算違いや見落としなどのミスが含まれています。
-前回の推論結果を盲信せず、ゼロから1件ずつ慎重に検証・再計算・検算を行い、修正した正しい解答を作成してください。
-指定されたJSONスキーマに完全に準拠したJSONのみを出力してください。
-Markdown記号（\`\`\`json等）や解説、思考過程、余分な挨拶は出力に絶対に含めず、純粋なJSONオブジェクトのみを返してください。
+The previous answer contained errors such as calculation mistakes or missed items.
+Do NOT trust the previous reasoning. Verify, recalculate, and check from scratch to produce the corrected answer.
+Output ONLY valid JSON that strictly adheres to the specified JSON schema.
+Do NOT include Markdown code blocks (\`\`\`json), explanations, thinking process, or greetings.
 
-【厳格な計算・判定の指示】
-- ログ抽出の場合: 各行のSTATUSとTIMEを1件ずつ厳密に判定してください。「300msを超える(>300)」は300以下は含みません。SIZEの合計値と対象IDのリスト、件数が正確に一致するように慎重に合算してください。
-- ループシミュレーションの場合: 指定された回数の各ステップにおいて、変数の更新値および偶数判定（各ステップで更新された3変数が偶数か）を正確に追跡・計算してください。
-- メトリクス分析の場合: 配列の全数値を正確に昇順ソートし、指定された計算式 Math.floor(length * 0.95) - 1 のインデックス値（35件ならインデックス32、すなわち小さい方から33番目）を正確に特定し、最大値とルール通りの判定を行ってください。
+[Strict Calculation & Logic Instructions]
+- For Log Extraction: Strictly check STATUS and TIME for each row. ">300ms" does not include 300. Accurately sum SIZE, match the target ID list and count.
+- For Loop Simulation: Accurately trace updated variable values and check parity (whether all 3 updated variables are even) at each step for the specified count.
+- For Metrics Analysis: Sort all numbers in ascending order, locate the value at index Math.floor(length * 0.95) - 1, and determine the maximum value according to the specified rule.
 
-【問題文】
+[Challenge Prompt]
 ${challenge.prompt}
 `;
   }
@@ -282,7 +282,7 @@ ${challenge.prompt}
     const cleanedJson = this.cleanJsonText(rawText);
     try {
       const parsed = JSON.parse(cleanedJson) as ChallengeAnswer;
-      // 思考過程等の余分なフィールドがあれば除去
+      // Remove thinking process or extraneous fields if present
       if (parsed && typeof parsed === "object") {
         delete (parsed as any)._thinking;
         delete (parsed as any).reasoning;
@@ -296,14 +296,14 @@ ${challenge.prompt}
   private cleanJsonText(text: string): string {
     let cleaned = text.trim();
 
-    // 1. マークダウンコードブロックの剥離
+    // 1. Strip markdown code blocks
     if (cleaned.startsWith("```json")) {
       cleaned = cleaned.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
     } else if (cleaned.startsWith("```")) {
       cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
     }
 
-    // 2. 前後に自然言語テキストが含まれている場合、最初の '{' から最後の '}' を抽出
+    // 2. Extract substring from first '{' to last '}' if surrounding text is present
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       return jsonMatch[0];

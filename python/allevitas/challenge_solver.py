@@ -1,5 +1,5 @@
 """
-allevitas-agent-kit - 逆CAPTCHA (Proof of Machine) 自動解決モジュール
+allevitas-agent-kit - Reverse CAPTCHA (Proof of Machine) solver module
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ class ChallengeSolver:
     ) -> Any:
         if not self.custom_solver:
             raise RuntimeError(
-                "llm_provider='self' が指定されていますが、custom_solver コールバックが設定されていません。"
+                "llm_provider='self' was specified, but no custom_solver callback was provided."
             )
         try:
             sig = inspect.signature(self.custom_solver)
@@ -68,11 +68,11 @@ class ChallengeSolver:
                 return self.custom_solver(challenge)
 
     def get_reflection_knowledge(self) -> List[str]:
-        """蓄積された反省教訓ナレッジを取得する"""
+        """Get accumulated reflection knowledge."""
         return list(self.reflection_knowledge)
 
     def add_reflection(self, lesson: str) -> None:
-        """教訓ナレッジを追加する（最大5件、FIFO）"""
+        """Add reflection knowledge (maximum 5 entries, FIFO)."""
         trimmed = lesson.strip()
         if not trimmed or trimmed in self.reflection_knowledge:
             return
@@ -81,12 +81,12 @@ class ChallengeSolver:
             self.reflection_knowledge.pop(0)
 
     def clear_reflection_knowledge(self) -> None:
-        """反省ナレッジをリセットする"""
+        """Clear reflection knowledge."""
         self.reflection_knowledge.clear()
 
     def fetch_challenge(self) -> ChallengeData:
         """
-        逆CAPTCHA課題を取得する (GET /api/challenge)
+        Fetch reverse CAPTCHA puzzle (GET /api/challenge).
         """
         data = self.rate_limit_handler.request(f"{self.api_url}/challenge", method="GET")
         c = data.get("challenge", data) if isinstance(data, dict) else data
@@ -103,7 +103,7 @@ class ChallengeSolver:
         context: Optional[SolverContext] = None,
     ) -> ChallengeAnswer:
         """
-        チャレンジ課題を推論・解答する
+        Solve the reverse CAPTCHA puzzle.
         """
         now_ms = int(time.time() * 1000)
         if challenge.expires_at and (challenge.expires_at - now_ms < 5000):
@@ -111,14 +111,14 @@ class ChallengeSolver:
                 "Challenge has expired or is nearing expiration. Please fetch a new challenge."
             )
 
-        # 1. Self-Solve モード (エージェント自身またはカスタムコールバック)
+        # 1. Self-Solve mode (agent itself or custom callback)
         if self.llm_provider == "self":
             result = self._call_custom_solver(challenge, context)
             if isinstance(result, str):
                 return json.loads(self._clean_json_text(result))
             return result
 
-        # 2. 外部 LLM API モード (共通 LLMClient を活用)
+        # 2. External LLM API mode (using shared LLMClient)
         prompt = self._build_solver_prompt(challenge, context)
         raw_text = self.llm_client.call(
             prompt=prompt,
@@ -139,7 +139,7 @@ class ChallengeSolver:
         attempt: int = 2,
     ) -> ChallengeAnswer:
         """
-        同一課題に対して、前回の誤答を提示して見直し（Self-Correction）を行う
+        Perform self-correction by providing the previous incorrect answer for the same puzzle.
         """
         now_ms = int(time.time() * 1000)
         if challenge.expires_at and (challenge.expires_at - now_ms < 5000):
@@ -177,20 +177,20 @@ class ChallengeSolver:
         failed_answer: ChallengeAnswer,
     ) -> str:
         """
-        誤答となった課題から失敗原因と教訓（反省点）を抽出しナレッジとして記憶する
+        Extract failure causes and lessons (reflections) from incorrect challenge attempts and remember as knowledge
         """
         if self.llm_provider == "self":
             return ""
 
-        prompt = f"""あなたは逆CAPTCHAの課題に挑戦したAIです。以下の課題に対して提出した解答が不正解（403 Forbidden）となりました。
+        prompt = f"""You are an AI agent attempting a reverse CAPTCHA puzzle. The submitted answer failed (403 Forbidden).
 
-【問題文】
+[Challenge Prompt]
 {challenge.prompt}
 
-【提出した誤答】
+[Previous Incorrect Answer]
 {json.dumps(failed_answer, ensure_ascii=False)}
 
-次回類似の課題を解く際に二度と同じ間違いを繰り返さないための「具体的な反省点と計算・抽出上の教訓・注意点」を日本語で1〜2文（100文字以内）で簡潔に出力してください。余分な挨拶や解説、マークダウン装飾は不要です。教訓のみを1行で出力してください。"""
+Output a concise lesson or point of caution (1-2 sentences) in English to avoid repeating this calculation or parsing error in similar future challenges. Do NOT include greetings, thinking process, or markdown formatting. Output the lesson only."""
 
         try:
             raw_text = self.llm_client.call(
@@ -211,7 +211,7 @@ class ChallengeSolver:
 
     def fetch_and_solve(self, context: Optional[SolverContext] = None) -> Tuple[str, ChallengeAnswer]:
         """
-        チャレンジ取得〜解答をワンストップで実行する
+        Fetch challenge and solve in a one-stop workflow
         """
         challenge = self.fetch_challenge()
         answer = self.solve(challenge, context)
@@ -231,21 +231,21 @@ class ChallengeSolver:
         if knowledge_list:
             items = "\n".join(f"{i + 1}. {k}" for i, k in enumerate(knowledge_list))
             knowledge_section = f"""
-【過去の誤答から得た教訓・反省点】
+[Lessons from Previous Attempts]
 {items}
-上記の反省点を念頭に置き、同じ計算ミスや判定漏れを絶対に繰り返さないよう厳重に注意してください。
+Keep these lessons in mind and strictly avoid repeating these calculation or parsing mistakes.
 """
 
-        return f"""あなたはデータ処理と論理推論を厳密に行う自律型AIです。
-以下の逆CAPTCHA課題を慎重かつ正確に解き、指定されたJSONスキーマに完全に準拠したJSONのみを出力してください。
-Markdown記号（```json等）や解説、思考過程、余分な挨拶は出力に絶対に含めず、純粋なJSONオブジェクトのみを返してください。
+        return f"""You are an autonomous AI specialized in rigorous data processing and logical reasoning.
+Carefully solve the following reverse CAPTCHA puzzle and output ONLY valid JSON that strictly adheres to the specified JSON schema.
+Do NOT include Markdown code blocks (```json), explanations, thinking process, or greetings. Output raw JSON object only.
 {knowledge_section}
-【厳格な計算・判定の指示】
-- ログ抽出の場合: 各行のSTATUSとTIMEを1件ずつ厳密に判定してください。「300msを超える(>300)」は300以下は含みません。SIZEの合計値と対象IDのリスト、件数が正確に一致するように慎重に合算してください。
-- ループシミュレーションの場合: 指定された回数の各ステップにおいて、変数の更新値および偶数判定（各ステップで更新された3変数が偶数か）を正確に追跡・計算してください。
-- メトリクス分析の場合: 配列の全数値を正確に昇順ソートし、指定された計算式 Math.floor(length * 0.95) - 1 のインデックス値（35件ならインデックス32、すなわち小さい方から33番目）を正確に特定し、最大値とルール通りの判定を行ってください。
+[Strict Calculation & Logic Instructions]
+- For Log Extraction: Strictly check STATUS and TIME for each row. ">300ms" does not include 300. Accurately sum SIZE, match the target ID list and count.
+- For Loop Simulation: Accurately trace updated variable values and check parity (whether all 3 updated variables are even) at each step for the specified count.
+- For Metrics Analysis: Sort all numbers in ascending order, locate the value at index Math.floor(length * 0.95) - 1, and determine the maximum value according to the specified rule.
 
-【問題文】
+[Challenge Prompt]
 {challenge.prompt}
 """
 
@@ -254,23 +254,23 @@ Markdown記号（```json等）や解説、思考過程、余分な挨拶は出�
         challenge: ChallengeData,
         previous_answer: ChallengeAnswer,
     ) -> str:
-        return f"""あなたはデータ処理と論理推論を厳密に行う自律型AIです。
-先ほど以下の逆CAPTCHA課題に対して解答を提出しましたが、不正解（403 Forbidden）でした。
+        return f"""You are an autonomous AI specialized in rigorous data processing and logical reasoning.
+You previously submitted an answer to the following reverse CAPTCHA puzzle, but it was incorrect (403 Forbidden).
 
-【前回の誤答】
+[Previous Incorrect Answer]
 {json.dumps(previous_answer, ensure_ascii=False)}
 
-前回の回答には計算違いや見落としなどのミスが含まれています。
-前回の推論結果を盲信せず、ゼロから1件ずつ慎重に検証・再計算・検算を行い、修正した正しい解答を作成してください。
-指定されたJSONスキーマに完全に準拠したJSONのみを出力してください。
-Markdown記号（```json等）や解説、思考過程、余分な挨拶は出力に絶対に含めず、純粋なJSONオブジェクトのみを返してください。
+The previous answer contained errors such as calculation mistakes or missed items.
+Do NOT trust the previous reasoning. Verify, recalculate, and check from scratch to produce the corrected answer.
+Output ONLY valid JSON that strictly adheres to the specified JSON schema.
+Do NOT include Markdown code blocks (```json), explanations, thinking process, or greetings.
 
-【厳格な計算・判定の指示】
-- ログ抽出の場合: 各行のSTATUSとTIMEを1件ずつ厳密に判定してください。「300msを超える(>300)」は300以下は含みません。SIZEの合計値と対象IDのリスト、件数が正確に一致するように慎重に合算してください。
-- ループシミュレーションの場合: 指定された回数の各ステップにおいて、変数の更新値および偶数判定（各ステップで更新された3変数が偶数か）を正確に追跡・計算してください。
-- メトリクス分析の場合: 配列の全数値を正確に昇順ソートし、指定された計算式 Math.floor(length * 0.95) - 1 のインデックス値（35件ならインデックス32、すなわち小さい方から33番目）を正確に特定し、最大値とルール通りの判定を行ってください。
+[Strict Calculation & Logic Instructions]
+- For Log Extraction: Strictly check STATUS and TIME for each row. ">300ms" does not include 300. Accurately sum SIZE, match the target ID list and count.
+- For Loop Simulation: Accurately trace updated variable values and check parity (whether all 3 updated variables are even) at each step for the specified count.
+- For Metrics Analysis: Sort all numbers in ascending order, locate the value at index Math.floor(length * 0.95) - 1, and determine the maximum value according to the specified rule.
 
-【問題文】
+[Challenge Prompt]
 {challenge.prompt}
 """
 
@@ -288,7 +288,7 @@ Markdown記号（```json等）や解説、思考過程、余分な挨拶は出�
     def _clean_json_text(self, text: str) -> str:
         cleaned = text.strip()
 
-        # 1. マークダウンコードブロックの剥離
+        # 1. Strip markdown code blocks
         if cleaned.startswith("```json"):
             cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)
             cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -296,7 +296,7 @@ Markdown記号（```json等）や解説、思考過程、余分な挨拶は出�
             cleaned = re.sub(r"^```\s*", "", cleaned)
             cleaned = re.sub(r"\s*```$", "", cleaned)
 
-        # 2. 前後に自然言語テキストが含まれる場合、最初の '{' から最後の '}' を抽出
+        # 2. Extract substring from first '{' to last '}' if surrounding text is present
         match = re.search(r"\{[\s\S]*\}", cleaned)
         if match:
             return match.group(0)

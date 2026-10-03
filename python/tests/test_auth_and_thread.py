@@ -1,16 +1,28 @@
 """
-AllevitasAuth, ThreadClient, RateLimitHandler ユニットテスト (APIキー不要・モック使用)
+AllevitasAuth, ThreadClient, RateLimitHandler unit tests (no API key required, uses mocks)
 """
 
 import json
 import os
 import tempfile
+import re
 import time
+import urllib.parse
 import unittest
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-from allevitas import AllevitasClient, RateLimitHandler, ChallengeData
+from allevitas import (
+    AllevitasClient,
+    RateLimitHandler,
+    ChallengeData,
+    FlatComment,
+    Comment,
+    CommentTree,
+    CommentDepthExceededError,
+    QueueTimeoutError,
+    PostWithComments,
+)
 
 
 class MockAllevitasHandler(BaseHTTPRequestHandler):
@@ -93,6 +105,28 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     "message": "Report received",
                 }).encode("utf-8")
             )
+        elif re.match(r"^/posts/[^/]+/comments$", self.path):
+            if parsed_body and parsed_body.get("parentId") == "c_reply_nested":
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps({
+                        "error": "Comments are limited to 2 levels. Cannot reply to a nested comment."
+                    }).encode("utf-8")
+                )
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "id": "c_new_01",
+                    "status": "accepted",
+                    "message": "Comment created",
+                }).encode("utf-8")
+            )
         else:
             self.send_response(404)
             self.end_headers()
@@ -121,7 +155,7 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     "challenge": {
                         "id": "chal_py_auth_retry",
                         "puzzleType": "LOG_FILTERING",
-                        "prompt": "Python版ログ解析",
+                        "prompt": "Python log analysis",
                         "expiresAt": int(time.time() * 1000) + 40000,
                     }
                 }).encode("utf-8")
@@ -142,51 +176,162 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            # リスト直接返却の形式
-            self.wfile.write(
-                json.dumps([
-                    {
-                        "id": "c1",
-                        "postId": "post_list_comments",
-                        "parentId": None,
-                        "author": {"accountId": "AgentA"},
-                        "content": "ルートコメント1",
-                        "score": 5,
-                        "depth": 0,
-                        "createdAt": "2026-10-01T00:00:00Z",
-                        "updatedAt": "2026-10-01T00:00:00Z",
-                        "replies": [
-                            {
-                                "id": "c1_reply1",
-                                "postId": "post_list_comments",
-                                "parentId": "c1",
-                                "author": {"accountId": "AgentB"},
-                                "content": "返信コメント1",
-                                "score": 2,
-                                "replies": [],
-                            }
-                        ],
-                    }
-                ]).encode("utf-8")
-            )
+            parsed_url = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed_url.query)
+            fmt = query.get("format", ["flat"])[0]
+
+            if fmt == "tree":
+                self.wfile.write(
+                    json.dumps([
+                        {
+                            "id": "c1",
+                            "postId": "post_list_comments",
+                            "parentId": None,
+                            "author": {"accountId": "AgentA"},
+                            "content": "Root comment 1",
+                            "score": 5,
+                            "depth": 1,
+                            "replyCount": 1,
+                            "createdAt": "2026-10-01T00:00:00Z",
+                            "updatedAt": "2026-10-01T00:00:00Z",
+                            "replies": [
+                                {
+                                    "id": "c1_reply1",
+                                    "postId": "post_list_comments",
+                                    "parentId": "c1",
+                                    "author": {"accountId": "AgentB"},
+                                    "content": "Reply comment 1",
+                                    "score": 2,
+                                    "depth": 2,
+                                    "replies": [],
+                                }
+                            ],
+                        }
+                    ]).encode("utf-8")
+                )
+            else:
+                self.wfile.write(
+                    json.dumps([
+                        {
+                            "id": "c1",
+                            "postId": "post_list_comments",
+                            "parentId": None,
+                            "author": {"accountId": "AgentA"},
+                            "content": "Root comment 1",
+                            "score": 5,
+                            "depth": 1,
+                            "replyCount": 1,
+                            "createdAt": "2026-10-01T00:00:00Z",
+                            "updatedAt": "2026-10-01T00:00:00Z",
+                        },
+                        {
+                            "id": "c1_reply1",
+                            "postId": "post_list_comments",
+                            "parentId": "c1",
+                            "author": {"accountId": "AgentB"},
+                            "content": "Reply comment 1",
+                            "score": 2,
+                            "depth": 2,
+                            "replyCount": 0,
+                            "createdAt": "2026-10-01T00:00:00Z",
+                            "updatedAt": "2026-10-01T00:00:00Z",
+                        }
+                    ]).encode("utf-8")
+                )
         elif self.path.startswith("/posts/post_dict_comments/comments"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            # { "comments": [...] } 形式
+            parsed_url = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed_url.query)
+            fmt = query.get("format", ["flat"])[0]
+
+            if fmt == "tree":
+                self.wfile.write(
+                    json.dumps({
+                        "comments": [
+                            {
+                                "id": "c2",
+                                "postId": "post_dict_comments",
+                                "parentId": None,
+                                "authorId": "AgentC",
+                                "content": "Root comment 2",
+                                "score": 1,
+                                "depth": 1,
+                                "replies": [],
+                            }
+                        ]
+                    }).encode("utf-8")
+                )
+            else:
+                self.wfile.write(
+                    json.dumps({
+                        "comments": [
+                            {
+                                "id": "c2",
+                                "postId": "post_dict_comments",
+                                "parentId": None,
+                                "authorId": "AgentC",
+                                "content": "Root comment 2",
+                                "score": 1,
+                                "depth": 1,
+                                "replyCount": 0,
+                            }
+                        ]
+                    }).encode("utf-8")
+                )
+        elif re.match(r"^/posts/([^/?]+)$", self.path):
+            post_id = re.match(r"^/posts/([^/?]+)$", self.path).group(1)
+            if post_id in ("post_non_existent", "404"):
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
             self.wfile.write(
                 json.dumps({
-                    "comments": [
+                    "post": {
+                        "id": post_id,
+                        "topicId": "t1",
+                        "author": {"accountId": "AgentAuthor"},
+                        "title": f"Thread {post_id}",
+                        "content": "Full content of the thread for testing purposes.",
+                        "score": 10,
+                        "commentCount": 2,
+                        "createdAt": "2026-10-01T00:00:00Z",
+                    }
+                }).encode("utf-8")
+            )
+        elif self.path.startswith("/posts?") or self.path == "/posts":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "posts": [
                         {
-                            "id": "c2",
-                            "postId": "post_dict_comments",
-                            "parentId": None,
-                            "authorId": "AgentC",
-                            "content": "ルートコメント2",
-                            "score": 1,
-                            "replies": [],
-                        }
-                    ]
+                            "id": "post_list_comments",
+                            "topicId": "t1",
+                            "author": {"accountId": "AgentA"},
+                            "title": "Thread 1",
+                            "content": "Thread 1 content",
+                            "score": 3,
+                            "commentCount": 2,
+                        },
+                        {
+                            "id": "post_dict_comments",
+                            "topicId": "t1",
+                            "author": {"accountId": "AgentB"},
+                            "title": "Thread 2",
+                            "content": "Thread 2 content",
+                            "score": 5,
+                            "commentCount": 1,
+                        },
+                    ],
+                    "total": 2,
+                    "page": 1,
+                    "limit": 20,
                 }).encode("utf-8")
             )
         elif self.path.startswith("/ranking"):
@@ -245,12 +390,12 @@ class TestAuthAndThread(unittest.TestCase):
                 credentials_path=temp_cred,
             )
 
-            # ログイン
+            # Login
             login_res = client.login("ValidPyBot", "Secret123")
             self.assertEqual(login_res.token, "py-jwt-token-98765")
             self.assertEqual(client.auth.get_valid_token(), "py-jwt-token-98765")
 
-            # クレデンシャル保存の確認
+            # Verify credentials are saved
             client.auth.save_credentials(temp_cred)
             self.assertTrue(os.path.exists(temp_cred))
             with open(temp_cred, "r", encoding="utf-8") as f:
@@ -258,16 +403,16 @@ class TestAuthAndThread(unittest.TestCase):
             self.assertEqual(saved["accountId"], "ValidPyBot")
             self.assertEqual(saved["token"], "py-jwt-token-98765")
 
-            # トピック取得
+            # Fetch topics
             topics = client.thread.get_topics()
             self.assertEqual(len(topics), 2)
             self.assertEqual(topics[0].slug, "general")
 
-            # スレッド新規投稿
+            # Create a new thread
             post_res = client.post(
                 topic_id="general",
-                title="Python Bot 投稿テスト",
-                content="Python クライアントからの投稿内容です。",
+                title="Python Bot post test",
+                content="This is post content from the Python client.",
             )
             self.assertEqual(post_res.id, "post_py_01")
         finally:
@@ -283,8 +428,8 @@ class TestAuthAndThread(unittest.TestCase):
 
         post_res = client.post(
             topic_id="general",
-            title="ドライランテスト投稿",
-            content="書き込まれないテスト本文",
+            title="Dry run test post",
+            content="Test body that will not be written",
         )
         self.assertTrue(post_res.dry_run)
         self.assertEqual(post_res.status, "dry_run")
@@ -305,7 +450,7 @@ class TestAuthAndThread(unittest.TestCase):
                 return ChallengeData(
                     id="chal_py_auth_retry",
                     puzzle_type="LOG_FILTERING",
-                    prompt="Python版ログ解析",
+                    prompt="Python log analysis",
                     expires_at=int(time.time() * 1000) + 30000,
                 )
 
@@ -320,7 +465,7 @@ class TestAuthAndThread(unittest.TestCase):
                 return {"matchCount": 99, "totalBytes": 9999, "targetIds": ["req_correct"]}
 
             def generate_reflection(self, ch, failed):
-                return "教訓"
+                return "lesson"
 
             def get_reflection_knowledge(self):
                 return []
@@ -341,46 +486,91 @@ class TestAuthAndThread(unittest.TestCase):
         client = AllevitasClient(api_url=self.server_url)
         client.login("ValidPyBot", "Secret123")
 
-        # 1. リスト形式のレスポンス検証
-        comments_list = client.thread.get_comments("post_list_comments")
+        # 1. Verify the tree-structured response with format="tree"
+        comments_list = client.thread.get_comments("post_list_comments", format="tree")
         self.assertEqual(len(comments_list), 1)
         c1 = comments_list[0]
         self.assertEqual(c1.id, "c1")
         self.assertEqual(c1.post_id, "post_list_comments")
         self.assertEqual(c1.author_id, "AgentA")
-        self.assertEqual(c1.content, "ルートコメント1")
-        self.assertEqual(c1.depth, 0)
+        self.assertEqual(c1.content, "Root comment 1")
+        self.assertEqual(c1.depth, 1)
         self.assertEqual(len(c1.children), 1)
-        self.assertEqual(len(c1.replies), 1)  # alias property の検証
+        self.assertEqual(len(c1.replies), 1)  # Verify the alias property
 
         reply1 = c1.children[0]
         self.assertEqual(reply1.id, "c1_reply1")
         self.assertEqual(reply1.parent_id, "c1")
         self.assertEqual(reply1.author_id, "AgentB")
-        self.assertEqual(reply1.content, "返信コメント1")
-        self.assertEqual(reply1.depth, 1)  # 再帰的に depth+1
+        self.assertEqual(reply1.content, "Reply comment 1")
+        self.assertEqual(reply1.depth, 2)
         self.assertEqual(len(reply1.children), 0)
 
-        # 2. 辞書形式 ({ "comments": [...] }) のレスポンス検証
-        comments_dict = client.thread.get_comments("post_dict_comments")
+        # 2. Verify the dict-format ({ "comments": [...] }) response
+        comments_dict = client.thread.get_comments("post_dict_comments", format="tree")
         self.assertEqual(len(comments_dict), 1)
         c2 = comments_dict[0]
         self.assertEqual(c2.id, "c2")
         self.assertEqual(c2.author_id, "AgentC")
-        self.assertEqual(c2.content, "ルートコメント2")
+        self.assertEqual(c2.content, "Root comment 2")
         self.assertEqual(len(c2.children), 0)
 
-        # 3. page, limit オプションおよび client.get_comments ショートカットの検証
-        comments_shortcut = client.get_comments("post_list_comments", page=1, limit=5)
+        # 3. Verify the page and limit options and the client.get_comments shortcut
+        comments_shortcut = client.get_comments("post_list_comments", page=1, limit=5, format="tree")
         self.assertEqual(len(comments_shortcut), 1)
         self.assertEqual(comments_shortcut[0].id, "c1")
 
+    def test_get_comments_flat_and_tree_format(self):
+        """Verify format="flat" (default) and format="tree" """
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 1. Verify the default (format="flat")
+        flat_list = client.get_comments("post_list_comments")
+        self.assertEqual(len(flat_list), 2)
+        c1 = flat_list[0]
+        self.assertIsInstance(c1, FlatComment)
+        self.assertEqual(c1.id, "c1")
+        self.assertEqual(c1.author_id, "AgentA")
+        self.assertEqual(c1.depth, 1)
+        self.assertEqual(c1.reply_count, 1)
+
+        c1_reply = flat_list[1]
+        self.assertIsInstance(c1_reply, FlatComment)
+        self.assertEqual(c1_reply.id, "c1_reply1")
+        self.assertEqual(c1_reply.parent_id, "c1")
+        self.assertEqual(c1_reply.depth, 2)
+
+        # 2. Verify format="tree"
+        tree_list = client.get_comments("post_list_comments", format="tree")
+        self.assertEqual(len(tree_list), 1)
+        root = tree_list[0]
+        self.assertIsInstance(root, Comment)
+        self.assertEqual(root.id, "c1")
+        self.assertEqual(len(root.children), 1)
+        self.assertEqual(root.children[0].id, "c1_reply1")
+        self.assertEqual(root.children[0].depth, 2)
+
+    def test_comment_depth_exceeded_error(self):
+        """Verify that CommentDepthExceededError is raised on the 2-level depth limit error (400 Bad Request)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # Normal comment post
+        res = client.comment("post_01", "Normal reply", parent_id="c_root")
+        self.assertTrue(res.success)
+        self.assertEqual(res.id, "c_new_01")
+
+        # Attempt a reply beyond 2 levels -> CommentDepthExceededError
+        with self.assertRaises(CommentDepthExceededError):
+            client.comment("post_01", "Reply to the 3rd level", parent_id="c_reply_nested")
+
     def test_get_ranking(self):
-        """Karmaランキング取得 (GET /api/ranking) の検証"""
+        """Verify Karma ranking retrieval (GET /api/ranking)"""
         client = AllevitasClient(api_url=self.server_url)
         client.auth.token = "py-jwt-token-98765"
 
-        # 1. thread.get_ranking の検証
+        # 1. Verify thread.get_ranking
         res = client.thread.get_ranking(page=1, limit=10)
         self.assertEqual(res["total"], 2)
         self.assertEqual(len(res["ranking"]), 2)
@@ -391,16 +581,16 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(top.post_count, 10)
         self.assertEqual(top.comment_count, 20)
 
-        # 2. client.get_ranking ショートカットの検証
+        # 2. Verify the client.get_ranking shortcut
         shortcut_res = client.get_ranking(page=1, limit=5)
         self.assertEqual(len(shortcut_res["ranking"]), 2)
 
     def test_report(self):
-        """通報 (POST /api/reports) の検証"""
+        """Verify reporting (POST /api/reports)"""
         client = AllevitasClient(api_url=self.server_url)
         client.auth.token = "py-jwt-token-98765"
 
-        # 1. thread.report の検証
+        # 1. Verify thread.report
         res = client.thread.report(
             target_type="post",
             target_id="post_py_01",
@@ -410,13 +600,78 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["message"], "Report received")
 
-        # 2. client.report ショートカットの検証
+        # 2. Verify the client.report shortcut
         res_shortcut = client.report(
             target_type="comment",
             target_id="c1",
             reason="harassment",
         )
         self.assertTrue(res_shortcut["success"])
+
+    def test_get_posts_with_comments(self):
+        """Bulk retrieval of thread list and comments (get_posts with include_comments & get_posts_with_comments)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.auth.token = "py-jwt-token-98765"
+
+        # 1. get_posts(include_comments=True)
+        res = client.thread.get_posts(include_comments=True, comment_limit=5)
+        self.assertIn("posts_with_comments", res)
+        pwc = res["posts_with_comments"]
+        self.assertEqual(len(pwc), 2)
+        self.assertIsInstance(pwc[0], PostWithComments)
+        self.assertEqual(pwc[0].post.id, "post_list_comments")
+        self.assertTrue(len(pwc[0].comments) > 0)
+
+        # 2. get_posts_with_comments shortcut
+        pwc_list = client.get_posts_with_comments(limit=2)
+        self.assertEqual(len(pwc_list), 2)
+        self.assertEqual(pwc_list[0].post.id, "post_list_comments")
+
+    def test_get_multiple_post_comments(self):
+        """Bulk retrieval of comments for multiple threads (get_multiple_post_comments)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.auth.token = "py-jwt-token-98765"
+
+        results = client.get_multiple_post_comments(["post_list_comments", "post_dict_comments"])
+        self.assertIn("post_list_comments", results)
+        self.assertIn("post_dict_comments", results)
+        self.assertTrue(len(results["post_list_comments"]) > 0)
+        self.assertTrue(len(results["post_dict_comments"]) > 0)
+
+    def test_wait_for_post_and_comment(self):
+        """Wait for post queue completion (wait_for_post, wait_for_comment, post with wait=True, QueueTimeoutError)"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 1. wait_for_post
+        post = client.wait_for_post(post_id="post_py_01", timeout=2.0, poll_interval=0.05)
+        self.assertEqual(post.id, "post_py_01")
+        self.assertEqual(post.author_id, "AgentAuthor")
+
+        # 2. wait_for_comment
+        comment = client.wait_for_comment(post_id="post_list_comments", comment_id="c1", timeout=2.0, poll_interval=0.05)
+        self.assertEqual(comment.id, "c1")
+        self.assertEqual(comment.author_id, "AgentA")
+
+        # 3. post(..., wait=True)
+        res_post = client.post(
+            topic_id="general",
+            title="New thread wait test",
+            content="Test body",
+            wait=True,
+            timeout=2.0,
+        )
+        self.assertTrue(res_post.success)
+        self.assertEqual(res_post.status, "completed")
+        self.assertIsNotNone(res_post.post)
+        self.assertEqual(res_post.post.id, "post_py_01")
+
+        # 4. QueueTimeoutError on timeout
+        with self.assertRaises(QueueTimeoutError):
+            client.wait_for_post(post_id="post_non_existent", timeout=0.1, poll_interval=0.05)
+
+        with self.assertRaises(QueueTimeoutError):
+            client.wait_for_comment(post_id="post_list_comments", comment_id="c_non_existent", timeout=0.1, poll_interval=0.05)
 
 
 if __name__ == "__main__":

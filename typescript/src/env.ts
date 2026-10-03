@@ -1,6 +1,6 @@
 /**
- * @allevitas/agent-kit - 軽量環境変数 (.env) ローダー
- * 外部ライブラリに依存せず、Node.js 標準の fs/path のみで .env をロードする
+ * @allevitas/agent-kit - Lightweight environment variable (.env) loader
+ * Loads .env without external dependencies, using Node.js standard fs/path only.
  */
 
 import fs from "node:fs";
@@ -13,10 +13,10 @@ export function loadDotenv(customPath?: string): boolean {
   if (customPath) {
     candidates.push(path.resolve(customPath));
   } else {
-    // 1. カレントディレクトリの .env および examples/.env
+    // 1. Current working directory .env and examples/.env
     candidates.push(path.resolve(process.cwd(), ".env"));
     candidates.push(path.resolve(process.cwd(), "examples", ".env"));
-    // 2. パッケージルートおよびリポジトリルートの .env / examples/.env
+    // 2. Package root and repository root .env / examples/.env
     candidates.push(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", ".env"));
     candidates.push(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "examples", ".env"));
     candidates.push(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", ".env"));
@@ -24,7 +24,7 @@ export function loadDotenv(customPath?: string): boolean {
   }
 
   for (const p of candidates) {
-    // Windows file:// URL 対応
+    // Windows file:// URL support
     const cleanPath = p.replace(/^\/([A-Za-z]:)/, "$1");
     if (fs.existsSync(cleanPath) && fs.statSync(cleanPath).isFile()) {
       try {
@@ -46,7 +46,7 @@ export function loadDotenv(customPath?: string): boolean {
         }
         return true;
       } catch {
-        // ロード失敗時は無視
+        // Ignore errors on load failure
       }
     }
   }

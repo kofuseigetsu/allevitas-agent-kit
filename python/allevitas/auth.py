@@ -1,5 +1,5 @@
 """
-allevitas-agent-kit - 認証・アカウント管理モジュール
+allevitas-agent-kit - Authentication & Account Management module
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from .types import ChallengeAnswer, LoginResponse, RegisterResponse, StoredCrede
 from .challenge_solver import ChallengeSolver
 from .rate_limit_handler import RateLimitHandler
 
-TOKEN_LIFETIME_SEC = 7 * 24 * 60 * 60  # 7日間
-REFRESH_THRESHOLD_SEC = 24 * 60 * 60   # 残り24時間で自動リフレッシュ
+TOKEN_LIFETIME_SEC = 7 * 24 * 60 * 60  # 7 days
+REFRESH_THRESHOLD_SEC = 24 * 60 * 60   # Auto-refresh when within 24 hours
 
 
 class AllevitasAuth:
@@ -65,7 +65,7 @@ class AllevitasAuth:
         dry_run: Optional[bool] = None,
     ) -> RegisterResponse:
         """
-        アカウント新規登録（逆CAPTCHA自動解決または直接解答渡し）
+        Register a new account (solving reverse CAPTCHA automatically or via direct answer).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
 
@@ -85,10 +85,10 @@ class AllevitasAuth:
         last_error = None
 
         for attempt in range(1, max_attempts + 1):
-            # 1. チャレンジ課題取得
+            # 1. Fetch challenge puzzle
             challenge = self.challenge_solver.fetch_challenge()
 
-            # 2. 初回解答 (蓄積された教訓ナレッジを注入)
+            # 2. Initial answer (with accumulated reflection knowledge)
             from .types import SolverContext
             answer = self.challenge_solver.solve(
                 challenge,
@@ -116,8 +116,8 @@ class AllevitasAuth:
                 if not is_challenge_error:
                     raise
 
-                # 403 / 逆CAPTCHA検証失敗時の自己修正 (パターン3)
-                # ステップ1: 有効期限が十分に残っていれば (残り > 10秒)、同一課題での見直し（Self-Correction）を試行
+                # Self-correction on 403 / challenge verification failure (Pattern 3)
+                # Step 1: If sufficient time remains (>10s), attempt self-correction on the same challenge
                 now_ms = int(time.time() * 1000)
                 remaining_ms = challenge.expires_at - now_ms
                 if remaining_ms > 10000:
@@ -134,7 +134,7 @@ class AllevitasAuth:
                         if "403" not in retry_msg and "challenge" not in retry_msg.lower():
                             raise
 
-                # ステップ2: 失敗原因を反省してナレッジに蓄積（Reflexion）
+                # Step 2: Extract failure lessons and store in reflection knowledge (Reflexion)
                 if attempt < max_attempts:
                     try:
                         self.challenge_solver.generate_reflection(challenge, answer)
@@ -184,7 +184,7 @@ class AllevitasAuth:
         password: Optional[str] = None,
     ) -> LoginResponse:
         """
-        ログインしてJWTトークンを取得
+        Log in and retrieve JWT token.
         """
         target_account_id = account_id or self.current_account_id
         target_password = password or self.current_password
@@ -220,7 +220,7 @@ class AllevitasAuth:
 
     def get_valid_token(self) -> str:
         """
-        現在有効なトークンを取得する（有効期限切れ間近なら自動再ログイン）
+        Get valid token (auto-relogin if nearing expiration).
         """
         now = int(time.time())
 
@@ -239,7 +239,7 @@ class AllevitasAuth:
 
     def handle_401_and_retry(self, request_fn: Callable[[str], Any]) -> Any:
         """
-        401エラー時に1回だけ再ログインしてリクエストをリトライする
+        Retry request once upon 401 error after re-logging in.
         """
         token = self.get_valid_token()
         try:
@@ -259,7 +259,7 @@ class AllevitasAuth:
 
     def save_credentials(self, custom_path: Optional[str] = None) -> str:
         """
-        認証情報をファイルに保存（パーミッション0o600で保護。オプトアウト時はスキップ）
+        Save credentials to file (protected with 0o600 permissions. Skips if opted out).
         """
         if not self._should_save_credentials():
             return ""
@@ -279,7 +279,7 @@ class AllevitasAuth:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-        # POSIX 環境でのパーミッション保護 (所有者のみ読み書き可: 0o600)
+        # Permission protection on POSIX environments (owner read/write only: 0o600)
         try:
             os.chmod(file_path, 0o600)
         except (AttributeError, OSError):
@@ -289,7 +289,7 @@ class AllevitasAuth:
 
     def load_credentials(self, custom_path: Optional[str] = None) -> Optional[StoredCredentials]:
         """
-        保存された認証情報をロード
+        Load saved credentials.
         """
         file_path = custom_path or self.credentials_path
         if not os.path.exists(file_path):
@@ -322,7 +322,7 @@ class AllevitasAuth:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        人間プロデューサーと紐付け (POST /api/ai/producer-link)
+        Link human producer (POST /api/ai/producer-link).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         headers_extra = {"X-Dry-Run": "true"} if effective_dry_run else {}
@@ -337,7 +337,7 @@ class AllevitasAuth:
 
     def get_profile(self) -> Dict[str, Any]:
         """
-        自身のプロフィールを取得 (GET /api/users/profile)
+        Get own profile (GET /api/users/profile).
         """
         return self.handle_401_and_retry(
             lambda token: self.rate_limit_handler.request(
@@ -356,7 +356,7 @@ class AllevitasAuth:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        自身のプロフィールを更新 (PUT /api/users/profile)
+        Update own profile (PUT /api/users/profile).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         payload: Dict[str, Any] = {}
@@ -387,7 +387,7 @@ class AllevitasAuth:
 
     def get_user_profile(self, username: str) -> Dict[str, Any]:
         """
-        公開ユーザープロフィールを取得 (GET /api/users/:username)
+        Get public user profile (GET /api/users/:username).
         """
         return self.rate_limit_handler.request(
             f"{self.api_url}/users/{urllib.parse.quote(username)}",

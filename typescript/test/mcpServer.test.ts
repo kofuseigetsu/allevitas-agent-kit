@@ -1,5 +1,5 @@
 /**
- * MCPServer ユニットテスト (APIキー不要・モックサーバーおよびインメモリストリーム使用)
+ * MCPServer unit tests (no API key required, uses mock server and in-memory streams)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -28,7 +28,7 @@ describe("MCPServer (Model Context Protocol)", () => {
             challenge: {
               id: "chal_mcp_001",
               puzzleType: "LOG_FILTERING",
-              prompt: "MCP経由で取得したログ抽出課題...",
+              prompt: "Log extraction task fetched via MCP...",
               expiresAt: Date.now() + 45000,
             },
           })
@@ -140,7 +140,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("handleMessage: initialize ハンドシェイクが成功し、プロトコルバージョンと機能が返る", async () => {
+  it("handleMessage: initialize handshake succeeds and returns protocol version and capabilities", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -159,7 +159,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.ok(res.result.capabilities.tools);
   });
 
-  it("handleMessage: ping リクエストに正常応答する", async () => {
+  it("handleMessage: responds normally to ping request", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -171,7 +171,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.deepEqual(res.result, {});
   });
 
-  it("handleMessage: tools/list で登録された全MCPツール定義が取得できる", async () => {
+  it("handleMessage: tools/list returns all registered MCP tool definitions", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -193,7 +193,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.ok(toolNames.includes("allevitas_create_comment"));
   });
 
-  it("handleMessage: tools/call で allevitas_get_challenge を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_get_challenge can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -211,10 +211,10 @@ describe("MCPServer (Model Context Protocol)", () => {
     const parsedData = JSON.parse(contentText);
     assert.equal(parsedData.id, "chal_mcp_001");
     assert.equal(parsedData.puzzleType, "LOG_FILTERING");
-    assert.ok(parsedData.prompt.includes("MCP経由で取得"));
+    assert.ok(parsedData.prompt.includes("fetched via MCP"));
   });
 
-  it("handleMessage: tools/call で allevitas_list_topics を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_list_topics can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -233,7 +233,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(parsedTopics[0].slug, "tech");
   });
 
-  it("handleMessage: tools/call で allevitas_vote を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_vote can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     (mcp as any).client.auth.currentToken = "fake-token";
     (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
@@ -258,7 +258,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(voteRes.currentScore, 1);
   });
 
-  it("handleMessage: tools/call で allevitas_get_user_profile を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_get_user_profile can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -277,7 +277,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(profile.karmaScore, 42);
   });
 
-  it("handleMessage: tools/call で allevitas_get_ranking を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_get_ranking can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     (mcp as any).client.auth.currentToken = "fake-token";
     (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
@@ -298,7 +298,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(rankingRes.ranking[0].rank, 1);
   });
 
-  it("handleMessage: tools/call で allevitas_link_producer を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_link_producer can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     (mcp as any).client.auth.currentToken = "fake-token";
     (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
@@ -318,7 +318,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(linkRes.success, true);
   });
 
-  it("handleMessage: tools/call で allevitas_report を実行できる", async () => {
+  it("handleMessage: tools/call: allevitas_report can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     (mcp as any).client.auth.currentToken = "fake-token";
     (mcp as any).client.auth.tokenExpiresAt = Date.now() + 7 * 24 * 3600 * 1000;
@@ -343,7 +343,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(reportRes.success, true);
   });
 
-  it("handleMessage: 存在しないツールを呼び出した場合は isError: true となる", async () => {
+  it("handleMessage: calling a nonexistent tool yields isError: true", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({
       jsonrpc: "2.0",
@@ -360,7 +360,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.ok(res.result.content[0].text.includes("Unsupported tool name"));
   });
 
-  it("startStdioServer: インメモリストリームで一連の JSON-RPC stdio メッセージが送受信できる", async () => {
+  it("startStdioServer: a series of JSON-RPC stdio messages can be sent and received over in-memory streams", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const inputStream = new PassThrough();
     const outputStream = new PassThrough();
@@ -387,7 +387,7 @@ describe("MCPServer (Model Context Protocol)", () => {
       }) + "\n"
     );
 
-    // 2. notifications/initialized (応答なし)
+    // 2. notifications/initialized (no response)
     inputStream.write(
       JSON.stringify({
         jsonrpc: "2.0",
@@ -404,7 +404,7 @@ describe("MCPServer (Model Context Protocol)", () => {
       }) + "\n"
     );
 
-    // 少し待機して結果を検証
+    // Wait briefly and verify the results
     await new Promise((resolve) => setTimeout(resolve, 50));
     runner.close();
 

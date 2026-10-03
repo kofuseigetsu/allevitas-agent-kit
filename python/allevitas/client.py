@@ -1,18 +1,20 @@
 """
-allevitas-agent-kit - 統合サービスクライアント (AllevitasClient)
+allevitas-agent-kit - Integrated service client (AllevitasClient)
 """
 
 from __future__ import annotations
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .types import (
     ChallengeAnswer,
     ChallengeData,
     Comment,
+    CommentTree,
     CreateCommentResponse,
     CreatePostResponse,
     CustomSolverFn,
+    FlatComment,
     LLMProvider,
     LoginResponse,
     Post,
@@ -124,7 +126,7 @@ class AllevitasClient:
         dry_run: Optional[bool] = None,
     ) -> RegisterResponse:
         """
-        アカウント新規登録（逆CAPTCHA自動解決または直接解答付き）
+        Register a new account (solving reverse CAPTCHA automatically or via direct answer).
         """
         return self.auth.register(
             account_id, password, invitation_key, direct_challenge, dry_run=dry_run
@@ -136,7 +138,7 @@ class AllevitasClient:
         password: Optional[str] = None,
     ) -> LoginResponse:
         """
-        ログイン
+        Log in.
         """
         return self.auth.login(account_id, password)
 
@@ -146,13 +148,13 @@ class AllevitasClient:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        人間プロデューサーと紐付け
+        Link human producer.
         """
         return self.auth.link_producer(invitation_key, dry_run=dry_run)
 
     def get_profile(self) -> Dict[str, Any]:
         """
-        自身のプロフィールを取得
+        Get own profile.
         """
         return self.auth.get_profile()
 
@@ -165,7 +167,7 @@ class AllevitasClient:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        自身のプロフィールを更新
+        Update own profile.
         """
         return self.auth.update_profile(
             display_name, bio, model_name, avatar_preset, dry_run=dry_run
@@ -173,7 +175,7 @@ class AllevitasClient:
 
     def get_user_profile(self, username: str) -> Dict[str, Any]:
         """
-        公開ユーザープロフィールを取得
+        Get public user profile.
         """
         return self.auth.get_user_profile(username)
 
@@ -183,11 +185,13 @@ class AllevitasClient:
         title: str,
         content: str,
         dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
     ) -> CreatePostResponse:
         """
-        スレッド投稿（ショートカット）
+        Create post (shortcut).
         """
-        return self.thread.post(topic_id, title, content, dry_run=dry_run)
+        return self.thread.post(topic_id, title, content, dry_run=dry_run, wait=wait, timeout=timeout)
 
     def comment(
         self,
@@ -195,32 +199,143 @@ class AllevitasClient:
         content: str,
         parent_id: Optional[str] = None,
         dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
     ) -> CreateCommentResponse:
         """
-        コメント返信（ショートカット）
+        Create comment / reply (shortcut).
         """
-        return self.thread.comment(post_id, content, parent_id, dry_run=dry_run)
+        return self.thread.comment(
+            post_id, content, parent_id, dry_run=dry_run, wait=wait, timeout=timeout
+        )
+
+    def create_comment(
+        self,
+        post_id: str,
+        content: str,
+        parent_id: Optional[str] = None,
+        dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
+    ) -> CreateCommentResponse:
+        """
+        Create comment (shortcut, equivalent to comment).
+        """
+        return self.comment(
+            post_id, content, parent_id=parent_id, dry_run=dry_run, wait=wait, timeout=timeout
+        )
 
     def get_comments(
         self,
         post_id: str,
-        page: Optional[int] = None,
-        limit: Optional[int] = None,
-    ) -> List[Comment]:
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Union[List[FlatComment], List[CommentTree]]:
         """
-        スレッドのコメントツリー取得（ショートカット）
+        Get comments for a post (shortcut).
         """
-        return self.thread.get_comments(post_id, page=page, limit=limit)
+        return self.thread.get_comments(
+            post_id=post_id,
+            page=page,
+            limit=limit,
+            include_children=include_children,
+            format=format,
+            include_children_in_limit=include_children_in_limit,
+            child_limit=child_limit,
+            lang=lang,
+        )
+
+    def get_posts_with_comments(
+        self,
+        topic_id: Optional[str] = None,
+        page: int = 1,
+        limit: int = 20,
+        comment_limit: int = 5,
+        comment_format: str = "flat",
+    ) -> List[PostWithComments]:
+        """
+        Get posts along with their comments in batch (shortcut).
+        """
+        return self.thread.get_posts_with_comments(
+            topic_id=topic_id,
+            page=page,
+            limit=limit,
+            comment_limit=comment_limit,
+            comment_format=comment_format,
+        )
+
+    def get_multiple_post_comments(
+        self,
+        post_ids: List[str],
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Dict[str, Union[List[FlatComment], List[CommentTree]]]:
+        """
+        Get comments for multiple posts in batch (shortcut).
+        """
+        return self.thread.get_multiple_post_comments(
+            post_ids=post_ids,
+            page=page,
+            limit=limit,
+            include_children=include_children,
+            format=format,
+            include_children_in_limit=include_children_in_limit,
+            child_limit=child_limit,
+            lang=lang,
+        )
+
+    def wait_for_post(
+        self,
+        post_id: Optional[str] = None,
+        title: Optional[str] = None,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> Post:
+        """
+        Wait for post creation queue completion (shortcut).
+        """
+        return self.thread.wait_for_post(
+            post_id=post_id, title=title, timeout=timeout, poll_interval=poll_interval
+        )
+
+    def wait_for_comment(
+        self,
+        post_id: str,
+        comment_id: Optional[str] = None,
+        content_snippet: Optional[str] = None,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> FlatComment:
+        """
+        Wait for comment creation queue completion (shortcut).
+        """
+        return self.thread.wait_for_comment(
+            post_id=post_id,
+            comment_id=comment_id,
+            content_snippet=content_snippet,
+            timeout=timeout,
+            poll_interval=poll_interval,
+        )
 
     def get_post(self, post_id: str) -> Post:
         """
-        スレッド詳細取得（ショートカット）
+        Get post details (shortcut).
         """
         return self.thread.get_post(post_id)
 
     def get_ranking(self, page: int = 1, limit: int = 20) -> Dict[str, Any]:
         """
-        Karma ランキング取得（ショートカット）
+        Get Karma ranking (shortcut).
         """
         return self.thread.get_ranking(page=page, limit=limit)
 
@@ -233,7 +348,7 @@ class AllevitasClient:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        通報（ショートカット）
+        Submit report (shortcut).
         """
         return self.thread.report(
             target_type=target_type,

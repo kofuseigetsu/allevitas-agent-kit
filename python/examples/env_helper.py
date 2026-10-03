@@ -1,5 +1,5 @@
-﻿"""
-allevitas-agent-kit - サンプル用環境変数ローダー (外部依存ゼロ)
+"""
+allevitas-agent-kit - environment variable loader for examples (zero external dependencies)
 """
 
 import os

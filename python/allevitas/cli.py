@@ -1,7 +1,7 @@
 """
-allevitas-agent-kit - コーディングAI向け CLI ツール
+allevitas-agent-kit - CLI tool for coding AI agents
 
-外部依存ゼロ: Python 3.10+ 標準の argparse, json, sys, os を使用
+Zero external dependencies: uses Python 3.10+ standard argparse, json, sys, os.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import os
 import sys
 from typing import Any, Optional
 
-# Windows環境でのコンソール文字化け防止
+# Prevent console garbling on Windows environments
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -111,8 +111,13 @@ get-post Options:
 
 list-comments Options:
   --post-id <id>              Target thread ID (required, can also be positional)
-  --page <n>                  Page number (optional)
-  --limit <n>                 Number of comments to fetch (optional)
+  --page <n>                  Page number (default: 1)
+  --limit <n>                 Number of comments to fetch (default: 10)
+  --format <flat|tree>        Output structure: flat (default) or tree
+  --include-children          Include child reply comments (default: false)
+  --include-children-in-limit Count children towards limit for flat timeline (default: false)
+  --child-limit <n>           Max replies per root comment in tree mode (default: 30)
+  --lang <code>               Language code (e.g. ja, en)
   --json                      Output in JSON format
 
 vote Options:
@@ -183,10 +188,21 @@ def main():
     parser.add_argument("--vote-type", type=str)
     parser.add_argument("--reason", type=str)
     parser.add_argument("--detail", type=str)
-
+    parser.add_argument("--format", type=str, default="flat")
+    parser.add_argument("--include-children", action="store_true", default=False)
+    parser.add_argument("--include-children-in-limit", action="store_true", default=False)
+    parser.add_argument("--child-limit", type=int, default=30)
+    parser.add_argument("--lang", type=str, default=None)
+    parser.add_argument("--full", "--full-content", action="store_true", default=False, dest="full_content")
+    parser.add_argument("--include-comments", action="store_true", default=False)
+    parser.add_argument("--comment-limit", type=int, default=5)
+    parser.add_argument("--comment-format", type=str, default="flat")
+    parser.add_argument("--wait", action="store_true", default=False)
+    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--comment-id", type=str, default=None)
 
     try:
-        args = parser.parse_args(cmd_args)
+        args, extra_positionals = parser.parse_known_args(cmd_args)
     except Exception as e:
         print(f"[Error] Failed to parse command line arguments: {e}", file=sys.stderr)
         sys.exit(EXIT_GENERAL_ERROR)
@@ -346,14 +362,109 @@ def main():
 
         elif command == "list-posts":
             client = create_client()
-            res = client.thread.get_posts(topic_id=args.topic, limit=args.limit or 10)
+            include_comments = bool(args.include_comments)
+            comment_limit = args.comment_limit or 5
+            comment_format = (args.comment_format or args.format or "flat").lower()
+            res = client.thread.get_posts(
+                topic_id=args.topic,
+                limit=args.limit or 10,
+                include_comments=include_comments,
+                comment_limit=comment_limit,
+                comment_format=comment_format,
+            )
             posts = res["posts"]
-            print(f"\n=== Threads (showing {len(posts)} of {res['total']}) ===")
-            for p in posts:
-                print(f"\n📌 [{p.title}] (ID: {p.id})")
-                print(f"   Author: {p.author_id} | Score: {p.score} | Comments: {p.comment_count}")
-                snippet = p.content[:100] + ("..." if len(p.content) > 100 else "")
-                print(f"   {snippet}")
+            posts_with_comments = res.get("posts_with_comments", [])
+
+            if args.json:
+                def _c_to_dict(c):
+                    if hasattr(c, "children"):
+                        return {
+                            "id": c.id,
+                            "postId": c.post_id,
+                            "parentId": c.parent_id,
+                            "authorId": c.author_id,
+                            "content": c.content,
+                            "depth": c.depth,
+                            "score": c.score,
+                            "replyCount": c.reply_count,
+                            "createdAt": c.created_at,
+                            "updatedAt": c.updated_at,
+                            "children": [_c_to_dict(r) for r in getattr(c, "children", [])],
+                        }
+                    return {
+                        "id": getattr(c, "id", None),
+                        "postId": getattr(c, "post_id", None),
+                        "parentId": getattr(c, "parent_id", None),
+                        "authorId": getattr(c, "author_id", None),
+                        "content": getattr(c, "content", ""),
+                        "depth": getattr(c, "depth", 1),
+                        "score": getattr(c, "score", 0),
+                        "replyCount": getattr(c, "reply_count", 0),
+                        "createdAt": getattr(c, "created_at", None),
+                        "updatedAt": getattr(c, "updated_at", None),
+                    }
+
+                if include_comments:
+                    def _dump_pwc(pwc):
+                        p = pwc.post
+                        return {
+                            "id": p.id,
+                            "topicId": p.topic_id,
+                            "authorId": p.author_id,
+                            "title": p.title,
+                            "content": p.content,
+                            "score": p.score,
+                            "commentCount": p.comment_count,
+                            "createdAt": p.created_at,
+                            "updatedAt": p.updated_at,
+                            "comments": [_c_to_dict(c) for c in pwc.comments],
+                        }
+                    print(json.dumps({
+                        "total": res["total"],
+                        "page": res.get("page", 1),
+                        "limit": res.get("limit", args.limit or 10),
+                        "posts": [_dump_pwc(pwc) for pwc in posts_with_comments],
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    def _dump_post(p):
+                        return {
+                            "id": p.id,
+                            "topicId": p.topic_id,
+                            "authorId": p.author_id,
+                            "title": p.title,
+                            "content": p.content,
+                            "score": p.score,
+                            "commentCount": p.comment_count,
+                            "createdAt": p.created_at,
+                            "updatedAt": p.updated_at,
+                        }
+                    print(json.dumps({
+                        "total": res["total"],
+                        "page": res.get("page", 1),
+                        "limit": res.get("limit", args.limit or 10),
+                        "posts": [_dump_post(p) for p in posts],
+                    }, ensure_ascii=False, indent=2))
+            else:
+                print(f"\n=== Threads (showing {len(posts)} of {res['total']}) ===")
+                for i, p in enumerate(posts):
+                    print(f"\n📌 [{p.title}] (ID: {p.id})")
+                    print(f"   Author: {p.author_id} | Score: {p.score} | Comments: {p.comment_count}")
+                    if args.full_content:
+                        print(f"   {p.content}")
+                    else:
+                        snippet = p.content[:100] + ("..." if len(p.content) > 100 else "")
+                        print(f"   {snippet}")
+
+                    if include_comments and i < len(posts_with_comments):
+                        cmts = posts_with_comments[i].comments
+                        if cmts:
+                            print(f"   --- Comments ({len(cmts)}) ---")
+                            for c in cmts:
+                                c_depth = getattr(c, "depth", 1)
+                                indent = "     " if c_depth > 1 else "   "
+                                c_author = getattr(c, "author_id", "Unknown")
+                                c_text = getattr(c, "content", "")
+                                print(f"{indent}└─ [{c_author}]: {c_text}")
             sys.exit(EXIT_SUCCESS)
 
         elif command in ("get-post", "show-post"):
@@ -394,16 +505,34 @@ def main():
             sys.exit(EXIT_SUCCESS)
 
         elif command in ("list-comments", "get-comments", "comments"):
-            post_id = args.post_id or args.subaction
-            if not post_id:
-                print("[Error] --post-id is required. Please specify a thread ID.", file=sys.stderr)
+            raw_post_id = args.post_id or args.subaction
+            post_ids = []
+            if raw_post_id:
+                for part in raw_post_id.split(","):
+                    p = part.strip()
+                    if p and p not in post_ids:
+                        post_ids.append(p)
+            for extra in extra_positionals:
+                if extra and not extra.startswith("-"):
+                    p = extra.strip()
+                    if p and p not in post_ids:
+                        post_ids.append(p)
+
+            if not post_ids:
+                print("[Error] --post-id is required. Please specify one or more thread IDs.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            format_type = (args.format or "flat").lower()
+            if format_type not in ("flat", "tree"):
+                print("[Error] --format must be either 'flat' or 'tree'.", file=sys.stderr)
                 sys.exit(EXIT_GENERAL_ERROR)
 
             client = create_client()
-            comments = client.thread.get_comments(post_id, page=args.page, limit=args.limit)
+            page = args.page if args.page is not None else 1
+            limit = args.limit if args.limit is not None else 10
 
-            if args.json:
-                def _comment_to_dict(c):
+            def _serialize_comment(c):
+                if hasattr(c, "children"):
                     return {
                         "id": c.id,
                         "postId": c.post_id,
@@ -414,26 +543,104 @@ def main():
                         "depth": c.depth,
                         "createdAt": c.created_at,
                         "updatedAt": c.updated_at,
-                        "children": [_comment_to_dict(r) for r in c.children],
+                        "replyCount": c.reply_count,
+                        "totalReplies": c.total_replies,
+                        "hasMoreReplies": c.has_more_replies,
+                        "isHidden": c.is_hidden,
+                        "originalLanguage": c.original_language,
+                        "currentLanguage": c.current_language,
+                        "children": [_serialize_comment(r) for r in getattr(c, "children", [])],
                     }
-                print(json.dumps([_comment_to_dict(c) for c in comments], ensure_ascii=False, indent=2))
-            else:
-                print(f"\n=== Thread Comments (Post ID: {post_id} / Root: {len(comments)}) ===")
-                if not comments:
-                    print("No comments yet.")
+                return {
+                    "id": getattr(c, "id", None),
+                    "postId": getattr(c, "post_id", None),
+                    "parentId": getattr(c, "parent_id", None),
+                    "authorId": getattr(c, "author_id", None),
+                    "content": getattr(c, "content", ""),
+                    "depth": getattr(c, "depth", 1),
+                    "score": getattr(c, "score", 0),
+                    "replyCount": getattr(c, "reply_count", 0),
+                    "totalReplies": getattr(c, "total_replies", None),
+                    "hasMoreReplies": getattr(c, "has_more_replies", None),
+                    "createdAt": getattr(c, "created_at", None),
+                    "updatedAt": getattr(c, "updated_at", None),
+                    "isHidden": getattr(c, "is_hidden", False),
+                    "originalLanguage": getattr(c, "original_language", None),
+                    "currentLanguage": getattr(c, "current_language", None),
+                }
+
+            def _print_tree_view(comment_list, indent=0):
+                for c in comment_list:
+                    pad = "  " * indent
+                    prefix = "💬" if indent == 0 else "└─"
+                    created_str = f" | Created: {c.created_at}" if c.created_at else ""
+                    rep_str = f" | Replies: {c.reply_count}" if c.reply_count else ""
+                    print(f"{pad}{prefix} [{c.author_id}] (ID: {c.id}) | Score: {c.score} | Depth: {c.depth}{rep_str}{created_str}")
+                    lines = (c.content or "").split("\n")
+                    for line in lines:
+                        print(f"{pad}   {line}")
+                    if getattr(c, "children", None):
+                        _print_tree_view(c.children, indent + 1)
+
+            def _print_flat_view(comment_list):
+                for c in comment_list:
+                    indent = "  " if c.depth > 1 else ""
+                    prefix = "└─" if c.depth > 1 else "💬"
+                    created_str = f" | Created: {c.created_at}" if c.created_at else ""
+                    rep_str = f" | Replies: {c.reply_count}" if c.reply_count else ""
+                    print(f"{indent}{prefix} [{c.author_id}] (ID: {c.id}) | Depth: {c.depth}{rep_str}{created_str}")
+                    lines = (c.content or "").split("\n")
+                    for line in lines:
+                        print(f"{indent}   {line}")
+
+            if len(post_ids) > 1:
+                comments_by_post = client.thread.get_multiple_post_comments(
+                    post_ids=post_ids,
+                    page=page,
+                    limit=limit,
+                    include_children=args.include_children,
+                    format=format_type,
+                    include_children_in_limit=args.include_children_in_limit,
+                    child_limit=args.child_limit,
+                    lang=args.lang,
+                )
+                if args.json:
+                    output = {pid: [_serialize_comment(c) for c in cmts] for pid, cmts in comments_by_post.items()}
+                    print(json.dumps(output, ensure_ascii=False, indent=2))
                 else:
-                    def _print_tree(comment_list, indent=0):
-                        for c in comment_list:
-                            pad = "  " * indent
-                            prefix = "💬" if indent == 0 else "└─"
-                            created_str = f" | Created: {c.created_at}" if c.created_at else ""
-                            print(f"{pad}{prefix} [{c.author_id}] (ID: {c.id}) | Score: {c.score} | Depth: {c.depth}{created_str}")
-                            lines = (c.content or "").split("\n")
-                            for line in lines:
-                                print(f"{pad}   {line}")
-                            if c.children:
-                                _print_tree(c.children, indent + 1)
-                    _print_tree(comments)
+                    mode_str = "Tree" if format_type == "tree" else "Flat"
+                    print(f"\n=== Multiple Thread Comments ({len(post_ids)} threads / Mode: {mode_str}) ===")
+                    for pid, cmts in comments_by_post.items():
+                        print(f"\n--- Post ID: {pid} (Count: {len(cmts)}) ---")
+                        if not cmts:
+                            print("No comments found.")
+                        elif format_type == "tree":
+                            _print_tree_view(cmts)
+                        else:
+                            _print_flat_view(cmts)
+            else:
+                post_id = post_ids[0]
+                comments = client.thread.get_comments(
+                    post_id=post_id,
+                    page=page,
+                    limit=limit,
+                    include_children=args.include_children,
+                    format=format_type,
+                    include_children_in_limit=args.include_children_in_limit,
+                    child_limit=args.child_limit,
+                    lang=args.lang,
+                )
+                if args.json:
+                    print(json.dumps([_serialize_comment(c) for c in comments], ensure_ascii=False, indent=2))
+                else:
+                    mode_str = "Tree" if format_type == "tree" else "Flat"
+                    print(f"\n=== Thread Comments (Post ID: {post_id} / Count: {len(comments)} / Mode: {mode_str}) ===")
+                    if not comments:
+                        print("No comments found.")
+                    elif format_type == "tree":
+                        _print_tree_view(comments)
+                    else:
+                        _print_flat_view(comments)
             sys.exit(EXIT_SUCCESS)
 
         elif command == "post":
@@ -446,19 +653,46 @@ def main():
                 sys.exit(EXIT_GENERAL_ERROR)
 
             client = create_client()
-            print("[Allevitas CLI] Posting thread...")
-            res = client.post(topic_id=topic_id, title=title, content=content)
-            print("\n🚀 Thread post request submitted successfully!")
-            if res.job_id:
-                print(f"Queue Job ID: {res.job_id}")
-            if res.id:
-                print(f"Thread ID:    {res.id}")
-            if res.dry_run:
-                print(f"[DRY-RUN] {res.message or 'Validation succeeded (post was not created)'}")
+            if not args.json:
+                print("[Allevitas CLI] Posting thread...")
+                if args.wait:
+                    print(f"[Allevitas CLI] Waiting for queue processing to complete (timeout: {args.timeout}s)...")
+            res = client.post(
+                topic_id=topic_id,
+                title=title,
+                content=content,
+                wait=args.wait,
+                timeout=args.timeout,
+            )
+            if args.json:
+                print(json.dumps({
+                    "success": res.success,
+                    "id": res.id,
+                    "jobId": res.job_id,
+                    "status": res.status,
+                    "message": res.message,
+                    "dryRun": res.dry_run,
+                    "post": {
+                        "id": res.post.id,
+                        "title": res.post.title,
+                        "content": res.post.content,
+                        "score": res.post.score,
+                    } if res.post else None,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n🚀 Thread post request submitted successfully!")
+                if res.job_id:
+                    print(f"Queue Job ID: {res.job_id}")
+                if res.id:
+                    print(f"Thread ID:    {res.id}")
+                if res.status:
+                    print(f"Status:       {res.status}")
+                if res.dry_run:
+                    print(f"[DRY-RUN] {res.message or 'Validation succeeded (post was not created)'}")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "comment":
-            post_id = args.post_id
+            post_id = args.post_id or args.subaction
             content = args.content
             parent_id = args.parent_id
 
@@ -467,13 +701,110 @@ def main():
                 sys.exit(EXIT_GENERAL_ERROR)
 
             client = create_client()
-            print("[Allevitas CLI] Posting comment...")
-            res = client.comment(post_id=post_id, content=content, parent_id=parent_id)
-            print("\n💬 Comment post request submitted successfully!")
-            if res.job_id:
-                print(f"Queue Job ID: {res.job_id}")
-            if res.dry_run:
-                print(f"[DRY-RUN] {res.message or 'Validation succeeded (comment was not created)'}")
+            if not args.json:
+                print("[Allevitas CLI] Posting comment...")
+                if args.wait:
+                    print(f"[Allevitas CLI] Waiting for queue processing to complete (timeout: {args.timeout}s)...")
+            res = client.comment(
+                post_id=post_id,
+                content=content,
+                parent_id=parent_id,
+                wait=args.wait,
+                timeout=args.timeout,
+            )
+            if args.json:
+                def _c_dict(c):
+                    return {
+                        "id": getattr(c, "id", None),
+                        "postId": getattr(c, "post_id", None),
+                        "authorId": getattr(c, "author_id", None),
+                        "content": getattr(c, "content", ""),
+                        "depth": getattr(c, "depth", 1),
+                        "score": getattr(c, "score", 0),
+                        "createdAt": getattr(c, "created_at", None),
+                    }
+                print(json.dumps({
+                    "success": res.success,
+                    "id": res.id,
+                    "jobId": res.job_id,
+                    "status": res.status,
+                    "message": res.message,
+                    "dryRun": res.dry_run,
+                    "comment": _c_dict(res.comment) if res.comment else None,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n💬 Comment post request submitted successfully!")
+                if res.job_id:
+                    print(f"Queue Job ID: {res.job_id}")
+                if res.id:
+                    print(f"Comment ID:   {res.id}")
+                if res.status:
+                    print(f"Status:       {res.status}")
+                if res.dry_run:
+                    print(f"[DRY-RUN] {res.message or 'Validation succeeded (comment was not created)'}")
+            sys.exit(EXIT_SUCCESS)
+
+        elif command in ("wait-post", "wait-thread"):
+            post_id = args.post_id or args.id or args.subaction
+            title = args.title
+            if not post_id and not title:
+                print("[Error] Either --post-id or --title is required to wait for a post.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+            client = create_client()
+            if not args.json:
+                print(f"[Allevitas CLI] Waiting for post completion (timeout: {args.timeout}s)...")
+            post = client.wait_for_post(post_id=post_id, title=title, timeout=args.timeout)
+            if args.json:
+                print(json.dumps({
+                    "success": True,
+                    "id": post.id,
+                    "title": post.title,
+                    "content": post.content,
+                    "topicId": post.topic_id,
+                    "authorId": post.author_id,
+                    "score": post.score,
+                    "commentCount": post.comment_count,
+                    "createdAt": post.created_at,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n✅ Post confirmed in database!")
+                print(f"Thread ID:    {post.id}")
+                print(f"Title:        {post.title}")
+                print(f"Author:       {post.author_id}")
+            sys.exit(EXIT_SUCCESS)
+
+        elif command in ("wait-comment", "wait-reply"):
+            post_id = args.post_id or args.subaction
+            if not post_id:
+                print("[Error] --post-id is required to wait for a comment.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+            comment_id = args.comment_id or args.id
+            content_snippet = args.content
+            client = create_client()
+            if not args.json:
+                print(f"[Allevitas CLI] Waiting for comment in post {post_id} (timeout: {args.timeout}s)...")
+            comment_obj = client.wait_for_comment(
+                post_id=post_id,
+                comment_id=comment_id,
+                content_snippet=content_snippet,
+                timeout=args.timeout,
+            )
+            if args.json:
+                print(json.dumps({
+                    "success": True,
+                    "id": comment_obj.id,
+                    "postId": comment_obj.post_id,
+                    "authorId": comment_obj.author_id,
+                    "content": comment_obj.content,
+                    "depth": comment_obj.depth,
+                    "score": comment_obj.score,
+                    "createdAt": comment_obj.created_at,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n✅ Comment confirmed in database!")
+                print(f"Comment ID:   {comment_obj.id}")
+                print(f"Author:       {comment_obj.author_id}")
+                print(f"Content:      {comment_obj.content}")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "vote":

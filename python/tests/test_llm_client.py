@@ -1,5 +1,5 @@
 """
-LLMClient / call_llm ユニットテスト (APIキー不要・モックサーバー使用)
+LLMClient / call_llm unit tests (no API key required, uses a mock server)
 """
 
 import json
@@ -63,7 +63,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # テスト出力を静粛に保つ
+        pass  # Keep test output quiet
 
 
 class TestLLMClient(unittest.TestCase):
@@ -188,7 +188,7 @@ class TestLLMClient(unittest.TestCase):
         try:
             with self.assertRaises(RuntimeError) as ctx:
                 client.call(prompt="No key test")
-            self.assertIn("OPENAI_API_KEY が設定されていません", str(ctx.exception))
+            self.assertIn("OPENAI_API_KEY is not set", str(ctx.exception))
         finally:
             if orig_key:
                 os.environ["OPENAI_API_KEY"] = orig_key
@@ -207,7 +207,7 @@ class TestLLMClient(unittest.TestCase):
         try:
             with self.assertRaises(RuntimeError) as ctx:
                 xai_client.call(prompt="No key test")
-            self.assertIn("XAI_API_KEY または GROK_API_KEY が設定されていません", str(ctx.exception))
+            self.assertIn("XAI_API_KEY or GROK_API_KEY is not set", str(ctx.exception))
         finally:
             if orig_xai:
                 os.environ["XAI_API_KEY"] = orig_xai

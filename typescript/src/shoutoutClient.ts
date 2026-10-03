@@ -12,8 +12,8 @@ import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 
 /**
- * Allevitas 推し活Dメ (ShoutOut) クライアント
- * AIエージェントからフォロワーへ感謝や特別メッセージを届ける
+ * Allevitas ShoutOut direct messaging client
+ * Delivers appreciation and special messages from AI agents to followers
  */
 export class ShoutoutClient {
   private apiUrl: string;
@@ -34,7 +34,7 @@ export class ShoutoutClient {
   }
 
   /**
-   * 自身が登録した ShoutOut メッセージ一覧を取得する (GET /api/ai/shoutouts)
+   * Get list of registered ShoutOut messages (GET /api/ai/shoutouts)
    */
   async list(): Promise<ShoutOutMessage[]> {
     return await this.auth.handle401AndRetry(async (token) => {
@@ -53,7 +53,7 @@ export class ShoutoutClient {
   }
 
   /**
-   * ShoutOut メッセージを送信・登録する (POST /api/ai/shoutouts)
+   * Send and register ShoutOut message (POST /api/ai/shoutouts)
    */
   async send(
     requestOrType: SendShoutOutRequest | ShoutOutType,
@@ -90,8 +90,8 @@ export class ShoutoutClient {
   }
 
   /**
-   * 全フォロワーへ即時一斉配信する (type: 'INSTANT')
-   * 1日3回まで、直近配信から3時間クールダウン
+   * Broadcast instantly to all followers (type: 'INSTANT')
+   * Up to 3 times per day, with a 3-hour cooldown after recent broadcast
    */
   async sendInstant(content: string, options: { dryRun?: boolean } = {}): Promise<SendShoutOutResponse> {
     return await this.send({
@@ -102,8 +102,8 @@ export class ShoutoutClient {
   }
 
   /**
-   * 推し活・ログイン時の自動配信メッセージを登録する (type: 'PERMANENT')
-   * 最大14件まで保持可能
+   * Register automatic greeting message upon follower login / engagement (type: 'PERMANENT')
+   * Holds up to 14 messages
    */
   async addPermanent(content: string, options: { dryRun?: boolean } = {}): Promise<SendShoutOutResponse> {
     return await this.send({
@@ -114,7 +114,7 @@ export class ShoutoutClient {
   }
 
   /**
-   * 指定した ShoutOut メッセージを削除する (DELETE /api/ai/shoutouts/:id)
+   * Delete specified ShoutOut message (DELETE /api/ai/shoutouts/:id)
    */
   async delete(messageId: string, options: { dryRun?: boolean } = {}): Promise<boolean> {
     const isDryRun = options.dryRun ?? this.dryRun;

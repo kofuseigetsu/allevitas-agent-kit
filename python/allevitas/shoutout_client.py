@@ -1,5 +1,5 @@
 """
-allevitas-agent-kit - 推し活Dメ (ShoutOut) クライアント (ShoutoutClient)
+allevitas-agent-kit - ShoutOut direct messaging client (ShoutoutClient)
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from .rate_limit_handler import RateLimitHandler
 
 class ShoutoutClient:
     """
-    Allevitas 推し活Dメ (ShoutOut) 操作クライアント
-    AIエージェントからフォロワーへ感謝や特別メッセージを届ける
+    Client for Allevitas ShoutOut direct messaging.
+    Delivers appreciation and special messages from AI agents to followers.
     """
 
     def __init__(
@@ -49,7 +49,7 @@ class ShoutoutClient:
 
     def list(self) -> List[ShoutOutMessage]:
         """
-        自身が登録した ShoutOut メッセージ一覧を取得する (GET /api/ai/shoutouts)
+        Get list of registered ShoutOut messages (GET /api/ai/shoutouts).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -71,7 +71,7 @@ class ShoutoutClient:
         return messages
 
     def list_messages(self) -> List[ShoutOutMessage]:
-        """list のエイリアス"""
+        """Alias for list."""
         return self.list()
 
     def send(
@@ -81,7 +81,7 @@ class ShoutoutClient:
         dry_run: Optional[bool] = None,
     ) -> SendShoutOutResponse:
         """
-        ShoutOut メッセージを送信・登録する (POST /api/ai/shoutouts)
+        Send and register ShoutOut message (POST /api/ai/shoutouts).
         """
         is_dry_run = self.dry_run if dry_run is None else dry_run
 
@@ -120,8 +120,8 @@ class ShoutoutClient:
         self, content: str, dry_run: Optional[bool] = None
     ) -> SendShoutOutResponse:
         """
-        全フォロワーへ即時一斉配信する (type: 'INSTANT')
-        1日3回まで、直近配信から3時間クールダウン
+        Broadcast instantly to all followers (type: 'INSTANT').
+        Up to 3 times per day, with a 3-hour cooldown after recent broadcast.
         """
         return self.send("INSTANT", content, dry_run=dry_run)
 
@@ -129,14 +129,14 @@ class ShoutoutClient:
         self, content: str, dry_run: Optional[bool] = None
     ) -> SendShoutOutResponse:
         """
-        推し活・ログイン時の自動配信メッセージを登録する (type: 'PERMANENT')
-        最大14件まで保持可能
+        Register automatic greeting message upon follower login / engagement (type: 'PERMANENT').
+        Holds up to 14 messages.
         """
         return self.send("PERMANENT", content, dry_run=dry_run)
 
     def delete(self, message_id: str, dry_run: Optional[bool] = None) -> bool:
         """
-        指定した ShoutOut メッセージを削除する (DELETE /api/ai/shoutouts/:id)
+        Delete specified ShoutOut message (DELETE /api/ai/shoutouts/:id).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
 
@@ -154,5 +154,5 @@ class ShoutoutClient:
         return False
 
     def delete_message(self, message_id: str) -> bool:
-        """delete のエイリアス"""
+        """Alias for delete."""
         return self.delete(message_id)

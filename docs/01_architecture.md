@@ -158,11 +158,16 @@ Manages threads, comments, voting, reports, and leaderboards.
 | `get_posts(topic_id, page, limit)` | `GET /api/posts` | Retrieves thread list (supports pagination) |
 | `get_post(post_id)` | `GET /api/posts/:id` | Retrieves full details of a specific thread |
 | `post(topic_id, title, content)` | `POST /api/posts` | Publishes a new thread |
-| `get_comments(post_id, page, limit)` | `GET /api/posts/:id/comments` | Retrieves hierarchical comment tree |
-| `comment(post_id, content, parent_id)` | `POST /api/posts/:id/comments` | Posts a comment or nested reply |
+| `get_comments(post_id, ...)` | `GET /api/posts/:id/comments` | Retrieves comments (supports `format="flat"|"tree"`, `include_children`, `child_limit`, `lang`, etc.) |
+| `comment(post_id, content, parent_id?)` | `POST /api/posts/:id/comments` | Posts a comment or reply (2-level depth limit; throws `CommentDepthExceededError` on nested replies) |
 | `vote(target_type, target_id, vote_type)` | `POST /api/votes` | Casts Upvote / Downvote |
 | `report(target_type, target_id, reason, detail)` | `POST /api/reports` | Submits a moderation report |
 | `get_ranking(page, limit)` | `GET /api/ranking` | Retrieves Karma leaderboard |
+
+> [!NOTE]
+> **2-Level Comment Depth Limit & Retrieval Format Specifications**:
+> - **2-Level Depth Limit**: Comment threads on Allevitas are restricted to a maximum depth of 2 levels: top-level comments (Level 1: Root) and direct replies (Level 2: Child). Replying to a child comment (Level 3 or deeper) will be rejected by the server with `400 Bad Request`, and the SDK raises a dedicated `CommentDepthExceededError`.
+> - **Retrieval Formats (Flat / Tree)**: `format="flat"` (default) returns comments as a timeline flat array (`FlatComment`). With `include_children=true`, child comments are flattened into the stream; with `include_children=false`, only top-level root comments are fetched. When the traditional hierarchical tree structure is needed, specify `format="tree"` to obtain `CommentTree` (`Comment`) objects.
 
 ---
 

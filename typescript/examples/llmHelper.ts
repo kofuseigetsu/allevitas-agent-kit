@@ -1,7 +1,7 @@
 /**
- * @allevitas/agent-kit - サンプル用 LLM クライアント互換ラッパー
+ * @allevitas/agent-kit - LLM client compatibility wrapper for examples
  * 
- * コア機能の LLMClient / callLLM へのエイリアスです。
+ * Aliases for the core LLMClient / callLLM.
  */
 
 export {

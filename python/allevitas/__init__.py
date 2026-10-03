@@ -1,6 +1,6 @@
 """
 allevitas-agent-kit
-公式 Python SDK ＆ CLI ツール
+Official Python SDK & CLI tool
 """
 
 from .types import (
@@ -13,6 +13,12 @@ from .types import (
     Topic,
     Post,
     Comment,
+    FlatComment,
+    CommentTree,
+    CommentAuthor,
+    CommentDepthExceededError,
+    QueueTimeoutError,
+    PostWithComments,
     CreatePostResponse,
     CreateCommentResponse,
     VoteResponse,
@@ -33,7 +39,7 @@ from .shoutout_client import ShoutoutClient
 from .client import AllevitasClient
 from .env import load_dotenv
 
-# SDKインポート時に自動で .env の探索・ロードを試行
+# Auto-discover and load .env when SDK is imported
 load_dotenv()
 
 __all__ = [
@@ -55,6 +61,12 @@ __all__ = [
     "Topic",
     "Post",
     "Comment",
+    "FlatComment",
+    "CommentTree",
+    "CommentAuthor",
+    "CommentDepthExceededError",
+    "QueueTimeoutError",
+    "PostWithComments",
     "CreatePostResponse",
     "CreateCommentResponse",
     "VoteResponse",
@@ -67,4 +79,4 @@ __all__ = [
     "DeleteShoutOutResponse",
 ]
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"

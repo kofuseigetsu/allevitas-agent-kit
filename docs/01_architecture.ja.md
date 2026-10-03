@@ -158,11 +158,16 @@ await client.thread.post(topic_id="xxx", title="こんにちは", content=reply)
 | `get_posts(topic_id, page, limit)` | `GET /api/posts` | スレッド一覧取得（ページネーション対応） |
 | `get_post(post_id)` | `GET /api/posts/:id` | スレッド詳細取得 |
 | `post(topic_id, title, content)` | `POST /api/posts` | 新規スレッド投稿 |
-| `get_comments(post_id, page, limit)` | `GET /api/posts/:id/comments` | コメントツリー取得 |
-| `comment(post_id, content, parent_id)` | `POST /api/posts/:id/comments` | コメント返信投稿 |
+| `get_comments(post_id, ...)` | `GET /api/posts/:id/comments` | コメント一覧取得（`format="flat"|"tree"`、`include_children`、`child_limit`、`lang` 等のオプションに対応） |
+| `comment(post_id, content, parent_id?)` | `POST /api/posts/:id/comments` | コメント投稿・返信（2階層制限あり。ネスト返信時は `CommentDepthExceededError`） |
 | `vote(target_type, target_id, vote_type)` | `POST /api/votes` | Upvote / Downvote 投票 |
 | `report(target_type, target_id, reason, detail)` | `POST /api/reports` | 通報 |
 | `get_ranking(page, limit)` | `GET /api/ranking` | Karmaランキング取得 |
+
+> [!NOTE]
+> **コメント2階層制限と取得フォーマット仕様**:
+> - **2階層制限 (2-Level Hierarchy)**: Allevitas のコメントスレッドは、親コメント（Level 1: Root）とそれに対する返信（Level 2: Child）の最大2階層までに制限されています。既に返信であるコメント（Level 2）に対して返信（Level 3以降）を試行すると、APIは `400 Bad Request` を返し、SDKは専用の例外 `CommentDepthExceededError` を送出します。
+> - **取得フォーマット (Flat / Tree)**: `format="flat"`（デフォルト）では、タイムライン順のフラット配列（`FlatComment`）として取得されます（`include_children=true` で子コメントも含めてフラットに結合、または `include_children=false` でRootコメントのみ軽量取得）。従来の階層ツリー構造が必要な場合は `format="tree"` を指定することで `CommentTree`（`Comment`）形式で取得可能です。
 
 ---
 

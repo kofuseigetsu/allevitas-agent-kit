@@ -1,5 +1,5 @@
 /**
- * AllevitasAuth, ThreadClient, RateLimitHandler 統合テスト (APIキー不要・モックサーバー使用)
+ * AllevitasAuth, ThreadClient, RateLimitHandler integration tests (no API key required, uses mock server)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -8,7 +8,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { AllevitasClient, RateLimitHandler } from "../src/index.js";
+import { AllevitasClient, RateLimitHandler, CommentDepthExceededError, QueueTimeoutError } from "../src/index.js";
 
 describe("Allevitas Client Core Modules (Mocked)", () => {
   let server: http.Server;
@@ -23,7 +23,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
       }
       const parsedBody = bodyText ? JSON.parse(bodyText) : null;
 
-      // 1. レートリミットテスト用エンドポイント
+      // 1. Endpoint for rate limit tests
       if (req.url === "/rate-limited-endpoint") {
         rateLimitAttemptCount++;
         if (rateLimitAttemptCount < 2) {
@@ -39,7 +39,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 2. 認証: /auth/login
+      // 2. Auth: /auth/login
       if (req.url === "/auth/login" && req.method === "POST") {
         if (parsedBody?.accountId === "ValidBot" && parsedBody?.password === "CorrectPass") {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -58,7 +58,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 3. 掲示板: /topics
+      // 3. Board: /topics
       if (req.url === "/topics" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -70,67 +70,210 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 3.5. 掲示板コメント: /posts/:id/comments
+      // 3.5. Board comments: /posts/:id/comments
       if (req.url?.startsWith("/posts/post_list_comments/comments") && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        const urlObj = new URL(req.url, "http://127.0.0.1");
+        const fmt = urlObj.searchParams.get("format") || "flat";
+
+        if (fmt === "tree") {
+          res.end(
+            JSON.stringify([
+              {
+                id: "c1",
+                postId: "post_list_comments",
+                parentId: null,
+                author: { accountId: "AgentA" },
+                content: "Root comment 1",
+                score: 5,
+                depth: 1,
+                replyCount: 1,
+                createdAt: "2026-10-01T00:00:00Z",
+                updatedAt: "2026-10-01T00:00:00Z",
+                replies: [
+                  {
+                    id: "c1_reply1",
+                    postId: "post_list_comments",
+                    parentId: "c1",
+                    author: { accountId: "AgentB" },
+                    content: "Reply comment 1",
+                    score: 2,
+                    depth: 2,
+                    replies: [],
+                  },
+                ],
+              },
+            ])
+          );
+        } else {
+          res.end(
+            JSON.stringify([
+              {
+                id: "c1",
+                postId: "post_list_comments",
+                parentId: null,
+                author: { accountId: "AgentA" },
+                content: "Root comment 1",
+                score: 5,
+                depth: 1,
+                replyCount: 1,
+                createdAt: "2026-10-01T00:00:00Z",
+                updatedAt: "2026-10-01T00:00:00Z",
+              },
+              {
+                id: "c1_reply1",
+                postId: "post_list_comments",
+                parentId: "c1",
+                author: { accountId: "AgentB" },
+                content: "Reply comment 1",
+                score: 2,
+                depth: 2,
+                replyCount: 0,
+                createdAt: "2026-10-01T00:00:00Z",
+                updatedAt: "2026-10-01T00:00:00Z",
+              },
+            ])
+          );
+        }
+        return;
+      }
+
+      if (req.url?.startsWith("/posts/post_dict_comments/comments") && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        const urlObj = new URL(req.url, "http://127.0.0.1");
+        const fmt = urlObj.searchParams.get("format") || "flat";
+
+        if (fmt === "tree") {
+          res.end(
+            JSON.stringify({
+              comments: [
+                {
+                  id: "c2",
+                  postId: "post_dict_comments",
+                  parentId: null,
+                  authorId: "AgentC",
+                  content: "Root comment 2",
+                  score: 1,
+                  depth: 1,
+                  replies: [],
+                },
+              ],
+            })
+          );
+        } else {
+          res.end(
+            JSON.stringify({
+              comments: [
+                {
+                  id: "c2",
+                  postId: "post_dict_comments",
+                  parentId: null,
+                  authorId: "AgentC",
+                  content: "Root comment 2",
+                  score: 1,
+                  depth: 1,
+                  replyCount: 0,
+                },
+              ],
+            })
+          );
+        }
+        return;
+      }
+
+      // 3.6. Board comment list (generic): /posts/:id/comments
+      if (req.url?.match(/^\/posts\/([^/]+)\/comments(\?.*)?$/) && req.method === "GET") {
+        const match = req.url.match(/^\/posts\/([^/]+)\/comments/);
+        const targetPostId = match ? match[1] : "post_unknown";
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify([
             {
-              id: "c1",
-              postId: "post_list_comments",
+              id: `c_${targetPostId}_01`,
+              postId: targetPostId,
               parentId: null,
-              author: { accountId: "AgentA" },
-              content: "ルートコメント1",
-              score: 5,
-              depth: 0,
+              author: { accountId: "AgentReviewer" },
+              content: `Comment for ${targetPostId}`,
+              score: 3,
+              depth: 1,
               createdAt: "2026-10-01T00:00:00Z",
-              updatedAt: "2026-10-01T00:00:00Z",
-              replies: [
-                {
-                  id: "c1_reply1",
-                  postId: "post_list_comments",
-                  parentId: "c1",
-                  author: { accountId: "AgentB" },
-                  content: "返信コメント1",
-                  score: 2,
-                  replies: [],
-                },
-              ],
+            },
+            {
+              id: "c_new_ts_01",
+              postId: targetPostId,
+              parentId: null,
+              author: { accountId: "ValidBot" },
+              content: "New comment with Wait",
+              score: 0,
+              depth: 1,
+              createdAt: "2026-10-01T00:00:00Z",
             },
           ])
         );
         return;
       }
 
-      if (req.url?.startsWith("/posts/post_dict_comments/comments") && req.method === "GET") {
+      // Post comment: /posts/:id/comments
+      if (req.url?.match(/^\/posts\/[^/]+\/comments$/) && req.method === "POST") {
+        if (parsedBody?.parentId === "c_reply_nested") {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: "Comments are limited to 2 levels. Cannot reply to a nested comment.",
+            })
+          );
+          return;
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            comments: [
-              {
-                id: "c2",
-                postId: "post_dict_comments",
-                parentId: null,
-                authorId: "AgentC",
-                content: "ルートコメント2",
-                score: 1,
-                replies: [],
-              },
-            ],
+            success: true,
+            id: "c_new_ts_01",
+            status: "accepted",
+            message: "Comment created",
           })
         );
         return;
       }
 
-      // 4. 掲示板: /posts
-      if (req.url?.startsWith("/posts") && req.method === "GET") {
+      // 4. Board detail: /posts/:id
+      const postDetailMatch = req.url?.match(/^\/posts\/([^/?]+)$/);
+      if (postDetailMatch && req.method === "GET") {
+        const targetPostId = postDetailMatch[1];
+        if (targetPostId === "post_non_existent" || targetPostId === "404") {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Post not found" }));
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            post: {
+              id: targetPostId,
+              topicId: "top_1",
+              title: `Thread ${targetPostId}`,
+              content: "Full content of the thread for testing purposes.",
+              author: { accountId: "AnotherBot" },
+              score: 10,
+              createdAt: "2026-10-01T00:00:00Z",
+            },
+          })
+        );
+        return;
+      }
+
+      // 4.5. Board list: /posts
+      if ((req.url === "/posts" || req.url?.startsWith("/posts?")) && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
             posts: [
-              { id: "post_01", title: "Test Thread", content: "Hello world", authorId: "AnotherBot" },
+              { id: "post_01", title: "Test Thread 1", content: "Hello world 1", authorId: "AnotherBot" },
+              { id: "post_02", title: "Test Thread 2", content: "Hello world 2", authorId: "AnotherBot" },
             ],
-            total: 1,
+            total: 2,
             page: 1,
             totalPages: 1,
           })
@@ -138,7 +281,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 5. 掲示板: /posts (新規投稿)
+      // 5. Board: /posts (new post)
       if (req.url === "/posts" && req.method === "POST") {
         const isDryRun = req.headers["x-dry-run"] === "true" || parsedBody?.dryRun === true;
         if (isDryRun) {
@@ -164,7 +307,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 5. 逆CAPTCHA: /challenge
+      // 5. Reverse CAPTCHA: /challenge
       if (req.url === "/challenge" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -172,7 +315,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
             challenge: {
               id: "chal_auth_retry",
               puzzleType: "LOG_FILTERING",
-              prompt: "ログ解析課題",
+              prompt: "Log analysis task",
               expiresAt: Date.now() + 40000,
             },
           })
@@ -180,7 +323,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 6. 登録: /auth/register
+      // 6. Registration: /auth/register
       if (req.url === "/auth/register" && req.method === "POST") {
         if (parsedBody?.challengeAnswer?.matchCount === 99) {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -217,7 +360,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("RateLimitHandler が 429 時に自動リトライして最終的に成功する", async () => {
+  it("RateLimitHandler automatically retries on 429 and eventually succeeds", async () => {
     rateLimitAttemptCount = 0;
     const handler = new RateLimitHandler({ maxRetries: 2, baseDelayMs: 200 });
     const result = await handler.execute<any>(() =>
@@ -228,58 +371,58 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(result.count, 2);
   });
 
-  it("AllevitasClient でログイン・認証保持・掲示板アクセスが一貫して動作する", async () => {
+  it("AllevitasClient login, credential persistence, and board access work consistently", async () => {
     const tempCredPath = path.join(os.tmpdir(), `cred-test-${Date.now()}.json`);
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       credentialsPath: tempCredPath,
     });
 
-    // ログイン実行
+    // Perform login
     const loginRes = await client.login("ValidBot", "CorrectPass");
     assert.equal(loginRes.token, "mock-jwt-token-12345");
     assert.equal(await client.auth.getValidToken(), "mock-jwt-token-12345");
 
-    // クレデンシャル保存の確認
+    // Verify credentials are saved
     client.auth.saveCredentials(tempCredPath);
     assert.ok(fs.existsSync(tempCredPath));
     const saved = JSON.parse(fs.readFileSync(tempCredPath, "utf-8"));
     assert.equal(saved.accountId, "ValidBot");
     assert.equal(saved.token, "mock-jwt-token-12345");
 
-    // 掲示板トピック一覧の取得
+    // Fetch board topic list
     const topics = await client.thread.getTopics();
     assert.equal(topics.length, 2);
     assert.equal(topics[0].slug, "general");
 
-    // スレッド新規投稿
+    // Create a new thread
     const postRes = await client.post({
       topicId: "general",
-      title: "自律ボットによる投稿",
-      content: "テスト投稿本文です。",
+      title: "Post by autonomous bot",
+      content: "This is the test post body.",
     });
     assert.equal(postRes.id, "post_new_99");
 
-    // 一時ファイル削除
+    // Delete temporary files
     if (fs.existsSync(tempCredPath)) {
       fs.unlinkSync(tempCredPath);
     }
   });
 
-  it("dryRun オプション指定時に X-Dry-Run: true ヘッダーが付与され、安全にドライラン実行できる", async () => {
+  it("X-Dry-Run: true header is attached when the dryRun option is set, allowing a safe dry run", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       dryRun: true,
     });
 
-    // モックログイン
+    // Mock login
     await client.login("ValidBot", "CorrectPass");
 
-    // dryRun モードでのスレッド投稿
+    // Thread post in dryRun mode
     const postRes = await client.post({
       topicId: "general",
-      title: "ドライランテスト投稿",
-      content: "この投稿は実際には書き込まれません。",
+      title: "Dry run test post",
+      content: "This post will not actually be written.",
     });
 
     assert.equal(postRes.dryRun, true);
@@ -287,7 +430,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.ok(postRes.message?.includes("Dry Run"));
   });
 
-  it("無効な認証情報でログインした場合に適切な例外が発生する", async () => {
+  it("An appropriate exception is thrown when logging in with invalid credentials", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await assert.rejects(
       async () => {
@@ -300,25 +443,25 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     );
   });
 
-  it("逆CAPTCHA失敗時に同一問題の見直し（correctAnswer）が自動実行され登録に成功する", async () => {
+  it("On reverse CAPTCHA failure, review of the same problem (correctAnswer) runs automatically and registration succeeds", async () => {
     let solveCalls = 0;
     let correctCalls = 0;
     const mockSolver: any = {
       fetchChallenge: async () => ({
         id: "chal_auth_retry",
         puzzleType: "LOG_FILTERING",
-        prompt: "ログ解析課題",
+        prompt: "Log analysis task",
         expiresAt: Date.now() + 30000,
       }),
       solve: async () => {
         solveCalls++;
-        return { matchCount: 1, totalBytes: 100, targetIds: [] }; // 最初は誤答
+        return { matchCount: 1, totalBytes: 100, targetIds: [] }; // wrong answer at first
       },
       correctAnswer: async () => {
         correctCalls++;
-        return { matchCount: 99, totalBytes: 9999, targetIds: ["req_correct"] }; // 見直しで正解
+        return { matchCount: 99, totalBytes: 9999, targetIds: ["req_correct"] }; // correct after review
       },
-      generateReflection: async () => "反省教訓",
+      generateReflection: async () => "Reflection lesson",
       getReflectionKnowledge: () => [],
     };
 
@@ -335,20 +478,20 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(correctCalls, 1);
   });
 
-  it("getComments で配列直接返却および {comments: [...]} 形式のレスポンスを正しくパースできる", async () => {
+  it("getComments correctly parses both direct array responses and {comments: [...]} responses", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
-    // 1. 配列直接返却形式
-    const commentsList = await client.thread.getComments("post_list_comments");
+    // 1. format: "tree" specified: verify tree structure parsing
+    const commentsList = await client.thread.getComments("post_list_comments", { format: "tree" });
     assert.equal(commentsList.length, 1);
     const c1 = commentsList[0];
     assert.equal(c1.id, "c1");
     assert.equal(c1.postId, "post_list_comments");
     assert.equal(c1.authorId, "AgentA");
-    assert.equal(c1.content, "ルートコメント1");
+    assert.equal(c1.content, "Root comment 1");
     assert.equal(c1.score, 5);
-    assert.equal(c1.depth, 0);
+    assert.equal(c1.depth, 1);
     assert.equal(c1.children?.length, 1);
     assert.equal(c1.replies?.length, 1);
 
@@ -356,23 +499,156 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(reply1.id, "c1_reply1");
     assert.equal(reply1.parentId, "c1");
     assert.equal(reply1.authorId, "AgentB");
-    assert.equal(reply1.content, "返信コメント1");
-    assert.equal(reply1.depth, 1);
+    assert.equal(reply1.content, "Reply comment 1");
+    assert.equal(reply1.depth, 2);
     assert.equal(reply1.children?.length, 0);
     assert.equal(reply1.replies?.length, 0);
 
-    // 2. オブジェクト返却形式 ({ comments: [...] })
-    const commentsDict = await client.thread.getComments("post_dict_comments");
+    // 2. Object return format ({ comments: [...] })
+    const commentsDict = await client.thread.getComments("post_dict_comments", { format: "tree" });
     assert.equal(commentsDict.length, 1);
     const c2 = commentsDict[0];
     assert.equal(c2.id, "c2");
     assert.equal(c2.authorId, "AgentC");
-    assert.equal(c2.content, "ルートコメント2");
+    assert.equal(c2.content, "Root comment 2");
     assert.equal(c2.children?.length, 0);
 
-    // 3. page, limit オプション指定での検証
-    const commentsPaged = await client.getComments("post_list_comments", { page: 1, limit: 10 });
+    // 3. page, limit option verification
+    const commentsPaged = await client.getComments("post_list_comments", { page: 1, limit: 10, format: "tree" });
     assert.equal(commentsPaged.length, 1);
     assert.equal(commentsPaged[0].id, "c1");
+  });
+
+  it("getComments correctly returns a flat array with default format='flat'", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const flatComments = await client.getComments("post_list_comments");
+    assert.equal(flatComments.length, 2);
+
+    const root = flatComments[0];
+    assert.equal(root.id, "c1");
+    assert.equal(root.depth, 1);
+    assert.equal(root.replyCount, 1);
+    assert.equal(root.parentId, null);
+
+    const reply = flatComments[1];
+    assert.equal(reply.id, "c1_reply1");
+    assert.equal(reply.depth, 2);
+    assert.equal(reply.parentId, "c1");
+  });
+
+  it("CommentDepthExceededError is thrown on 2-level depth limit error (400 Bad Request)", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    // Normal comment post
+    const res = await client.comment("post_01", { content: "Normal reply", parentId: "c_root" });
+    assert.equal(res.success, true);
+    assert.equal(res.id, "c_new_ts_01");
+
+    // Reply exceeding 2 levels -> CommentDepthExceededError
+    await assert.rejects(
+      async () => {
+        await client.comment("post_01", { content: "Third-level reply", parentId: "c_reply_nested" });
+      },
+      (err: any) => {
+        assert.ok(err instanceof CommentDepthExceededError);
+        assert.ok(err.message.includes("Comments are limited to 2 levels"));
+        return true;
+      }
+    );
+  });
+
+  it("getPostsWithComments fetches thread list and comments in bulk", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const postsWithComments = await client.getPostsWithComments({ limit: 2, commentLimit: 5 });
+    assert.equal(postsWithComments.length, 2);
+
+    const first = postsWithComments[0];
+    assert.equal(first.id, "post_01");
+    assert.ok(Array.isArray(first.comments));
+    assert.equal(first.comments.length, 2);
+    assert.equal(first.comments[0].id, "c_post_01_01");
+
+    const second = postsWithComments[1];
+    assert.equal(second.id, "post_02");
+    assert.ok(Array.isArray(second.comments));
+    assert.equal(second.comments.length, 2);
+    assert.equal(second.comments[0].id, "c_post_02_01");
+  });
+
+  it("getMultiplePostComments fetches comments for multiple threads in parallel", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const multiComments = await client.getMultiplePostComments(["post_01", "post_02"], { limit: 5 });
+    assert.ok(multiComments.post_01);
+    assert.ok(multiComments.post_02);
+    assert.equal(multiComments.post_01.length, 2);
+    assert.equal(multiComments.post_01[0].id, "c_post_01_01");
+    assert.equal(multiComments.post_02[0].id, "c_post_02_01");
+  });
+
+  it("waitForPost waits for the async queue to complete and fetches post details", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const post = await client.waitForPost("post_01", 5, 0.1);
+    assert.equal(post.id, "post_01");
+    assert.equal(post.title, "Thread post_01");
+    assert.equal(post.content, "Full content of the thread for testing purposes.");
+  });
+
+  it("waitForPost times out and throws QueueTimeoutError for a nonexistent post", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    await assert.rejects(
+      async () => {
+        await client.waitForPost("post_non_existent", 0.3, 0.1);
+      },
+      (err: any) => {
+        assert.ok(err instanceof QueueTimeoutError);
+        assert.ok(err.message.includes("Timed out"));
+        return true;
+      }
+    );
+  });
+
+  it("waitForComment waits for the async queue to complete and fetches comment details", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const comment = await client.waitForComment("post_01", "c_post_01_01", 5, 0.1);
+    assert.equal(comment.id, "c_post_01_01");
+    assert.equal(comment.postId, "post_01");
+  });
+
+  it("post and comment wait and return an object when wait: true is specified", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    // post with wait: true
+    const postRes = await client.post({
+      topicId: "top_1",
+      title: "New Post with Wait",
+      content: "Waiting for queue...",
+      wait: true,
+      timeout: 5,
+    });
+    assert.ok(postRes.post);
+    assert.equal(postRes.post.id, "post_new_99");
+
+    // comment with wait: true
+    const commentRes = await client.comment("post_01", {
+      content: "New comment with Wait",
+      wait: true,
+      timeout: 5,
+    });
+    assert.ok(commentRes.comment);
+    assert.equal(commentRes.comment.id, "c_new_ts_01");
   });
 });

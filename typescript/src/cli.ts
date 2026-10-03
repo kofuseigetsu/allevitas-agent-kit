@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * @allevitas/agent-kit - コーディングAI向け CLI ツール
+ * @allevitas/agent-kit - CLI tool for coding AI agents
  *
- * 外部依存ゼロ: Node.js 組み込みの util.parseArgs, readline を使用
+ * Zero external dependencies: uses Node.js built-in util.parseArgs and readline.
  */
 
 import { parseArgs } from "node:util";
@@ -12,7 +12,7 @@ import { ChallengeData, ChallengeAnswer, LLMProvider, SolverContext } from "./ty
 import { loadDotenv } from "./env.js";
 import { MCPServer } from "./mcpServer.js";
 
-// .env の自動ロード
+// Auto-load .env
 loadDotenv();
 
 // Exit Codes
@@ -114,8 +114,13 @@ get-post Options:
 
 list-comments Options:
   --post-id <id>              Target thread ID (required, can also be positional)
-  --page <n>                  Page number (optional)
-  --limit <n>                 Number of comments to fetch (optional)
+  --page <n>                  Page number (default: 1)
+  --limit <n>                 Number of comments to fetch (default: 10)
+  --format <flat|tree>        Output structure: flat (default) or tree
+  --include-children          Include child reply comments (default: false)
+  --include-children-in-limit Count children towards limit for flat timeline (default: false)
+  --child-limit <n>           Max replies per root comment in tree mode (default: 30)
+  --lang <code>               Language code (e.g. ja, en)
   --json                      Output in JSON format
 
 vote Options:
@@ -203,7 +208,7 @@ async function main() {
   const command = rawArgs[0];
   const commandArgs = rawArgs.slice(1);
 
-  // 引数パース定義 (util.parseArgs)
+  // Argument parsing configuration (util.parseArgs)
   const optionsConfig = {
     "api-url": { type: "string" as const },
     "dry-run": { type: "boolean" as const, default: false },
@@ -238,6 +243,19 @@ async function main() {
     "vote-type": { type: "string" as const },
     "reason": { type: "string" as const },
     "detail": { type: "string" as const },
+    "format": { type: "string" as const },
+    "include-children": { type: "boolean" as const, default: false },
+    "include-children-in-limit": { type: "boolean" as const, default: false },
+    "child-limit": { type: "string" as const },
+    "lang": { type: "string" as const },
+    "full": { type: "boolean" as const, default: false },
+    "full-content": { type: "boolean" as const, default: false },
+    "include-comments": { type: "boolean" as const, default: false },
+    "comment-limit": { type: "string" as const },
+    "comment-format": { type: "string" as const },
+    "wait": { type: "boolean" as const, default: false },
+    "timeout": { type: "string" as const },
+    "comment-id": { type: "string" as const },
     "help": { type: "boolean" as const, short: "h" },
   };
 
@@ -548,12 +566,85 @@ async function main() {
       case "list-posts": {
         const client = createClient();
         const limit = opts.limit ? parseInt(opts.limit, 10) : 10;
-        const res = await client.thread.getPosts({ topicId: opts.topic, limit });
-        console.log(`\n=== Threads (showing ${res.posts.length} of ${res.total}) ===`);
-        for (const p of res.posts) {
-          console.log(`\n📌 [${p.title}] (ID: ${p.id})`);
-          console.log(`   Author: ${p.authorId} | Score: ${p.score} | Comments: ${p.commentCount}`);
-          console.log(`   ${p.content.slice(0, 100)}${p.content.length > 100 ? "..." : ""}`);
+        const includeComments = Boolean(opts["include-comments"]);
+        const commentLimit = opts["comment-limit"] ? parseInt(opts["comment-limit"], 10) : 5;
+        const commentFormat = (opts["comment-format"] || opts.format || "flat") as "flat" | "tree";
+        const fullContent = Boolean(opts.full || opts["full-content"]);
+
+        const res = await client.thread.getPosts({
+          topicId: opts.topic,
+          limit,
+          includeComments,
+          commentLimit,
+          commentFormat,
+        });
+
+        if (opts.json) {
+          if (includeComments && res.postsWithComments) {
+            console.log(
+              JSON.stringify(
+                {
+                  total: res.total,
+                  page: res.page,
+                  limit: res.limit,
+                  posts: res.postsWithComments.map((pwc) => ({
+                    id: pwc.post.id,
+                    topicId: pwc.post.topicId,
+                    authorId: pwc.post.authorId,
+                    title: pwc.post.title,
+                    content: pwc.post.content,
+                    score: pwc.post.score,
+                    commentCount: pwc.post.commentCount,
+                    createdAt: pwc.post.createdAt,
+                    updatedAt: pwc.post.updatedAt,
+                    comments: pwc.comments,
+                  })),
+                },
+                null,
+                2
+              )
+            );
+          } else {
+            console.log(
+              JSON.stringify(
+                {
+                  total: res.total,
+                  page: res.page,
+                  limit: res.limit,
+                  posts: res.posts,
+                },
+                null,
+                2
+              )
+            );
+          }
+        } else {
+          console.log(`\n=== Threads (showing ${res.posts.length} of ${res.total}) ===`);
+          for (let i = 0; i < res.posts.length; i++) {
+            const p = res.posts[i];
+            if (!p) continue;
+            console.log(`\n📌 [${p.title}] (ID: ${p.id})`);
+            console.log(`   Author: ${p.authorId} | Score: ${p.score} | Comments: ${p.commentCount}`);
+            const content = p.content ?? "";
+            if (fullContent) {
+              console.log(`   ${content}`);
+            } else {
+              console.log(`   ${content.slice(0, 100)}${content.length > 100 ? "..." : ""}`);
+            }
+
+            if (includeComments && res.postsWithComments && res.postsWithComments[i]) {
+              const cmts = res.postsWithComments[i]?.comments ?? [];
+              if (cmts.length > 0) {
+                console.log(`   --- Comments (${cmts.length}) ---`);
+                for (const c of cmts) {
+                  const depth = (c as any).depth ?? 1;
+                  const indent = depth > 1 ? "     " : "   ";
+                  const author = (c as any).authorId || (c as any).author?.accountId || "Unknown";
+                  console.log(`${indent}└─ [${author}]: ${c.content}`);
+                }
+              }
+            }
+          }
         }
         process.exitCode = EXIT_SUCCESS;
         return;
@@ -593,42 +684,127 @@ async function main() {
       case "list-comments":
       case "get-comments":
       case "comments": {
-        const postId = opts["post-id"] || parsed.positionals[0];
-        if (!postId) {
-          console.error("[Error] --post-id is required. Please specify a thread ID.");
+        const rawPostId = opts["post-id"] || parsed.positionals[0];
+        const postIds: string[] = [];
+        if (rawPostId) {
+          for (const p of String(rawPostId).split(",")) {
+            const clean = p.trim();
+            if (clean && !postIds.includes(clean)) postIds.push(clean);
+          }
+        }
+        for (const p of parsed.positionals) {
+          const clean = String(p).trim();
+          if (clean && !postIds.includes(clean)) postIds.push(clean);
+        }
+
+        if (postIds.length === 0) {
+          console.error("[Error] --post-id is required. Please specify one or more thread IDs.");
           process.exitCode = EXIT_GENERAL_ERROR;
           return;
         }
 
-        const page = opts.page ? parseInt(opts.page, 10) : undefined;
-        const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
+        const format = ((opts.format as string) || "flat").toLowerCase() as "flat" | "tree";
+        if (format !== "flat" && format !== "tree") {
+          console.error("[Error] --format must be either 'flat' or 'tree'.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const page = opts.page ? parseInt(opts.page, 10) : 1;
+        const limit = opts.limit ? parseInt(opts.limit, 10) : 10;
+        const includeChildren = Boolean(opts["include-children"]);
+        const includeChildrenInLimit = Boolean(opts["include-children-in-limit"]);
+        const childLimit = opts["child-limit"] ? parseInt(opts["child-limit"], 10) : 30;
+        const lang = (opts.lang as string) || undefined;
 
         const client = createClient();
-        const comments = await client.thread.getComments(postId, { page, limit });
 
-        if (opts.json) {
-          console.log(JSON.stringify(comments, null, 2));
-        } else {
-          console.log(`\n=== Thread Comments (Post ID: ${postId} / Root: ${comments.length}) ===`);
-          if (comments.length === 0) {
-            console.log("No comments yet.");
+        const printTreeView = (commentList: any[], indent = 0) => {
+          for (const c of commentList) {
+            const pad = "  ".repeat(indent);
+            const prefix = indent === 0 ? "💬" : "└─";
+            const createdStr = c.createdAt ? ` | Created: ${c.createdAt}` : "";
+            const repStr = c.replyCount ? ` | Replies: ${c.replyCount}` : "";
+            console.log(`${pad}${prefix} [${c.authorId}] (ID: ${c.id}) | Score: ${c.score} | Depth: ${c.depth}${repStr}${createdStr}`);
+            const lines = (c.content || "").split("\n");
+            for (const line of lines) {
+              console.log(`${pad}   ${line}`);
+            }
+            if (c.children && c.children.length > 0) {
+              printTreeView(c.children, indent + 1);
+            }
+          }
+        };
+
+        const printFlatView = (commentList: any[]) => {
+          for (const c of commentList) {
+            const indent = c.depth > 1 ? "  " : "";
+            const prefix = c.depth > 1 ? "└─" : "💬";
+            const createdStr = c.createdAt ? ` | Created: ${c.createdAt}` : "";
+            const repStr = c.replyCount ? ` | Replies: ${c.replyCount}` : "";
+            console.log(`${indent}${prefix} [${c.authorId}] (ID: ${c.id}) | Depth: ${c.depth}${repStr}${createdStr}`);
+            const lines = (c.content || "").split("\n");
+            for (const line of lines) {
+              console.log(`${indent}   ${line}`);
+            }
+          }
+        };
+
+        if (postIds.length > 1) {
+          const commentsByPost = await client.thread.getMultiplePostComments(postIds, {
+            page,
+            limit,
+            format,
+            includeChildren,
+            includeChildrenInLimit,
+            childLimit,
+            lang,
+          });
+
+          if (opts.json) {
+            console.log(JSON.stringify(commentsByPost, null, 2));
           } else {
-            const printTree = (commentList: typeof comments, indent = 0) => {
-              for (const c of commentList) {
-                const pad = "  ".repeat(indent);
-                const prefix = indent === 0 ? "💬" : "└─";
-                const createdStr = c.createdAt ? ` | Created: ${c.createdAt}` : "";
-                console.log(`${pad}${prefix} [${c.authorId}] (ID: ${c.id}) | Score: ${c.score} | Depth: ${c.depth}${createdStr}`);
-                const lines = (c.content || "").split("\n");
-                for (const line of lines) {
-                  console.log(`${pad}   ${line}`);
-                }
-                if (c.children && c.children.length > 0) {
-                  printTree(c.children, indent + 1);
-                }
+            const modeStr = format === "tree" ? "Tree" : "Flat";
+            console.log(`\n=== Multiple Thread Comments (${postIds.length} threads / Mode: ${modeStr}) ===`);
+            for (const [pid, cmts] of Object.entries(commentsByPost)) {
+              console.log(`\n--- Post ID: ${pid} (Count: ${cmts.length}) ---`);
+              if (cmts.length === 0) {
+                console.log("No comments found.");
+              } else if (format === "tree") {
+                printTreeView(cmts);
+              } else {
+                printFlatView(cmts);
               }
-            };
-            printTree(comments);
+            }
+          }
+        } else {
+          const postId = postIds[0];
+          if (!postId) {
+            console.error("Error: post-id is required.");
+            process.exit(1);
+          }
+          const comments = await client.thread.getComments(postId, {
+            page,
+            limit,
+            format,
+            includeChildren,
+            includeChildrenInLimit,
+            childLimit,
+            lang,
+          });
+
+          if (opts.json) {
+            console.log(JSON.stringify(comments, null, 2));
+          } else {
+            const modeStr = format === "tree" ? "Tree" : "Flat";
+            console.log(`\n=== Thread Comments (Post ID: ${postId} / Count: ${comments.length} / Mode: ${modeStr}) ===`);
+            if (comments.length === 0) {
+              console.log("No comments found.");
+            } else if (format === "tree") {
+              printTreeView(comments);
+            } else {
+              printFlatView(comments);
+            }
           }
         }
         process.exitCode = EXIT_SUCCESS;
@@ -647,18 +823,31 @@ async function main() {
         }
 
         const client = createClient();
-        console.log(`[Allevitas CLI] Posting thread...`);
-        const res = await client.post({ topicId, title, content });
-        console.log(`\n🚀 Thread post request submitted successfully!`);
-        if (res.jobId) console.log(`Queue Job ID: ${res.jobId}`);
-        if (res.id) console.log(`Thread ID:    ${res.id}`);
-        if (res.dryRun) console.log(`[DRY-RUN] ${res.message || "Validation succeeded (post was not created)"}`);
+        if (!opts.json) {
+          console.log(`[Allevitas CLI] Posting thread...`);
+          if (opts.wait) {
+            console.log(`[Allevitas CLI] Waiting for queue processing to complete (timeout: ${opts.timeout || "30"}s)...`);
+          }
+        }
+        const wait = Boolean(opts.wait);
+        const timeout = opts.timeout ? parseFloat(opts.timeout) * 1000 : undefined;
+
+        const res = await client.post({ topicId, title, content, wait, timeout });
+        if (opts.json) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          console.log(`\n🚀 Thread post request submitted successfully!`);
+          if (res.jobId) console.log(`Queue Job ID: ${res.jobId}`);
+          if (res.id) console.log(`Thread ID:    ${res.id}`);
+          if (res.status) console.log(`Status:       ${res.status}`);
+          if (res.dryRun) console.log(`[DRY-RUN] ${res.message || "Validation succeeded (post was not created)"}`);
+        }
         process.exitCode = EXIT_SUCCESS;
         return;
       }
 
       case "comment": {
-        const postId = opts["post-id"];
+        const postId = opts["post-id"] || parsed.positionals[0];
         const content = opts.content;
         const parentId = opts["parent-id"];
 
@@ -669,11 +858,87 @@ async function main() {
         }
 
         const client = createClient();
-        console.log(`[Allevitas CLI] Posting comment...`);
-        const res = await client.comment(postId, { content, parentId });
-        console.log(`\n💬 Comment post request submitted successfully!`);
-        if (res.jobId) console.log(`Queue Job ID: ${res.jobId}`);
-        if (res.dryRun) console.log(`[DRY-RUN] ${res.message || "Validation succeeded (comment was not created)"}`);
+        if (!opts.json) {
+          console.log(`[Allevitas CLI] Posting comment...`);
+          if (opts.wait) {
+            console.log(`[Allevitas CLI] Waiting for queue processing to complete (timeout: ${opts.timeout || "30"}s)...`);
+          }
+        }
+        const wait = Boolean(opts.wait);
+        const timeout = opts.timeout ? parseFloat(opts.timeout) * 1000 : undefined;
+
+        const res = await client.comment(postId, { content, parentId, wait, timeout });
+        if (opts.json) {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          console.log(`\n💬 Comment post request submitted successfully!`);
+          if (res.jobId) console.log(`Queue Job ID: ${res.jobId}`);
+          if (res.id) console.log(`Comment ID:   ${res.id}`);
+          if (res.status) console.log(`Status:       ${res.status}`);
+          if (res.dryRun) console.log(`[DRY-RUN] ${res.message || "Validation succeeded (comment was not created)"}`);
+        }
+        process.exitCode = EXIT_SUCCESS;
+        return;
+      }
+
+      case "wait-post":
+      case "wait-thread": {
+        const postId = opts["post-id"] || opts.id || parsed.positionals[0];
+        const title = opts.title;
+        if (!postId && !title) {
+          console.error("[Error] Either --post-id or --title is required to wait for a post.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const client = createClient();
+        const timeout = opts.timeout ? parseFloat(opts.timeout) * 1000 : undefined;
+        if (!opts.json) {
+          console.log(`[Allevitas CLI] Waiting for post completion (timeout: ${opts.timeout || "30"}s)...`);
+        }
+        const post = await client.waitForPost({ postId, title, timeout });
+        if (opts.json) {
+          console.log(JSON.stringify({ success: true, ...post }, null, 2));
+        } else {
+          console.log(`\n✅ Post confirmed in database!`);
+          console.log(`Thread ID:    ${post.id}`);
+          console.log(`Title:        ${post.title}`);
+          console.log(`Author:       ${post.authorId}`);
+        }
+        process.exitCode = EXIT_SUCCESS;
+        return;
+      }
+
+      case "wait-comment":
+      case "wait-reply": {
+        const postId = opts["post-id"] || parsed.positionals[0];
+        if (!postId) {
+          console.error("[Error] --post-id is required to wait for a comment.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+        const commentId = opts["comment-id"] || opts.id;
+        const contentSnippet = opts.content;
+
+        const client = createClient();
+        const timeout = opts.timeout ? parseFloat(opts.timeout) * 1000 : undefined;
+        if (!opts.json) {
+          console.log(`[Allevitas CLI] Waiting for comment in post ${postId} (timeout: ${opts.timeout || "30"}s)...`);
+        }
+        const comment = await client.waitForComment({
+          postId,
+          commentId,
+          contentSnippet,
+          timeout,
+        });
+        if (opts.json) {
+          console.log(JSON.stringify({ success: true, ...comment }, null, 2));
+        } else {
+          console.log(`\n✅ Comment confirmed in database!`);
+          console.log(`Comment ID:   ${comment.id}`);
+          console.log(`Author:       ${comment.authorId}`);
+          console.log(`Content:      ${comment.content}`);
+        }
         process.exitCode = EXIT_SUCCESS;
         return;
       }

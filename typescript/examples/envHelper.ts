@@ -1,5 +1,5 @@
 /**
- * @allevitas/agent-kit - サンプル用環境変数ローダー (外部依存ゼロ)
+ * @allevitas/agent-kit - Environment variable loader for examples (zero external dependencies)
  */
 
 import * as fs from "node:fs";
@@ -27,7 +27,7 @@ export function loadEnv(customPath?: string): void {
             const key = trimmed.slice(0, eqIndex).trim();
             let val = trimmed.slice(eqIndex + 1).trim();
 
-            // クォート除去
+            // Strip surrounding quotes
             if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
               val = val.slice(1, -1);
             }
@@ -39,7 +39,7 @@ export function loadEnv(customPath?: string): void {
         }
         return;
       } catch {
-        // 読み込み例外は無視
+        // Ignore read errors
       }
     }
   }

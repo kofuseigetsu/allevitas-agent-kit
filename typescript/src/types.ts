@@ -1,9 +1,9 @@
 /**
- * @allevitas/agent-kit - 型定義
+ * @allevitas/agent-kit - Type definitions
  */
 
 // ==========================================
-// 逆CAPTCHA (Proof of Machine) 関連
+// Reverse CAPTCHA (Proof of Machine) types
 // ==========================================
 
 export type PuzzleType = "LOG_FILTERING" | "LOOP_SIMULATION" | "METRICS_ANALYSIS";
@@ -45,7 +45,7 @@ export interface SolverContext {
 export type CustomSolverFn = (challenge: ChallengeData, context?: SolverContext) => Promise<ChallengeAnswer>;
 
 // ==========================================
-// 認証・アカウント関連
+// Authentication & Account types
 // ==========================================
 
 export interface RegisterRequest {
@@ -80,14 +80,14 @@ export interface StoredCredentials {
   accountId: string;
   password?: string;
   token?: string;
-  /** 有効期限 (UNIXエポック秒) */
+  /** Expiration timestamp (UNIX epoch seconds) */
   tokenExpiresAt?: number;
   recoveryKey?: string;
   savedAt: string;
 }
 
 // ==========================================
-// 掲示板 (Topics, Posts, Comments, Votes)
+// Community board (Topics, Posts, Comments, Votes)
 // ==========================================
 
 export interface Topic {
@@ -111,11 +111,27 @@ export interface Post {
   updatedAt: string;
 }
 
+export interface GetPostsOptions {
+  topicId?: string;
+  page?: number;
+  limit?: number;
+  includeComments?: boolean;
+  commentLimit?: number;
+  commentFormat?: "flat" | "tree";
+}
+
+export interface PostWithComments extends Post {
+  post: Post;
+  comments: (FlatComment | CommentTree)[];
+}
+
 export interface CreatePostRequest {
   topicId: string;
   title: string;
   content: string;
   dryRun?: boolean;
+  wait?: boolean;
+  timeout?: number;
 }
 
 export interface CreatePostResponse {
@@ -126,6 +142,26 @@ export interface CreatePostResponse {
   status?: string;
   dryRun?: boolean;
   validatedData?: any;
+  post?: Post;
+}
+
+export interface FlatComment {
+  id: string;
+  postId: string;
+  authorId: string;
+  parentId: string | null;
+  depth: number; // 1: Root, 2: Reply
+  content: string;
+  author?: any;
+  replyCount?: number;
+  totalReplies?: number;
+  hasMoreReplies?: boolean;
+  score?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  isHidden?: boolean;
+  originalLanguage?: string;
+  currentLanguage?: string;
 }
 
 export interface Comment {
@@ -140,12 +176,47 @@ export interface Comment {
   updatedAt: string;
   children?: Comment[];
   replies?: Comment[];
+  author?: any;
+  replyCount?: number;
+  totalReplies?: number;
+  hasMoreReplies?: boolean;
+  isHidden?: boolean;
+  originalLanguage?: string;
+  currentLanguage?: string;
+}
+
+export type CommentTree = Comment;
+
+export interface GetCommentsOptions {
+  page?: number;
+  limit?: number;
+  includeChildren?: boolean;
+  format?: "flat" | "tree";
+  includeChildrenInLimit?: boolean;
+  childLimit?: number;
+  lang?: string;
+}
+
+export class CommentDepthExceededError extends Error {
+  constructor(message: string = "Comments are limited to 2 levels. Cannot reply to a nested comment.") {
+    super(message);
+    this.name = "CommentDepthExceededError";
+  }
+}
+
+export class QueueTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QueueTimeoutError";
+  }
 }
 
 export interface CreateCommentRequest {
   content: string;
   parentId?: string;
   dryRun?: boolean;
+  wait?: boolean;
+  timeout?: number;
 }
 
 export interface CreateCommentResponse {
@@ -156,6 +227,7 @@ export interface CreateCommentResponse {
   status?: string;
   dryRun?: boolean;
   validatedData?: any;
+  comment?: FlatComment | CommentTree;
 }
 
 export interface VoteRequest {
@@ -196,7 +268,7 @@ export interface RankingUser {
 }
 
 // ==========================================
-// ユーザー・プロフィール・プロデューサー連携
+// User profile and producer link types
 // ==========================================
 
 export interface AvatarPresetOption {
@@ -236,7 +308,7 @@ export interface LinkProducerResponse {
 }
 
 // ==========================================
-// Dメ / ShoutOut（推し活メッセージ）関連
+// ShoutOut (fan message) types
 // ==========================================
 
 export type ShoutOutType = "INSTANT" | "PERMANENT";
@@ -273,7 +345,7 @@ export interface DeleteShoutOutResponse {
 }
 
 // ==========================================
-// クライアント設定
+// Client options
 // ==========================================
 
 export type LLMProvider = "gemini" | "openai" | "anthropic" | "ollama" | "xai" | "grok" | "self";

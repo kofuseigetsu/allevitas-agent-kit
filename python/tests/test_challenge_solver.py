@@ -1,5 +1,5 @@
 """
-ChallengeSolver ユニットテスト (APIキー不要・モック使用)
+ChallengeSolver unit tests (no API key required, uses mocks)
 """
 
 import json
@@ -22,7 +22,7 @@ class MockChallengeHandler(BaseHTTPRequestHandler):
                     "challenge": {
                         "id": "chal_py_test_456",
                         "puzzleType": "LOG_FILTERING",
-                        "prompt": "Python版ログ解析課題...",
+                        "prompt": "Python log analysis task...",
                         "expiresAt": int(time.time() * 1000) + 35000,
                     }
                 }).encode("utf-8")
@@ -55,7 +55,7 @@ class TestChallengeSolver(unittest.TestCase):
 
         self.assertEqual(challenge.id, "chal_py_test_456")
         self.assertEqual(challenge.puzzle_type, "LOG_FILTERING")
-        self.assertIn("Python版ログ解析", challenge.prompt)
+        self.assertIn("Python log analysis", challenge.prompt)
         self.assertGreater(challenge.expires_at, int(time.time() * 1000))
 
     def test_self_solve_mode(self):
@@ -95,7 +95,7 @@ class TestChallengeSolver(unittest.TestCase):
             id="chal_expired",
             puzzle_type="LOG_FILTERING",
             prompt="expired",
-            expires_at=int(time.time() * 1000) + 2000,  # 残り2秒
+            expires_at=int(time.time() * 1000) + 2000,  # 2 seconds remaining
         )
 
         with self.assertRaises(RuntimeError) as ctx:
@@ -105,7 +105,7 @@ class TestChallengeSolver(unittest.TestCase):
     def test_markdown_and_prose_json_cleaning(self):
         class MockLLM:
             def call(self, **kwargs):
-                return '了解しました。回答を出力します。\n```json\n{"matchCount": 9, "totalBytes": 8192, "targetIds": ["req_99"]}\n```\n以上です。'
+                return 'Understood. Outputting the answer.\n```json\n{"matchCount": 9, "totalBytes": 8192, "targetIds": ["req_99"]}\n```\nThat is all.'
 
         solver = ChallengeSolver(
             api_url=self.server_url,
@@ -149,8 +149,8 @@ class TestChallengeSolver(unittest.TestCase):
         prev = {"matchCount": 2, "totalBytes": 1000, "targetIds": []}
         corrected = solver.correct_answer(ch, prev, attempt=2)
 
-        self.assertIn("先ほど以下の逆CAPTCHA課題に対して解答を提出しましたが、不正解", captured["prompt"])
-        self.assertIn("前回の誤答", captured["prompt"])
+        self.assertIn("You previously submitted an answer to the following reverse CAPTCHA puzzle, but it was incorrect", captured["prompt"])
+        self.assertIn("[Previous Incorrect Answer]", captured["prompt"])
         self.assertIn('"matchCount": 2', captured["prompt"])
         self.assertEqual(corrected["matchCount"], 3)
 
@@ -161,7 +161,7 @@ class TestChallengeSolver(unittest.TestCase):
             def call(self, **kwargs):
                 captured["last_prompt"] = kwargs.get("prompt", "")
                 if not kwargs.get("json_mode", True):
-                    return "「ステータス200かつレスポンス時間300ms超の条件を厳密にAND判定すること」"
+                    return "Strictly apply AND to the conditions: status 200 and response time over 300ms"
                 return '{"matchCount": 4, "totalBytes": 2000, "targetIds": ["req_02"]}'
 
         solver = ChallengeSolver(
@@ -180,15 +180,15 @@ class TestChallengeSolver(unittest.TestCase):
         failed = {"matchCount": 1, "totalBytes": 500, "targetIds": []}
         lesson = solver.generate_reflection(ch, failed)
 
-        self.assertIn("ステータス200かつレスポンス時間300ms超", lesson)
+        self.assertIn("status 200 and response time over 300ms", lesson)
         self.assertEqual(solver.get_reflection_knowledge(), [
-            "ステータス200かつレスポンス時間300ms超の条件を厳密にAND判定すること"
+            "Strictly apply AND to the conditions: status 200 and response time over 300ms"
         ])
 
-        # 次回 solve 時に教訓がプロンプトに含まれるか
+        # Check that the lesson is included in the prompt on the next solve
         solver.solve(ch)
-        self.assertIn("【過去の誤答から得た教訓・反省点】", captured["last_prompt"])
-        self.assertIn("ステータス200かつレスポンス時間300ms超", captured["last_prompt"])
+        self.assertIn("[Lessons from Previous Attempts]", captured["last_prompt"])
+        self.assertIn("status 200 and response time over 300ms", captured["last_prompt"])
 
 
 if __name__ == "__main__":

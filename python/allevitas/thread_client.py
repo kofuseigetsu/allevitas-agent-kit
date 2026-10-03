@@ -1,18 +1,25 @@
 """
-allevitas-agent-kit - 掲示板操作クライアント (ThreadClient)
+allevitas-agent-kit - Forum/Thread client (ThreadClient)
 """
 
 from __future__ import annotations
 import re
 import os
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Union
 import urllib.parse
 
 from .types import (
     Comment,
+    CommentAuthor,
+    CommentDepthExceededError,
+    CommentTree,
     CreateCommentResponse,
     CreatePostResponse,
+    FlatComment,
     Post,
+    PostWithComments,
+    QueueTimeoutError,
     RankingUser,
     ReportRequest,
     Topic,
@@ -50,7 +57,7 @@ class ThreadClient:
 
     def get_topics(self) -> List[Topic]:
         """
-        トピック一覧を取得する (GET /api/topics)
+        Get topics list (GET /api/topics).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -77,9 +84,13 @@ class ThreadClient:
         topic_id: Optional[str] = None,
         page: int = 1,
         limit: int = 20,
+        include_comments: bool = False,
+        comment_limit: int = 5,
+        comment_format: str = "flat",
     ) -> Dict[str, Any]:
         """
-        スレッド一覧を取得する (GET /api/posts)
+        Get posts list (GET /api/posts).
+        If include_comments=True, also fetches comments for each post and returns them.
         """
         params = {"page": str(page), "limit": str(limit)}
         if topic_id:
@@ -93,31 +104,105 @@ class ThreadClient:
         )
 
         posts = []
+        posts_with_comments = []
         for p in res.get("posts", []):
-            posts.append(
-                Post(
-                    id=p["id"],
-                    topic_id=p["topicId"],
-                    author_id=p.get("author", {}).get("accountId", p.get("authorId", "")),
-                    title=p["title"],
-                    content=p["content"],
-                    score=p.get("score", 0),
-                    comment_count=p.get("_count", {}).get("comments", p.get("commentCount", 0)),
-                    created_at=p.get("createdAt"),
-                    updated_at=p.get("updatedAt"),
-                )
+            post_obj = Post(
+                id=p["id"],
+                topic_id=p["topicId"],
+                author_id=p.get("author", {}).get("accountId", p.get("authorId", "")),
+                title=p["title"],
+                content=p["content"],
+                score=p.get("score", 0),
+                comment_count=p.get("_count", {}).get("comments", p.get("commentCount", 0)),
+                created_at=p.get("createdAt"),
+                updated_at=p.get("updatedAt"),
             )
+            posts.append(post_obj)
 
-        return {
+            if include_comments:
+                comments = []
+                try:
+                    comments = self.get_comments(
+                        post_id=post_obj.id,
+                        limit=comment_limit,
+                        format=comment_format,
+                        include_children=True,
+                    )
+                except Exception:
+                    pass
+                posts_with_comments.append(
+                    PostWithComments(post=post_obj, comments=comments)
+                )
+
+        result: Dict[str, Any] = {
             "posts": posts,
             "total": res.get("total", len(posts)),
             "page": res.get("page", page),
             "limit": res.get("limit", limit),
         }
+        if include_comments:
+            result["posts_with_comments"] = posts_with_comments
+        return result
+
+    def get_posts_with_comments(
+        self,
+        topic_id: Optional[str] = None,
+        page: int = 1,
+        limit: int = 20,
+        comment_limit: int = 5,
+        comment_format: str = "flat",
+    ) -> List[PostWithComments]:
+        """
+        Get posts along with their comments in batch.
+        """
+        res = self.get_posts(
+            topic_id=topic_id,
+            page=page,
+            limit=limit,
+            include_comments=True,
+            comment_limit=comment_limit,
+            comment_format=comment_format,
+        )
+        return res.get("posts_with_comments", [])
+
+    def get_multiple_post_comments(
+        self,
+        post_ids: List[str],
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Dict[str, Union[List[FlatComment], List[CommentTree]]]:
+        """
+        Get comments for multiple post IDs in batch (dict format: {postId: [comments]}).
+        """
+        results: Dict[str, Union[List[FlatComment], List[CommentTree]]] = {}
+        for pid in post_ids:
+            clean_pid = str(pid).strip()
+            if not clean_pid:
+                continue
+            try:
+                comments = self.get_comments(
+                    post_id=clean_pid,
+                    page=page,
+                    limit=limit,
+                    include_children=include_children,
+                    format=format,
+                    include_children_in_limit=include_children_in_limit,
+                    child_limit=child_limit,
+                    lang=lang,
+                )
+                results[clean_pid] = comments
+            except Exception:
+                results[clean_pid] = []
+        return results
 
     def get_post(self, post_id: str) -> Post:
         """
-        スレッド詳細を取得する (GET /api/posts/{post_id})
+        Get post details (GET /api/posts/{post_id}).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -150,16 +235,85 @@ class ThreadClient:
             updated_at=str(p.get("updatedAt") or p.get("updated_at") or ""),
         )
 
+    def wait_for_post(
+        self,
+        post_id: Optional[str] = None,
+        title: Optional[str] = None,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> Post:
+        """
+        Poll and wait until post creation queue is completed and post is retrievable.
+        """
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if post_id:
+                try:
+                    p = self.get_post(post_id)
+                    if p and p.id:
+                        return p
+                except Exception:
+                    pass
+            elif title:
+                try:
+                    res = self.get_posts(limit=10)
+                    for p in res.get("posts", []):
+                        if p.title == title:
+                            return p
+                except Exception:
+                    pass
+            time.sleep(poll_interval)
+        raise QueueTimeoutError(
+            f"Timed out after {timeout} seconds waiting for post completion (id={post_id}, title={title})"
+        )
+
+    def wait_for_comment(
+        self,
+        post_id: str,
+        comment_id: Optional[str] = None,
+        content_snippet: Optional[str] = None,
+        timeout: float = 30.0,
+        poll_interval: float = 1.0,
+    ) -> FlatComment:
+        """
+        Poll and wait until comment creation queue is completed and comment is reflected in the post.
+        """
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                comments = self.get_comments(
+                    post_id=post_id,
+                    include_children=True,
+                    format="flat",
+                    limit=50,
+                )
+                if isinstance(comments, list):
+                    for c in comments:
+                        if isinstance(c, FlatComment):
+                            if comment_id and c.id == comment_id:
+                                return c
+                            if content_snippet and content_snippet in (c.content or ""):
+                                return c
+            except Exception:
+                pass
+            time.sleep(poll_interval)
+        raise QueueTimeoutError(
+            f"Timed out after {timeout} seconds waiting for comment completion in post {post_id} (comment_id={comment_id})"
+        )
+
     def post(
         self,
         topic_id: str,
         title: str,
         content: str,
         dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
     ) -> CreatePostResponse:
         """
-        新規スレッドを投稿する (POST /api/posts)
-        topic_id にスラッグ名（例: 'general'）が渡された場合、自動でトピック一覧からUUIDへ解決する
+        Create a new post (POST /api/posts).
+        If a slug name (e.g., 'general') is passed to topic_id, automatically resolves it to UUID via topics list.
+        If wait=True, waits for queue completion (DB persistence) and returns confirmed Post object.
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         resolved_topic_id = self.resolve_topic_id(topic_id)
@@ -180,18 +334,31 @@ class ThreadClient:
             )
 
         res = self.auth.handle_401_and_retry(_do_request)
+        post_id = res.get("id")
+        confirmed_post = None
+
+        if wait and not effective_dry_run:
+            confirmed_post = self.wait_for_post(
+                post_id=post_id,
+                title=title,
+                timeout=timeout,
+            )
+            if confirmed_post:
+                post_id = confirmed_post.id
+
         return CreatePostResponse(
             success=True,
             message=res.get("message"),
-            id=res.get("id"),
+            id=post_id,
             job_id=res.get("jobId"),
-            status=res.get("status"),
+            status="completed" if confirmed_post else res.get("status"),
             dry_run=res.get("dryRun", False),
+            post=confirmed_post,
         )
 
     def resolve_topic_id(self, topic_identifier: str) -> str:
         """
-        トピックIDまたはスラッグをUUIDへ解決するヘルパー
+        Helper to resolve topic ID or slug to UUID.
         """
         uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         if re.match(uuid_pattern, topic_identifier, re.IGNORECASE):
@@ -213,47 +380,132 @@ class ThreadClient:
     def get_comments(
         self,
         post_id: str,
-        page: Optional[int] = None,
-        limit: Optional[int] = None,
-    ) -> List[Comment]:
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Union[List[FlatComment], List[CommentTree]]:
         """
-        スレッドのコメントツリーを取得する (GET /api/posts/{post_id}/comments)
-        """
-        params = {}
-        if page is not None:
-            params["page"] = str(page)
-        if limit is not None:
-            params["limit"] = str(limit)
-        query_str = f"?{urllib.parse.urlencode(params)}" if params else ""
+        Get comments for a post (GET /api/posts/{post_id}/comments).
 
+        :param post_id: Post ID
+        :param page: Page number (default: 1)
+        :param limit: Number of items to retrieve (default: 10, max: 50)
+        :param include_children: Whether to include child comments (2nd level) (default: False)
+        :param format: "flat" (1D array) or "tree" (nested structure) (default: "flat")
+        :param include_children_in_limit: If True, limit counts total comments including children (for flat timeline reproduction)
+        :param child_limit: Maximum replies to retrieve under each root comment (default: 30)
+        :param lang: Language code ("ja", "en", etc.)
+        """
+        params = {
+            "page": str(page),
+            "limit": str(limit),
+            "includeChildren": "true" if include_children else "false",
+            "format": format,
+            "includeChildrenInLimit": "true" if include_children_in_limit else "false",
+            "childLimit": str(child_limit),
+        }
+        if lang is not None:
+            params["lang"] = lang
+
+        query_str = f"?{urllib.parse.urlencode(params)}"
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
             f"{self.api_url}/posts/{post_id}/comments{query_str}", method="GET", headers=headers
         )
-        comments = []
-        # APIがリスト直接返却の場合と辞書返却の場合の双方に対応
+
+        # Support both direct list response and dict response from API
         raw_list = res if isinstance(res, list) else (res.get("comments", []) if isinstance(res, dict) else [])
+        if not isinstance(raw_list, list):
+            raw_list = []
 
-        def _parse_comment(c: dict, depth: int = 0) -> Comment:
-            # ネストされた replies または children も再帰的に children としてパース
-            raw_replies = c.get("replies") if isinstance(c.get("replies"), list) else c.get("children", [])
-            children = [_parse_comment(r, depth + 1) for r in (raw_replies if isinstance(raw_replies, list) else [])]
-            return Comment(
-                id=str(c.get("id", "")),
-                post_id=str(c.get("postId", post_id)),
-                parent_id=c.get("parentId"),
-                author_id=c.get("author", {}).get("accountId", c.get("authorId", "")),
-                content=c.get("content", ""),
-                score=c.get("score", 0),
-                depth=c.get("depth", depth),
-                created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
-                updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
-                children=children,
+        if format == "tree":
+            def _parse_tree(c: dict, current_depth: int = 1) -> Comment:
+                author_data = c.get("author") if isinstance(c.get("author"), dict) else None
+                author_id = ""
+                if author_data:
+                    author_id = str(author_data.get("accountId") or author_data.get("username") or "")
+                if not author_id:
+                    author_id = str(c.get("authorId") or "")
+
+                depth = c.get("depth", current_depth)
+                if isinstance(depth, str) and depth.isdigit():
+                    depth = int(depth)
+
+                raw_replies = c.get("replies") if isinstance(c.get("replies"), list) else c.get("children", [])
+                children = [
+                    _parse_tree(r, depth + 1)
+                    for r in (raw_replies if isinstance(raw_replies, list) else [])
+                ]
+
+                reply_count = c.get("replyCount")
+                if reply_count is None:
+                    reply_count = c.get("reply_count", len(children))
+
+                return Comment(
+                    id=str(c.get("id", "")),
+                    post_id=str(c.get("postId", post_id)),
+                    parent_id=c.get("parentId"),
+                    author_id=author_id,
+                    content=str(c.get("content", "")),
+                    score=int(c.get("score") or 0),
+                    depth=int(depth),
+                    created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
+                    updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
+                    children=children,
+                    author=author_data,
+                    reply_count=int(reply_count or 0),
+                    total_replies=c.get("totalReplies") or c.get("total_replies"),
+                    has_more_replies=c.get("hasMoreReplies") or c.get("has_more_replies"),
+                    is_hidden=bool(c.get("isHidden") or c.get("is_hidden", False)),
+                    original_language=c.get("originalLanguage") or c.get("original_language"),
+                    current_language=c.get("currentLanguage") or c.get("current_language"),
+                )
+
+            return [_parse_tree(c) for c in raw_list]
+
+        # Default: flat format
+        flat_comments: List[FlatComment] = []
+        for c in raw_list:
+            author_data = c.get("author") if isinstance(c.get("author"), dict) else None
+            author_id = ""
+            if author_data:
+                author_id = str(author_data.get("accountId") or author_data.get("username") or "")
+            if not author_id:
+                author_id = str(c.get("authorId") or "")
+
+            depth = c.get("depth", 1)
+            if isinstance(depth, str) and depth.isdigit():
+                depth = int(depth)
+
+            reply_count = c.get("replyCount")
+            if reply_count is None:
+                reply_count = c.get("reply_count", 0)
+
+            flat_comments.append(
+                FlatComment(
+                    id=str(c.get("id", "")),
+                    post_id=str(c.get("postId", post_id)),
+                    author_id=author_id,
+                    content=str(c.get("content", "")),
+                    depth=int(depth),
+                    parent_id=c.get("parentId"),
+                    author=author_data,
+                    reply_count=int(reply_count or 0),
+                    total_replies=c.get("totalReplies") or c.get("total_replies"),
+                    has_more_replies=c.get("hasMoreReplies") or c.get("has_more_replies"),
+                    score=int(c.get("score") or 0),
+                    created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
+                    updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
+                    is_hidden=bool(c.get("isHidden") or c.get("is_hidden", False)),
+                    original_language=c.get("originalLanguage") or c.get("original_language"),
+                    current_language=c.get("currentLanguage") or c.get("current_language"),
+                )
             )
-
-        for c in (raw_list if isinstance(raw_list, list) else []):
-            comments.append(_parse_comment(c))
-        return comments
+        return flat_comments
 
     def comment(
         self,
@@ -261,9 +513,12 @@ class ThreadClient:
         content: str,
         parent_id: Optional[str] = None,
         dry_run: Optional[bool] = None,
+        wait: bool = False,
+        timeout: float = 30.0,
     ) -> CreateCommentResponse:
         """
-        コメントを投稿する (POST /api/posts/{post_id}/comments)
+        Create a comment (POST /api/posts/{post_id}/comments).
+        If wait=True, waits for queue completion (DB persistence) and returns confirmed FlatComment object.
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         payload = {"content": content}
@@ -280,14 +535,37 @@ class ThreadClient:
                 json_data=payload,
             )
 
-        res = self.auth.handle_401_and_retry(_do_request)
+        try:
+            res = self.auth.handle_401_and_retry(_do_request)
+        except Exception as e:
+            err_msg = str(e)
+            if "Comments are limited to 2 levels" in err_msg or "Cannot reply to a nested comment" in err_msg:
+                raise CommentDepthExceededError(
+                    "Comments are limited to 2 levels. Cannot reply to a nested comment."
+                ) from e
+            raise
+
+        comment_id = res.get("id")
+        confirmed_comment = None
+
+        if wait and not effective_dry_run:
+            confirmed_comment = self.wait_for_comment(
+                post_id=post_id,
+                comment_id=comment_id,
+                content_snippet=content,
+                timeout=timeout,
+            )
+            if confirmed_comment:
+                comment_id = confirmed_comment.id
+
         return CreateCommentResponse(
             success=True,
             message=res.get("message"),
-            id=res.get("id"),
+            id=comment_id,
             job_id=res.get("jobId"),
-            status=res.get("status"),
+            status="completed" if confirmed_comment else res.get("status"),
             dry_run=res.get("dryRun", False),
+            comment=confirmed_comment,
         )
 
     def vote(
@@ -298,7 +576,7 @@ class ThreadClient:
         dry_run: Optional[bool] = None,
     ) -> VoteResponse:
         """
-        投票（Upvote / Downvote）を実行する (POST /api/votes)
+        Vote (Upvote / Downvote) (POST /api/votes).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         norm_target_type = (target_type or "").upper()
@@ -334,7 +612,7 @@ class ThreadClient:
         limit: int = 20,
     ) -> Dict[str, Any]:
         """
-        Karma ランキングを取得する (GET /api/ranking)
+        Get Karma ranking (GET /api/ranking).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -369,7 +647,7 @@ class ThreadClient:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        通報を実行する (POST /api/reports)
+        Submit a report (POST /api/reports).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         norm_target_type = (target_type or "").upper()
@@ -398,3 +676,4 @@ class ThreadClient:
             "message": res.get("message") if isinstance(res, dict) else None,
             "dry_run": res.get("dryRun", effective_dry_run) if isinstance(res, dict) else effective_dry_run,
         }
+

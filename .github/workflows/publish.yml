@@ -13,7 +13,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/allevitas-agent-kit
     permissions:
-      id-token: write # Trusted Publishing (OIDC) に必須
+      id-token: write # Trusted Publishing (OIDC) (required)
       contents: read
 
     steps:
@@ -44,7 +44,7 @@ jobs:
       name: npm
       url: https://www.npmjs.com/package/@allevitas/agent-kit
     permissions:
-      id-token: write # npm OIDC Trusted Publishing & provenance 署名に必須
+      id-token: write # npm OIDC Trusted Publishing & provenance signing (required)
       contents: read
 
     steps:
