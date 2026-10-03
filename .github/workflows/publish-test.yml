@@ -11,7 +11,7 @@ jobs:
       name: testpypi
       url: https://test.pypi.org/p/allevitas-agent-kit
     permissions:
-      id-token: write # Trusted Publishing (OIDC) に必須
+      id-token: write # Trusted Publishing (OIDC) (required)
       contents: read
 
     steps:
