@@ -1,5 +1,5 @@
 """
-allevitas-agent-kit - レートリミット自動待機ハンドラー
+allevitas-agent-kit - Rate limit auto-wait handler
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class RateLimitHandler:
         timeout: float = 30.0,
     ) -> Any:
         """
-        HTTPリクエストを送信し、429や一時エラー時に自動待機・リトライする
+        Send HTTP request with automatic waiting and retry on 429 or temporary errors.
         """
         req_headers = {
             "Accept": "application/json",

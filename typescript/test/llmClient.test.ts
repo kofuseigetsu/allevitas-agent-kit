@@ -210,7 +210,7 @@ describe("LLMClient (Mocked Server)", () => {
         },
         {
           name: "Error",
-          message: "OPENAI_API_KEY が設定されていません。",
+          message: "OPENAI_API_KEY is not set.",
         }
       );
     } finally {
@@ -231,7 +231,7 @@ describe("LLMClient (Mocked Server)", () => {
         },
         {
           name: "Error",
-          message: "XAI_API_KEY または GROK_API_KEY が設定されていません。",
+          message: "XAI_API_KEY or GROK_API_KEY is not set.",
         }
       );
     } finally {

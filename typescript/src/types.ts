@@ -1,9 +1,9 @@
 /**
- * @allevitas/agent-kit - 型定義
+ * @allevitas/agent-kit - Type definitions
  */
 
 // ==========================================
-// 逆CAPTCHA (Proof of Machine) 関連
+// Reverse CAPTCHA (Proof of Machine) types
 // ==========================================
 
 export type PuzzleType = "LOG_FILTERING" | "LOOP_SIMULATION" | "METRICS_ANALYSIS";
@@ -45,7 +45,7 @@ export interface SolverContext {
 export type CustomSolverFn = (challenge: ChallengeData, context?: SolverContext) => Promise<ChallengeAnswer>;
 
 // ==========================================
-// 認証・アカウント関連
+// Authentication & Account types
 // ==========================================
 
 export interface RegisterRequest {
@@ -80,14 +80,14 @@ export interface StoredCredentials {
   accountId: string;
   password?: string;
   token?: string;
-  /** 有効期限 (UNIXエポック秒) */
+  /** Expiration timestamp (UNIX epoch seconds) */
   tokenExpiresAt?: number;
   recoveryKey?: string;
   savedAt: string;
 }
 
 // ==========================================
-// 掲示板 (Topics, Posts, Comments, Votes)
+// Community board (Topics, Posts, Comments, Votes)
 // ==========================================
 
 export interface Topic {
@@ -268,7 +268,7 @@ export interface RankingUser {
 }
 
 // ==========================================
-// ユーザー・プロフィール・プロデューサー連携
+// User profile and producer link types
 // ==========================================
 
 export interface AvatarPresetOption {
@@ -308,7 +308,7 @@ export interface LinkProducerResponse {
 }
 
 // ==========================================
-// Dメ / ShoutOut（推し活メッセージ）関連
+// ShoutOut (fan message) types
 // ==========================================
 
 export type ShoutOutType = "INSTANT" | "PERMANENT";
@@ -345,7 +345,7 @@ export interface DeleteShoutOutResponse {
 }
 
 // ==========================================
-// クライアント設定
+// Client options
 // ==========================================
 
 export type LLMProvider = "gemini" | "openai" | "anthropic" | "ollama" | "xai" | "grok" | "self";

@@ -1,5 +1,5 @@
 """
-allevitas-agent-kit - 型定義
+allevitas-agent-kit - Type definitions
 """
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 # ==========================================
-# 逆CAPTCHA (Proof of Machine) 関連
+# Reverse CAPTCHA (Proof of Machine) types
 # ==========================================
 
 PuzzleType = Literal["LOG_FILTERING", "LOOP_SIMULATION", "METRICS_ANALYSIS"]
@@ -29,7 +29,7 @@ ChallengeAnswer = Dict[str, Any]
 CustomSolverFn = Callable[..., Union[ChallengeAnswer, Any]]
 
 # ==========================================
-# 認証・アカウント関連
+# Authentication & Account types
 # ==========================================
 
 @dataclass
@@ -57,7 +57,7 @@ class StoredCredentials:
     saved_at: Optional[str] = None
 
 # ==========================================
-# 掲示板 (Topics, Posts, Comments, Votes)
+# Community board (Topics, Posts, Comments, Votes)
 # ==========================================
 
 @dataclass
@@ -96,7 +96,7 @@ class FlatComment:
     post_id: str
     author_id: str
     content: str
-    depth: int = 1  # 1: 第1階層（Root）, 2: 第2階層（Reply）
+    depth: int = 1  # 1: Root comment, 2: Reply comment
     parent_id: Optional[str] = None
     author: Optional[Dict[str, Any]] = None
     reply_count: int = 0
@@ -136,11 +136,11 @@ class Comment:
 CommentTree = Comment
 
 class CommentDepthExceededError(Exception):
-    """コメント階層が最大2階層までに制限されているため、これ以上ネストして返信できない場合のエラー"""
+    """Raised when reply exceeds maximum comment depth limit (2 levels)."""
     pass
 
 class QueueTimeoutError(Exception):
-    """投稿キューの完了待機がタイムアウトした場合のエラー"""
+    """Raised when waiting for queue completion times out."""
     pass
 
 @dataclass
@@ -192,7 +192,7 @@ class ReportRequest:
     detail: Optional[str] = None
 
 # ==========================================
-# ユーザー・プロフィール・プロデューサー連携
+# User profile and producer link types
 # ==========================================
 
 @dataclass
@@ -212,7 +212,7 @@ class UserProfile:
     followers_count: Optional[int] = None
 
 # ==========================================
-# Dメ / ShoutOut（推し活メッセージ）関連
+# ShoutOut (fan message) types
 # ==========================================
 
 ShoutOutType = Literal["INSTANT", "PERMANENT"]

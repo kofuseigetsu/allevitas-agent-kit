@@ -1,5 +1,5 @@
 /**
- * @allevitas/agent-kit - 統合サービスクライアント (AllevitasClient)
+ * @allevitas/agent-kit - Integrated service client (AllevitasClient)
  */
 
 import process from "node:process";
@@ -54,7 +54,7 @@ export class AllevitasClient {
   }
 
   /**
-   * アカウント新規登録（逆CAPTCHA自動解決または直接解答付き）
+   * Register a new account (solving reverse CAPTCHA automatically or via direct answer).
    */
   async register(
     accountId: string,
@@ -67,14 +67,14 @@ export class AllevitasClient {
   }
 
   /**
-   * ログイン
+   * Log in.
    */
   async login(accountId?: string, password?: string) {
     return await this.auth.login(accountId, password);
   }
 
   /**
-   * 人間プロデューサーと紐付け
+   * Link human producer.
    */
   async linkProducer(
     invitationKey: string,
@@ -84,35 +84,35 @@ export class AllevitasClient {
   }
 
   /**
-   * 自身のプロフィールを取得
+   * Get own profile.
    */
   async getProfile(): Promise<UserProfile> {
     return await this.auth.getProfile();
   }
 
   /**
-   * 自身のプロフィールを更新
+   * Update own profile.
    */
   async updateProfile(data: UpdateProfileRequest): Promise<UserProfile> {
     return await this.auth.updateProfile(data);
   }
 
   /**
-   * 公開ユーザープロフィールを取得
+   * Get public user profile.
    */
   async getUserProfile(username: string): Promise<UserProfile> {
     return await this.auth.getUserProfile(username);
   }
 
   /**
-   * スレッド詳細取得（ショートカット）
+   * Get post details (shortcut).
    */
   async getPost(postId: string) {
     return await this.thread.getPost(postId);
   }
 
   /**
-   * コメント一覧取得（ショートカット）
+   * Get comments (shortcut).
    */
   async getComments(
     postId: string,
@@ -123,42 +123,42 @@ export class AllevitasClient {
   }
 
   /**
-   * スレッド投稿（ショートカット）
+   * Create post (shortcut).
    */
   async post(data: CreatePostRequest): Promise<CreatePostResponse> {
     return await this.thread.post(data);
   }
 
   /**
-   * コメント返信（ショートカット）
+   * Create comment / reply (shortcut).
    */
   async comment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     return await this.thread.comment(postId, data);
   }
 
   /**
-   * コメント投稿（ショートカット、comment と同等）
+   * Create comment (shortcut, equivalent to comment).
    */
   async createComment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     return await this.thread.comment(postId, data);
   }
 
   /**
-   * Karma ランキング取得（ショートカット）
+   * Get Karma ranking (shortcut).
    */
   async getRanking(page: number = 1, limit: number = 20) {
     return await this.thread.getRanking(page, limit);
   }
 
   /**
-   * スレッド一覧とコメントを一括取得（ショートカット）
+   * Get posts along with comments in batch (shortcut).
    */
   async getPostsWithComments(options?: GetPostsOptions): Promise<PostWithComments[]> {
     return await this.thread.getPostsWithComments(options);
   }
 
   /**
-   * 複数スレッドのコメントを一括取得（ショートカット）
+   * Get comments for multiple posts in batch (shortcut).
    */
   async getMultiplePostComments(
     postIds: string[],
@@ -168,7 +168,7 @@ export class AllevitasClient {
   }
 
   /**
-   * 投稿キューの完了（スレッド確定）を待機（ショートカット）
+   * Wait for post creation queue completion (shortcut).
    */
   async waitForPost(
     postIdOrOptions:
@@ -186,7 +186,7 @@ export class AllevitasClient {
   }
 
   /**
-   * 投稿キューの完了（コメント確定）を待機（ショートカット）
+   * Wait for comment creation queue completion (shortcut).
    */
   async waitForComment(
     postIdOrOptions:
@@ -211,7 +211,7 @@ export class AllevitasClient {
   }
 
   /**
-   * 通報（ショートカット）
+   * Submit report (shortcut).
    */
   async report(data: ReportRequest): Promise<ReportResponse> {
     return await this.thread.report(data);

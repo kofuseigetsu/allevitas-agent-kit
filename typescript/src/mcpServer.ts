@@ -1,8 +1,8 @@
 /**
- * @allevitas/agent-kit - Model Context Protocol (MCP) サーバーモジュール
+ * @allevitas/agent-kit - Model Context Protocol (MCP) server module
  *
- * 外部依存ゼロ: Node.js 組み込みの readline, stream, events を使用した
- * JSON-RPC 2.0 stdio トランスポート実装。
+ * Zero external dependencies: JSON-RPC 2.0 stdio transport implementation
+ * using Node.js built-in readline, stream, and events.
  */
 
 import * as readline from "node:readline";
@@ -33,7 +33,7 @@ export class MCPServer {
   }
 
   /**
-   * 公開する MCP ツール一覧の定義
+   * Definitions of exposed MCP tools
    */
   getTools(): ToolDefinition[] {
     return [
@@ -445,7 +445,7 @@ export class MCPServer {
   }
 
   /**
-   * ツール呼び出しをディスパッチして実行する
+   * Dispatch and execute tool invocation
    */
   async executeTool(name: string, args: Record<string, any> = {}): Promise<any> {
     switch (name) {
@@ -745,7 +745,7 @@ export class MCPServer {
   }
 
   /**
-   * JSON-RPC 2.0 リクエストを処理してレスポンスオブジェクトを返す
+   * Process JSON-RPC 2.0 request and return response object
    */
   async handleMessage(message: any): Promise<any | null> {
     if (!message || typeof message !== "object") {
@@ -758,7 +758,7 @@ export class MCPServer {
 
     const { id, method, params } = message;
 
-    // 通知（id なし）の場合はレスポンスを返さない
+    // Do not return response for notifications (no id)
     if (id === undefined || id === null) {
       if (method === "notifications/initialized") {
         process.stderr.write("[Allevitas MCP] Client initialized notification received\n");
@@ -857,7 +857,7 @@ export class MCPServer {
   }
 
   /**
-   * stdio ストリームに接続して MCP サーバーを起動する
+   * Start MCP server connected to stdio streams
    */
   startStdioServer(
     input: Readable = process.stdin,

@@ -1,7 +1,7 @@
 """
-allevitas-agent-kit - コーディングAI向け CLI ツール
+allevitas-agent-kit - CLI tool for coding AI agents
 
-外部依存ゼロ: Python 3.10+ 標準の argparse, json, sys, os を使用
+Zero external dependencies: uses Python 3.10+ standard argparse, json, sys, os.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import os
 import sys
 from typing import Any, Optional
 
-# Windows環境でのコンソール文字化け防止
+# Prevent console garbling on Windows environments
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")

@@ -150,8 +150,8 @@ describe("ChallengeSolver (Mocked)", () => {
     const previousAnswer = { matchCount: 2, totalBytes: 1000, targetIds: [] };
     const corrected = await solver.correctAnswer(challenge, previousAnswer, 2);
 
-    assert.ok(capturedPrompt.includes("先ほど以下の逆CAPTCHA課題に対して解答を提出しましたが、不正解"));
-    assert.ok(capturedPrompt.includes("前回の誤答"));
+    assert.ok(capturedPrompt.includes("You previously submitted an answer to the following reverse CAPTCHA puzzle, but it was incorrect"));
+    assert.ok(capturedPrompt.includes("[Previous Incorrect Answer]"));
     assert.ok(capturedPrompt.includes('"matchCount":2'));
     assert.equal(corrected.matchCount, 3);
   });
@@ -189,7 +189,7 @@ describe("ChallengeSolver (Mocked)", () => {
 
     // 次回の solve 実行時に教訓がプロンプトに含まれているか検証
     await solver.solve(challenge);
-    assert.ok(lastPrompt.includes("【過去の誤答から得た教訓・反省点】"));
+    assert.ok(lastPrompt.includes("[Lessons from Previous Attempts]"));
     assert.ok(lastPrompt.includes("ステータス200かつレスポンス時間が300msを超える条件"));
   });
 });

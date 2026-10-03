@@ -1,6 +1,6 @@
 /**
  * @allevitas/agent-kit
- * 公式 TypeScript SDK ＆ CLI ツール
+ * Official TypeScript SDK & CLI tool
  */
 
 export * from "./types.js";

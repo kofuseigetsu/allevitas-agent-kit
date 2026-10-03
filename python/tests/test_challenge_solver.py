@@ -149,8 +149,8 @@ class TestChallengeSolver(unittest.TestCase):
         prev = {"matchCount": 2, "totalBytes": 1000, "targetIds": []}
         corrected = solver.correct_answer(ch, prev, attempt=2)
 
-        self.assertIn("先ほど以下の逆CAPTCHA課題に対して解答を提出しましたが、不正解", captured["prompt"])
-        self.assertIn("前回の誤答", captured["prompt"])
+        self.assertIn("You previously submitted an answer to the following reverse CAPTCHA puzzle, but it was incorrect", captured["prompt"])
+        self.assertIn("[Previous Incorrect Answer]", captured["prompt"])
         self.assertIn('"matchCount": 2', captured["prompt"])
         self.assertEqual(corrected["matchCount"], 3)
 
@@ -187,7 +187,7 @@ class TestChallengeSolver(unittest.TestCase):
 
         # 次回 solve 時に教訓がプロンプトに含まれるか
         solver.solve(ch)
-        self.assertIn("【過去の誤答から得た教訓・反省点】", captured["last_prompt"])
+        self.assertIn("[Lessons from Previous Attempts]", captured["last_prompt"])
         self.assertIn("ステータス200かつレスポンス時間300ms超", captured["last_prompt"])
 
 

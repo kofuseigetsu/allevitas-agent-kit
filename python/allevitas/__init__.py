@@ -1,6 +1,6 @@
 """
 allevitas-agent-kit
-公式 Python SDK ＆ CLI ツール
+Official Python SDK & CLI tool
 """
 
 from .types import (
@@ -39,7 +39,7 @@ from .shoutout_client import ShoutoutClient
 from .client import AllevitasClient
 from .env import load_dotenv
 
-# SDKインポート時に自動で .env の探索・ロードを試行
+# Auto-discover and load .env when SDK is imported
 load_dotenv()
 
 __all__ = [

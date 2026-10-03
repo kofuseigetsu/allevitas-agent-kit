@@ -1,8 +1,8 @@
 /**
- * @allevitas/agent-kit - 軽量マルチプロバイダー LLM クライアント
+ * @allevitas/agent-kit - Lightweight multi-provider LLM client
  * 
- * 外部パッケージ（SDK）を追加インストールせず、Node.js 標準 fetch のみで動作します。
- * Gemini / OpenAI / Anthropic / Ollama を透過的に切り替え可能です。
+ * Runs using Node.js standard fetch without additional package installations.
+ * Supports transparent switching between Gemini / OpenAI / Anthropic / Ollama / xAI.
  */
 
 import process from "node:process";
@@ -10,21 +10,21 @@ import { LLMProvider } from "./types.js";
 import { DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 
 export interface LLMCallOptions {
-  /** ユーザー入力プロンプト */
+  /** User input prompt */
   prompt: string;
-  /** システム指示プロンプト（省略可） */
+  /** Optional system prompt */
   systemPrompt?: string;
-  /** JSON出力モードを強制するか（デフォルト: false） */
+  /** Force JSON output mode (default: false) */
   jsonMode?: boolean;
-  /** サンプリング温度（0.0 〜 1.0、デフォルト: 0.7） */
+  /** Sampling temperature (0.0 - 1.0, default: 0.7) */
   temperature?: number;
-  /** プロバイダ個別オーバーライド */
+  /** Provider override */
   provider?: LLMProvider;
-  /** モデル名オーバーライド */
+  /** Model name override */
   model?: string;
-  /** APIキーオーバーライド */
+  /** API key override */
   apiKey?: string;
-  /** ベースURLオーバーライド */
+  /** Base URL override */
   baseUrl?: string;
 }
 
@@ -56,7 +56,7 @@ export class LLMClient {
   }
 
   /**
-   * LLMを呼び出し、テキスト応答を取得する
+   * Call LLM and retrieve text response.
    */
   async call(options: LLMCallOptions): Promise<string> {
     const provider = (options.provider || this.defaultProvider).toLowerCase() as LLMProvider;
@@ -80,7 +80,7 @@ export class LLMClient {
         result = await this.callXAI(options);
         break;
       default:
-        throw new Error(`未対応の LLM プロバイダです: ${String(provider)}`);
+        throw new Error(`Unsupported LLM provider: ${String(provider)}`);
     }
 
     if (options.jsonMode) {
@@ -90,7 +90,7 @@ export class LLMClient {
   }
 
   /**
-   * 簡易プロンプト実行（ショートカット）
+   * Simple prompt execution (shortcut)
    */
   async generate(prompt: string, systemPrompt?: string): Promise<string> {
     return await this.call({ prompt, systemPrompt });
@@ -103,7 +103,7 @@ export class LLMClient {
       process.env.GEMINI_API_KEY ||
       process.env.ALLEVITAS_LLM_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY が設定されていません。");
+      throw new Error("GEMINI_API_KEY is not set.");
     }
 
     const primaryModel =
@@ -122,7 +122,7 @@ export class LLMClient {
     const contents: any[] = [];
     if (options.systemPrompt) {
       contents.push({ role: "user", parts: [{ text: `[System Instruction]\n${options.systemPrompt}` }] });
-      contents.push({ role: "model", parts: [{ text: "了解しました。指示に従います。" }] });
+      contents.push({ role: "model", parts: [{ text: "Understood. I will follow the instructions." }] });
     }
     contents.push({ role: "user", parts: [{ text: options.prompt }] });
 
@@ -149,7 +149,7 @@ export class LLMClient {
 
           if (!res.ok) {
             const errText = await res.text();
-            lastError = new Error(`Gemini API エラー (${res.status}): ${errText}`);
+            lastError = new Error(`Gemini API error (${res.status}): ${errText}`);
             if (res.status === 429 || res.status === 503) {
               if (attempt < 3) {
                 await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
@@ -178,7 +178,7 @@ export class LLMClient {
       }
     }
 
-    throw lastError || new Error("Gemini API の呼び出しに失敗しました。");
+    throw lastError || new Error("Failed to call Gemini API.");
   }
 
   private async callOpenAI(options: LLMCallOptions): Promise<string> {
@@ -188,7 +188,7 @@ export class LLMClient {
       process.env.OPENAI_API_KEY ||
       process.env.ALLEVITAS_LLM_API_KEY;
     if (!apiKey) {
-      throw new Error("OPENAI_API_KEY が設定されていません。");
+      throw new Error("OPENAI_API_KEY is not set.");
     }
 
     const baseUrl = (
@@ -229,7 +229,7 @@ export class LLMClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`OpenAI API エラー (${res.status}): ${errText}`);
+      throw new Error(`OpenAI API error (${res.status}): ${errText}`);
     }
 
     const data = await res.json();
@@ -243,7 +243,7 @@ export class LLMClient {
       process.env.ANTHROPIC_API_KEY ||
       process.env.ALLEVITAS_LLM_API_KEY;
     if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY が設定されていません。");
+      throw new Error("ANTHROPIC_API_KEY is not set.");
     }
 
     const model =
@@ -275,7 +275,7 @@ export class LLMClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Anthropic API エラー (${res.status}): ${errText}`);
+      throw new Error(`Anthropic API error (${res.status}): ${errText}`);
     }
 
     const data = await res.json();
@@ -316,7 +316,7 @@ export class LLMClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Ollama API エラー (${res.status}): ${errText}`);
+      throw new Error(`Ollama API error (${res.status}): ${errText}`);
     }
 
     const data = await res.json();
@@ -331,7 +331,7 @@ export class LLMClient {
       process.env.GROK_API_KEY ||
       process.env.ALLEVITAS_LLM_API_KEY;
     if (!apiKey) {
-      throw new Error("XAI_API_KEY または GROK_API_KEY が設定されていません。");
+      throw new Error("XAI_API_KEY or GROK_API_KEY is not set.");
     }
 
     const baseUrl = (
@@ -374,7 +374,7 @@ export class LLMClient {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`xAI (Grok) API エラー (${res.status}): ${errText}`);
+      throw new Error(`xAI (Grok) API error (${res.status}): ${errText}`);
     }
 
     const data = await res.json();
@@ -383,7 +383,7 @@ export class LLMClient {
 }
 
 /**
- * スタンドアロンのLLM呼び出し関数
+ * Standalone LLM call function
  */
 export async function callLLM(options: LLMCallOptions, clientOptions?: LLMClientOptions): Promise<string> {
   const client = new LLMClient(clientOptions);
@@ -391,11 +391,11 @@ export async function callLLM(options: LLMCallOptions, clientOptions?: LLMClient
 }
 
 /**
- * LLM出力からマークダウンコードブロックや不要な装飾を取り除き純粋なJSON文字列にする
+ * Strip markdown code blocks and decorations from LLM output to produce pure JSON string
  */
 export function cleanJsonOutput(text: string): string {
   let cleaned = text.trim();
-  // Reasoning モデルの思考タグ (<think>...</think>) を除去
+  // Strip reasoning model thinking tags (<think>...</think>)
   cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   if (cleaned.startsWith("```json")) {
     cleaned = cleaned.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();

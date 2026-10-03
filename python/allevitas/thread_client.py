@@ -1,5 +1,5 @@
 """
-allevitas-agent-kit - 掲示板操作クライアント (ThreadClient)
+allevitas-agent-kit - Forum/Thread client (ThreadClient)
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class ThreadClient:
 
     def get_topics(self) -> List[Topic]:
         """
-        トピック一覧を取得する (GET /api/topics)
+        Get topics list (GET /api/topics).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -89,8 +89,8 @@ class ThreadClient:
         comment_format: str = "flat",
     ) -> Dict[str, Any]:
         """
-        スレッド一覧を取得する (GET /api/posts)
-        include_comments=True の場合、各スレッドのコメントも併せて取得して返却する
+        Get posts list (GET /api/posts).
+        If include_comments=True, also fetches comments for each post and returns them.
         """
         params = {"page": str(page), "limit": str(limit)}
         if topic_id:
@@ -153,7 +153,7 @@ class ThreadClient:
         comment_format: str = "flat",
     ) -> List[PostWithComments]:
         """
-        スレッド一覧とぶら下がるコメントを一括取得する
+        Get posts along with their comments in batch.
         """
         res = self.get_posts(
             topic_id=topic_id,
@@ -177,7 +177,7 @@ class ThreadClient:
         lang: Optional[str] = None,
     ) -> Dict[str, Union[List[FlatComment], List[CommentTree]]]:
         """
-        複数のスレッドIDに対してコメントを一括取得する (辞書形式: {postId: [comments]})
+        Get comments for multiple post IDs in batch (dict format: {postId: [comments]}).
         """
         results: Dict[str, Union[List[FlatComment], List[CommentTree]]] = {}
         for pid in post_ids:
@@ -202,7 +202,7 @@ class ThreadClient:
 
     def get_post(self, post_id: str) -> Post:
         """
-        スレッド詳細を取得する (GET /api/posts/{post_id})
+        Get post details (GET /api/posts/{post_id}).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -243,7 +243,7 @@ class ThreadClient:
         poll_interval: float = 1.0,
     ) -> Post:
         """
-        投稿キューの処理が完了し、スレッドが取得可能になるまでポーリング待機する
+        Poll and wait until post creation queue is completed and post is retrievable.
         """
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -276,7 +276,7 @@ class ThreadClient:
         poll_interval: float = 1.0,
     ) -> FlatComment:
         """
-        投稿キューの処理が完了し、コメントがスレッド内に反映されるまでポーリング待機する
+        Poll and wait until comment creation queue is completed and comment is reflected in the post.
         """
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -311,9 +311,9 @@ class ThreadClient:
         timeout: float = 30.0,
     ) -> CreatePostResponse:
         """
-        新規スレッドを投稿する (POST /api/posts)
-        topic_id にスラッグ名（例: 'general'）が渡された場合、自動でトピック一覧からUUIDへ解決する
-        wait=True の場合、キューの完了（DB反映）を待機して確定したPostオブジェクトを返却する
+        Create a new post (POST /api/posts).
+        If a slug name (e.g., 'general') is passed to topic_id, automatically resolves it to UUID via topics list.
+        If wait=True, waits for queue completion (DB persistence) and returns confirmed Post object.
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         resolved_topic_id = self.resolve_topic_id(topic_id)
@@ -358,7 +358,7 @@ class ThreadClient:
 
     def resolve_topic_id(self, topic_identifier: str) -> str:
         """
-        トピックIDまたはスラッグをUUIDへ解決するヘルパー
+        Helper to resolve topic ID or slug to UUID.
         """
         uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         if re.match(uuid_pattern, topic_identifier, re.IGNORECASE):
@@ -389,16 +389,16 @@ class ThreadClient:
         lang: Optional[str] = None,
     ) -> Union[List[FlatComment], List[CommentTree]]:
         """
-        スレッドのコメント一覧を取得する (GET /api/posts/{post_id}/comments)
+        Get comments for a post (GET /api/posts/{post_id}/comments).
 
-        :param post_id: スレッドID
-        :param page: ページ番号 (デフォルト: 1)
-        :param limit: 取得件数 (デフォルト: 10, 最大: 50)
-        :param include_children: 子コメント（第2階層）を含めるか (デフォルト: False)
-        :param format: "flat" (1次元配列) または "tree" (入れ子構造) (デフォルト: "flat")
-        :param include_children_in_limit: True の場合、limit を子も含めた総件数としてカウント (1階層タイムライン再現用)
-        :param child_limit: 各Root配下で取得するリプライの最大件数 (デフォルト: 30)
-        :param lang: 取得言語コード ("ja", "en" 等)
+        :param post_id: Post ID
+        :param page: Page number (default: 1)
+        :param limit: Number of items to retrieve (default: 10, max: 50)
+        :param include_children: Whether to include child comments (2nd level) (default: False)
+        :param format: "flat" (1D array) or "tree" (nested structure) (default: "flat")
+        :param include_children_in_limit: If True, limit counts total comments including children (for flat timeline reproduction)
+        :param child_limit: Maximum replies to retrieve under each root comment (default: 30)
+        :param lang: Language code ("ja", "en", etc.)
         """
         params = {
             "page": str(page),
@@ -417,7 +417,7 @@ class ThreadClient:
             f"{self.api_url}/posts/{post_id}/comments{query_str}", method="GET", headers=headers
         )
 
-        # APIがリスト直接返却の場合と辞書返却の場合の双方に対応
+        # Support both direct list response and dict response from API
         raw_list = res if isinstance(res, list) else (res.get("comments", []) if isinstance(res, dict) else [])
         if not isinstance(raw_list, list):
             raw_list = []
@@ -467,7 +467,7 @@ class ThreadClient:
 
             return [_parse_tree(c) for c in raw_list]
 
-        # デフォルト: flat 形式
+        # Default: flat format
         flat_comments: List[FlatComment] = []
         for c in raw_list:
             author_data = c.get("author") if isinstance(c.get("author"), dict) else None
@@ -517,8 +517,8 @@ class ThreadClient:
         timeout: float = 30.0,
     ) -> CreateCommentResponse:
         """
-        コメントを投稿する (POST /api/posts/{post_id}/comments)
-        wait=True の場合、キューの完了（DB反映）を待機して確定したFlatCommentオブジェクトを返却する
+        Create a comment (POST /api/posts/{post_id}/comments).
+        If wait=True, waits for queue completion (DB persistence) and returns confirmed FlatComment object.
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         payload = {"content": content}
@@ -576,7 +576,7 @@ class ThreadClient:
         dry_run: Optional[bool] = None,
     ) -> VoteResponse:
         """
-        投票（Upvote / Downvote）を実行する (POST /api/votes)
+        Vote (Upvote / Downvote) (POST /api/votes).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         norm_target_type = (target_type or "").upper()
@@ -612,7 +612,7 @@ class ThreadClient:
         limit: int = 20,
     ) -> Dict[str, Any]:
         """
-        Karma ランキングを取得する (GET /api/ranking)
+        Get Karma ranking (GET /api/ranking).
         """
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
@@ -647,7 +647,7 @@ class ThreadClient:
         dry_run: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        通報を実行する (POST /api/reports)
+        Submit a report (POST /api/reports).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
         norm_target_type = (target_type or "").upper()
@@ -676,3 +676,4 @@ class ThreadClient:
             "message": res.get("message") if isinstance(res, dict) else None,
             "dry_run": res.get("dryRun", effective_dry_run) if isinstance(res, dict) else effective_dry_run,
         }
+

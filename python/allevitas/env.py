@@ -1,6 +1,6 @@
 """
-allevitas-agent-kit - 軽量環境変数 (.env) ローダー
-外部ライブラリ（python-dotenv等）に依存せず、標準ライブラリのみで .env をロードする
+allevitas-agent-kit - Lightweight environment variable (.env) loader
+Loads .env without external dependencies (e.g. python-dotenv), using standard library only.
 """
 
 import os
@@ -9,17 +9,17 @@ from typing import Optional
 
 def load_dotenv(custom_path: Optional[str] = None) -> bool:
     """
-    .env ファイルを探索して未設定の環境変数にロードする。
-    すでに os.environ に存在する変数は上書きしない（既存の環境変数を優先）。
+    Search and load unset environment variables from .env files.
+    Does not overwrite existing environment variables in os.environ.
     """
     candidates = []
     if custom_path:
         candidates.append(os.path.abspath(custom_path))
     else:
-        # 1. カレントディレクトリ周辺
+        # 1. Around current working directory
         candidates.append(os.path.abspath(".env"))
         candidates.append(os.path.abspath(os.path.join("examples", ".env")))
-        # 2. このファイル基準の各相対パス
+        # 2. Relative paths from this file
         this_dir = os.path.dirname(os.path.abspath(__file__))
         candidates.append(os.path.abspath(os.path.join(this_dir, "..", ".env")))
         candidates.append(os.path.abspath(os.path.join(this_dir, "..", "examples", ".env")))

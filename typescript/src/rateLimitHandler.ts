@@ -1,5 +1,5 @@
 /**
- * @allevitas/agent-kit - レートリミット自動待機ハンドラー
+ * @allevitas/agent-kit - Rate limit auto-wait handler
  */
 
 export interface RateLimitOptions {
@@ -22,12 +22,12 @@ export class RateLimitHandler {
   constructor(options: RateLimitOptions = {}) {
     this.maxRetries = options.maxRetries ?? 3;
     this.baseDelayMs = options.baseDelayMs ?? 1000;
-    this.maxDelayMs = options.maxDelayMs ?? 60000; // 最大60秒
+    this.maxDelayMs = options.maxDelayMs ?? 60000; // Maximum 60 seconds
     this.onRetry = options.onRetry;
   }
 
   /**
-   * HTTPリクエストを実行し、429や一時的なサーバーエラー時に自動リトライする
+   * Execute HTTP request with automatic retry on 429 or temporary server errors.
    */
   async execute<T>(requestFn: () => Promise<Response>): Promise<T> {
     let attempt = 0;
@@ -43,7 +43,7 @@ export class RateLimitHandler {
           throw networkError;
         }
         const delay = this.calculateBackoff(attempt);
-        this.notifyRetry(attempt, delay, `ネットワークエラー: ${String(networkError)}`);
+        this.notifyRetry(attempt, delay, `Network error: ${String(networkError)}`);
         await this.sleep(delay);
         continue;
       }

@@ -1,8 +1,8 @@
-﻿"""
-allevitas-agent-kit - 軽量マルチプロバイダー LLM クライアント
+"""
+allevitas-agent-kit - Lightweight multi-provider LLM client
 
-外部パッケージ（SDK）を追加インストールせず、Python 3.10+ 標準 urllib のみで動作します。
-Gemini / OpenAI / Anthropic / Ollama を透過的に切り替え可能です。
+Runs with Python 3.10+ standard urllib without additional package installations.
+Supports transparent switching between Gemini / OpenAI / Anthropic / Ollama / xAI.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class LLMClient:
         base_url: Optional[str] = None,
     ) -> str:
         """
-        LLMを呼び出し、テキスト応答を取得する
+        Call LLM and retrieve text response.
         """
         active_provider = (provider or self.default_provider or "gemini").lower()
 
@@ -102,7 +102,7 @@ class LLMClient:
                 base_url=base_url,
             )
         else:
-            raise ValueError(f"未対応の LLM プロバイダです: {active_provider}")
+            raise ValueError(f"Unsupported LLM provider: {active_provider}")
 
         if json_mode:
             return clean_json_output(res)
@@ -110,7 +110,7 @@ class LLMClient:
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
-        簡易プロンプト実行（ショートカット）
+        Execute simple prompt (shortcut)
         """
         return self.call(prompt=prompt, system_prompt=system_prompt)
 
@@ -130,7 +130,7 @@ class LLMClient:
             or os.environ.get("ALLEVITAS_LLM_API_KEY")
         )
         if not key:
-            raise RuntimeError("GEMINI_API_KEY が設定されていません。")
+            raise RuntimeError("GEMINI_API_KEY is not set.")
 
         primary_model = (
             model
@@ -149,7 +149,7 @@ class LLMClient:
         contents: List[Dict[str, Any]] = []
         if system_prompt:
             contents.append({"role": "user", "parts": [{"text": f"[System Instruction]\n{system_prompt}"}]})
-            contents.append({"role": "model", "parts": [{"text": "了解しました。指示に従います。"}]})
+            contents.append({"role": "model", "parts": [{"text": "Understood. I will follow the instructions."}]})
         contents.append({"role": "user", "parts": [{"text": prompt}]})
 
         generation_config: Dict[str, Any] = {"temperature": temperature}
@@ -200,7 +200,7 @@ class LLMClient:
 
         if last_error:
             raise last_error
-        raise RuntimeError("Gemini API の呼び出しに失敗しました。")
+        raise RuntimeError("Failed to call Gemini API.")
 
     def _call_openai(
         self,
@@ -219,7 +219,7 @@ class LLMClient:
             or os.environ.get("ALLEVITAS_LLM_API_KEY")
         )
         if not key:
-            raise RuntimeError("OPENAI_API_KEY が設定されていません。")
+            raise RuntimeError("OPENAI_API_KEY is not set.")
 
         url_base = (
             base_url
@@ -281,7 +281,7 @@ class LLMClient:
             or os.environ.get("ALLEVITAS_LLM_API_KEY")
         )
         if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY が設定されていません。")
+            raise RuntimeError("ANTHROPIC_API_KEY is not set.")
 
         m = (
             model
@@ -387,7 +387,7 @@ class LLMClient:
             or os.environ.get("ALLEVITAS_LLM_API_KEY")
         )
         if not key:
-            raise RuntimeError("XAI_API_KEY または GROK_API_KEY が設定されていません。")
+            raise RuntimeError("XAI_API_KEY or GROK_API_KEY is not set.")
 
         url_base = (
             base_url
@@ -437,9 +437,9 @@ class LLMClient:
                 return data["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"xAI (Grok) API エラー ({e.code}): {err_body}") from e
+            raise RuntimeError(f"xAI (Grok) API error ({e.code}): {err_body}") from e
 
-    # 後方互換・エイリアス
+    # Backward compatibility / alias
     _call_grok = _call_xai
 
 
@@ -455,7 +455,7 @@ def call_llm(
     base_url: Optional[str] = None,
 ) -> str:
     """
-    スタンドアロンのLLM呼び出し関数
+    Standalone LLM call function.
     """
     client = LLMClient()
     return client.call(
@@ -472,10 +472,10 @@ def call_llm(
 
 def clean_json_output(text: str) -> str:
     """
-    LLM出力からマークダウンコードブロックや不要な装飾を取り除き純粋なJSON文字列にする
+    Clean LLM output by removing markdown code blocks and decorations to get raw JSON string.
     """
     cleaned = text.strip()
-    # Reasoning モデルの思考タグ (<think>...</think>) を除去
+    # Strip reasoning tags (<think>...</think>)
     cleaned = re.sub(r"<think>[\s\S]*?</think>", "", cleaned, flags=re.IGNORECASE).strip()
     if cleaned.startswith("```json"):
         cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)

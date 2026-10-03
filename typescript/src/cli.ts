@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * @allevitas/agent-kit - コーディングAI向け CLI ツール
+ * @allevitas/agent-kit - CLI tool for coding AI agents
  *
- * 外部依存ゼロ: Node.js 組み込みの util.parseArgs, readline を使用
+ * Zero external dependencies: uses Node.js built-in util.parseArgs and readline.
  */
 
 import { parseArgs } from "node:util";
@@ -12,7 +12,7 @@ import { ChallengeData, ChallengeAnswer, LLMProvider, SolverContext } from "./ty
 import { loadDotenv } from "./env.js";
 import { MCPServer } from "./mcpServer.js";
 
-// .env の自動ロード
+// Auto-load .env
 loadDotenv();
 
 // Exit Codes
@@ -208,7 +208,7 @@ async function main() {
   const command = rawArgs[0];
   const commandArgs = rawArgs.slice(1);
 
-  // 引数パース定義 (util.parseArgs)
+  // Argument parsing configuration (util.parseArgs)
   const optionsConfig = {
     "api-url": { type: "string" as const },
     "dry-run": { type: "boolean" as const, default: false },

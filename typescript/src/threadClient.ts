@@ -49,13 +49,13 @@ export class ThreadClient {
         return { Authorization: `Bearer ${token}` };
       }
     } catch {
-      // 未ログイン状態なら空
+      // Empty if not logged in
     }
     return {};
   }
 
   /**
-   * トピック一覧を取得する (GET /api/topics)
+   * Get topics list (GET /api/topics)
    */
   async getTopics(): Promise<Topic[]> {
     const authHeaders = await this.getAuthHeaders();
@@ -81,7 +81,7 @@ export class ThreadClient {
   }
 
   /**
-   * スレッド一覧を取得する (GET /api/posts)
+   * Get posts list (GET /api/posts)
    */
   async getPosts(options: GetPostsOptions = {}): Promise<{
     posts: Post[];
@@ -143,7 +143,7 @@ export class ThreadClient {
               includeChildren: true,
             });
           } catch {
-            // エラー時は空配列
+            // Return empty array on error
           }
           return { ...post, post, comments };
         })
@@ -160,7 +160,7 @@ export class ThreadClient {
   }
 
   /**
-   * スレッド一覧とぶら下がるコメントを一括取得する
+   * Get posts along with their comments in batch
    */
   async getPostsWithComments(options: GetPostsOptions = {}): Promise<PostWithComments[]> {
     const res = await this.getPosts({ ...options, includeComments: true });
@@ -168,7 +168,7 @@ export class ThreadClient {
   }
 
   /**
-   * 複数のスレッドIDに対してコメントを一括取得する
+   * Get comments for multiple post IDs in batch
    */
   async getMultiplePostComments(
     postIds: string[],
@@ -191,7 +191,7 @@ export class ThreadClient {
   }
 
   /**
-   * スレッド詳細を取得する (GET /api/posts/:id)
+   * Get post details (GET /api/posts/:id)
    */
   async getPost(postId: string): Promise<Post> {
     const authHeaders = await this.getAuthHeaders();
@@ -224,7 +224,7 @@ export class ThreadClient {
   }
 
   /**
-   * 投稿キューの処理が完了し、スレッドが取得可能になるまでポーリング待機する
+   * Poll and wait until post creation queue is completed and post is retrievable
    */
   async waitForPost(
     postIdOrOptions:
@@ -270,7 +270,7 @@ export class ThreadClient {
           const post = await this.getPost(postId);
           if (post && post.id) return post;
         } catch {
-          // 未反映時は再試行
+          // Retry if not yet reflected
         }
       } else if (title) {
         try {
@@ -278,7 +278,7 @@ export class ThreadClient {
           const found = res.posts.find((p) => p.title === title);
           if (found) return found;
         } catch {
-          // 再試行
+          // Retry
         }
       }
       await new Promise((r) => setTimeout(r, pollInterval));
@@ -289,7 +289,7 @@ export class ThreadClient {
   }
 
   /**
-   * 投稿キューの処理が完了し、コメントがスレッド内に反映されるまでポーリング待機する
+   * Poll and wait until comment creation queue is completed and comment is reflected in the post
    */
   async waitForComment(
     postIdOrOptions:
@@ -355,7 +355,7 @@ export class ThreadClient {
           }
         }
       } catch {
-        // 再試行
+        // Retry
       }
       await new Promise((r) => setTimeout(r, pollInterval));
     }
@@ -365,10 +365,10 @@ export class ThreadClient {
   }
 
   /**
-   * 新規スレッドを投稿する (POST /api/posts)
-   * サーバー側で BullMQ キューへ投入され 202 Accepted が返却される
-   * topicId にスラッグ名（例: "general"）が渡された場合、自動でトピック一覧からUUIDへ解決する
-   * wait=true の場合、キュー完了（DB反映）を待機して確定したPostオブジェクトを返却する
+   * Create a new post (POST /api/posts)
+   * Submitted to BullMQ queue on server returning 202 Accepted
+   * If slug name (e.g. "general") is passed to topicId, automatically resolves to UUID via topics list
+   * If wait=true, waits for queue completion (DB persistence) and returns confirmed Post object
    */
   async post(data: CreatePostRequest): Promise<CreatePostResponse> {
     const resolvedTopicId = await this.resolveTopicId(data.topicId);
@@ -407,11 +407,11 @@ export class ThreadClient {
   }
 
   /**
-   * トピックIDまたはスラッグをUUIDへ解決するヘルパー
+   * Helper to resolve topic ID or slug to UUID
    */
   async resolveTopicId(topicIdentifier: string): Promise<string> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    // 既にUUID形式の場合はそのまま返却
+    // If already in UUID format, return as-is
     if (uuidRegex.test(topicIdentifier)) {
       return topicIdentifier;
     }
@@ -425,14 +425,14 @@ export class ThreadClient {
         return matched.id;
       }
     } catch {
-      // トピック一覧取得に失敗した場合は元の文字列を使用
+      // Fallback to original string if topic resolution fails
     }
 
     return topicIdentifier;
   }
 
   /**
-   * スレッドのコメント一覧を取得する (GET /api/posts/:id/comments)
+   * Get comments for a post (GET /api/posts/:id/comments)
    */
   async getComments(
     postId: string,
@@ -483,7 +483,7 @@ export class ThreadClient {
       })
     );
 
-    // 配列直接返却と { comments: [...] } の双方に対応
+    // Support both direct array response and { comments: [...] } response
     const rawList: any[] = Array.isArray(res) ? res : (res?.comments ?? []);
 
     if (format === "tree") {
@@ -519,7 +519,7 @@ export class ThreadClient {
       return rawList.map((c) => parseTreeComment(c, 1));
     }
 
-    // デフォルト: flat 形式
+    // Default: flat format
     return rawList.map((c: any): FlatComment => {
       const replyCount = c.replyCount ?? c.reply_count ?? 0;
       return {
@@ -544,8 +544,8 @@ export class ThreadClient {
   }
 
   /**
-   * コメントを投稿する (POST /api/posts/:id/comments)
-   * wait=true の場合、キュー完了（DB反映）を待機して確定したFlatCommentオブジェクトを返却する
+   * Create a comment (POST /api/posts/:id/comments)
+   * If wait=true, waits for queue completion (DB persistence) and returns confirmed FlatComment object
    */
   async comment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     const isDryRun = data.dryRun ?? this.dryRun;
@@ -595,7 +595,7 @@ export class ThreadClient {
   }
 
   /**
-   * 投票（Upvote / Downvote）を実行する (POST /api/votes)
+   * Vote (Upvote / Downvote) (POST /api/votes)
    */
   async vote(data: VoteRequest): Promise<VoteResponse> {
     const isDryRun = data.dryRun ?? this.dryRun;
@@ -625,7 +625,7 @@ export class ThreadClient {
   }
 
   /**
-   * 通報を実行する (POST /api/reports)
+   * Submit a report (POST /api/reports)
    */
   async report(data: ReportRequest): Promise<ReportResponse> {
     const isDryRun = data.dryRun ?? this.dryRun;
@@ -655,7 +655,7 @@ export class ThreadClient {
   }
 
   /**
-   * Karma ランキングを取得する (GET /api/ranking)
+   * Get Karma ranking (GET /api/ranking)
    */
   async getRanking(page: number = 1, limit: number = 20): Promise<{
     ranking: RankingUser[];
