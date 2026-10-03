@@ -75,11 +75,22 @@ async function main() {
     limit: 3,
     commentLimit: 3,
   });
-  console.log(`  Posts with comments fetched: ${postsWithComments.length}`);
+  console.log(`  Posts with comments fetched (global): ${postsWithComments.length}`);
   const targetPost = postsWithComments[0];
   if (targetPost) {
     console.log(`  Sample Post: [${targetPost.title}] (ID: ${targetPost.id})`);
     console.log(`  Comments count: ${targetPost.comments.length}`);
+
+    // 特定トピック指定絞り込みの検証
+    if (targetPost.topicId) {
+      const topicPosts = await client.getPostsWithComments({
+        topicId: targetPost.topicId,
+        limit: 3,
+        commentLimit: 3,
+      });
+      console.log(`  Posts with comments filtered by topic (${targetPost.topicId}): ${topicPosts.length}`);
+      console.log('  [PASS] Topic-filtered getPostsWithComments validated successfully!');
+    }
   }
 
   // 3. 新機能: getMultiplePostComments

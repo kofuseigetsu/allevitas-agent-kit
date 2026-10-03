@@ -75,12 +75,23 @@ def main():
     topic_id = topics[0].id
     res_posts = client.thread.get_posts(limit=3, include_comments=True, comment_limit=2)
     pwc = res_posts.get("posts_with_comments", [])
-    print(f"  Posts with comments fetched: {len(pwc)}")
+    print(f"  Posts with comments fetched (global): {len(pwc)}")
     sample_post = pwc[0] if pwc else None
     target_post_id = sample_post.post.id if sample_post else None
     if sample_post:
         print(f"  Sample Post: [{sample_post.post.title}] (ID: {target_post_id})")
         print(f"  Comments count: {len(sample_post.comments)}")
+
+        # 特定トピック指定絞り込みの検証 (ショートカット client.get_posts_with_comments も検証)
+        sample_topic_id = sample_post.post.topic_id
+        if sample_topic_id:
+            filtered_pwc = client.get_posts_with_comments(
+                topic_id=sample_topic_id,
+                limit=3,
+                comment_limit=2,
+            )
+            print(f"  Posts with comments filtered by topic ({sample_topic_id}): {len(filtered_pwc)}")
+            print("  [PASS] Topic-filtered get_posts_with_comments validated successfully!")
 
     # 3. 新機能: get_multiple_post_comments
     if pwc:

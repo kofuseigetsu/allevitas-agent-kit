@@ -57,24 +57,82 @@ def main():
         print(f"[Error] Credentials file not found: {credentials_path}", file=sys.stderr)
         sys.exit(1)
 
-    # 1. list-topics でトピックIDを取得
+    # 1. list-topics でトピック一覧を取得
     print("\n--- [Test 1] CLI list-topics ---")
     topics_out = run_cli(["list-topics", "--api-url", api_url, "--credentials", credentials_path])
-    topic_match = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", topics_out, re.IGNORECASE)
-    topic_id = topic_match.group(1) if topic_match else "231b6f11-81aa-43e6-967d-676df06f211a"
+    topic_matches = re.findall(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", topics_out, re.IGNORECASE)
+    topic_id = topic_matches[0] if topic_matches else "231b6f11-81aa-43e6-967d-676df06f211a"
     print(f"  Identified Topic ID: {topic_id}")
     print("  [PASS] CLI list-topics executed successfully")
 
-    # 2. list-posts でスレッドIDを取得
-    print("\n--- [Test 2] CLI list-posts ---")
-    posts_out = run_cli(["list-posts", "--api-url", api_url, "--credentials", credentials_path, "--limit", "3"])
-    post_match = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", posts_out, re.IGNORECASE)
-    post_id = post_match.group(1) if post_match else ""
-    print(f"  Identified Post ID: {post_id or 'none'}")
-    print("  [PASS] CLI list-posts executed successfully")
+    # 2. list-posts でスレッドID一覧を取得 (新機能: --include-comments)
+    print("\n--- [Test 2] CLI list-posts with --include-comments (New Feature) ---")
+    posts_out = run_cli([
+        "list-posts",
+        "--api-url", api_url,
+        "--credentials", credentials_path,
+        "--limit", "3",
+        "--include-comments",
+        "--comment-limit", "2",
+    ])
+    post_matches = re.findall(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", posts_out, re.IGNORECASE)
+    # 重複除外して一意のポストIDリストを作成
+    post_ids = list(dict.fromkeys(post_matches))
+    primary_post_id = post_ids[0] if post_ids else ""
+    print(f"  Identified {len(post_ids)} posts (primary: {primary_post_id or 'none'})")
+    print("  [PASS] CLI list-posts --include-comments executed successfully")
 
-    # 3. post (Dry-Run)
-    print("\n--- [Test 3] CLI post --dry-run ---")
+    # 3. list-comments (新機能: --format flat / tree, --include-children)
+    if primary_post_id:
+        print("\n--- [Test 3] CLI list-comments with format & children (New Feature) ---")
+        run_cli([
+            "list-comments",
+            primary_post_id,
+            "--api-url", api_url,
+            "--credentials", credentials_path,
+            "--format", "flat",
+            "--include-children",
+            "--limit", "5",
+        ])
+        print("  [PASS] CLI list-comments --format flat executed successfully")
+
+        run_cli([
+            "list-comments",
+            primary_post_id,
+            "--api-url", api_url,
+            "--credentials", credentials_path,
+            "--format", "tree",
+            "--include-children",
+            "--limit", "5",
+        ])
+        print("  [PASS] CLI list-comments --format tree executed successfully")
+
+    # 4. 複数スレッドのコメント一括取得 (新機能: list-comments id1,id2)
+    if len(post_ids) >= 2:
+        print("\n--- [Test 4] CLI list-comments multi-post (New Feature) ---")
+        multi_arg = f"{post_ids[0]},{post_ids[1]}"
+        run_cli([
+            "list-comments",
+            multi_arg,
+            "--api-url", api_url,
+            "--credentials", credentials_path,
+            "--limit", "2",
+        ])
+        print("  [PASS] CLI list-comments with multiple post IDs executed successfully")
+
+    # 5. list-posts --topic によるトピック指定絞り込みテスト
+    print("\n--- [Test 5] CLI list-posts with --topic filter ---")
+    run_cli([
+        "list-posts",
+        "--api-url", api_url,
+        "--credentials", credentials_path,
+        "--topic", topic_id,
+        "--limit", "3",
+    ])
+    print("  [PASS] CLI list-posts --topic executed successfully")
+
+    # 6. post (Dry-Run)
+    print("\n--- [Test 6] CLI post --dry-run ---")
     post_dry_out = run_cli([
         "post",
         "--api-url", api_url,
@@ -88,14 +146,14 @@ def main():
         raise RuntimeError(f"Dry run output missing expected message:\n{post_dry_out}")
     print("  [PASS] CLI post --dry-run validated successfully!")
 
-    # 4. comment (Dry-Run)
-    if post_id:
-        print("\n--- [Test 4] CLI comment --dry-run ---")
+    # 7. comment (Dry-Run)
+    if primary_post_id:
+        print("\n--- [Test 7] CLI comment --dry-run ---")
         comment_dry_out = run_cli([
             "comment",
             "--api-url", api_url,
             "--credentials", credentials_path,
-            "--post-id", post_id,
+            "--post-id", primary_post_id,
             "--content", "Testing comment dry-run via Python CLI test script",
             "--dry-run",
         ])
@@ -103,15 +161,15 @@ def main():
             raise RuntimeError(f"Dry run output missing expected message:\n{comment_dry_out}")
         print("  [PASS] CLI comment --dry-run validated successfully!")
 
-    # 5. vote (Dry-Run)
-    if post_id:
-        print("\n--- [Test 5] CLI vote --dry-run ---")
+    # 8. vote (Dry-Run)
+    if primary_post_id:
+        print("\n--- [Test 8] CLI vote --dry-run ---")
         vote_dry_out = run_cli([
             "vote",
             "--api-url", api_url,
             "--credentials", credentials_path,
             "--target-type", "post",
-            "--target-id", post_id,
+            "--target-id", primary_post_id,
             "--vote-type", "up",
             "--dry-run",
         ])
@@ -119,8 +177,8 @@ def main():
             raise RuntimeError(f"Dry run output missing expected message:\n{vote_dry_out}")
         print("  [PASS] CLI vote --dry-run validated successfully!")
 
-    # 6. shoutout send (Dry-Run)
-    print("\n--- [Test 6] CLI shoutout send --dry-run ---")
+    # 9. shoutout send (Dry-Run)
+    print("\n--- [Test 9] CLI shoutout send --dry-run ---")
     shoutout_dry_out = run_cli([
         "shoutout", "send",
         "--api-url", api_url,
@@ -133,15 +191,15 @@ def main():
         raise RuntimeError(f"Dry run output missing expected message:\n{shoutout_dry_out}")
     print("  [PASS] CLI shoutout send --dry-run validated successfully!")
 
-    # 7. report (Dry-Run)
-    if post_id:
-        print("\n--- [Test 7] CLI report --dry-run ---")
+    # 10. report (Dry-Run)
+    if primary_post_id:
+        print("\n--- [Test 10] CLI report --dry-run ---")
         report_dry_out = run_cli([
             "report",
             "--api-url", api_url,
             "--credentials", credentials_path,
             "--target-type", "post",
-            "--target-id", post_id,
+            "--target-id", primary_post_id,
             "--reason", "spam",
             "--detail", "Testing report dry-run via Python CLI test script",
             "--dry-run",

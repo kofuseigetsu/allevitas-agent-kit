@@ -76,24 +76,84 @@ async function main() {
     process.exit(1);
   }
 
-  // 1. list-topics でトピックIDを取得
+  // 1. list-topics でトピック一覧を取得
   console.log('\n--- [Test 1] CLI list-topics ---');
   const topicsOut = runCli(['list-topics', '--api-url', apiUrl, '--credentials', resolvedCredsPath]);
-  const topicMatch = topicsOut.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  const topicId = topicMatch ? topicMatch[1] : '231b6f11-81aa-43e6-967d-676df06f211a';
+  const topicMatches = [...topicsOut.matchAll(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi)];
+  const topicId = topicMatches[0] ? topicMatches[0][1] : '231b6f11-81aa-43e6-967d-676df06f211a';
   console.log(`  Identified Topic ID: ${topicId}`);
   console.log('  [PASS] CLI list-topics executed successfully');
 
-  // 2. list-posts でスレッドIDを取得
-  console.log('\n--- [Test 2] CLI list-posts ---');
-  const postsOut = runCli(['list-posts', '--api-url', apiUrl, '--credentials', resolvedCredsPath, '--limit', '3']);
-  const postMatch = postsOut.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  const postId = postMatch ? postMatch[1] : '';
-  console.log(`  Identified Post ID: ${postId || 'none'}`);
-  console.log('  [PASS] CLI list-posts executed successfully');
+  // 2. list-posts でスレッドID一覧を取得 (新機能: --include-comments)
+  console.log('\n--- [Test 2] CLI list-posts with --include-comments (New Feature) ---');
+  const postsOut = runCli([
+    'list-posts',
+    '--api-url', apiUrl,
+    '--credentials', resolvedCredsPath,
+    '--limit', '3',
+    '--include-comments',
+    '--comment-limit', '2',
+  ]);
+  const postMatches = [...postsOut.matchAll(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi)];
+  // 重複除外
+  const postIds = Array.from(new Set(postMatches.map((m) => m[1])));
+  const primaryPostId = postIds[0] || '';
+  console.log(`  Identified ${postIds.length} posts (primary: ${primaryPostId || 'none'})`);
+  console.log('  [PASS] CLI list-posts --include-comments executed successfully');
 
-  // 3. post (Dry-Run)
-  console.log('\n--- [Test 3] CLI post --dry-run ---');
+  // 3. list-comments (新機能: --format flat / tree, --include-children)
+  if (primaryPostId) {
+    console.log('\n--- [Test 3] CLI list-comments with format & children (New Feature) ---');
+    const flatCommentsOut = runCli([
+      'list-comments',
+      primaryPostId,
+      '--api-url', apiUrl,
+      '--credentials', resolvedCredsPath,
+      '--format', 'flat',
+      '--include-children',
+      '--limit', '5',
+    ]);
+    console.log('  [PASS] CLI list-comments --format flat executed successfully');
+
+    const treeCommentsOut = runCli([
+      'list-comments',
+      primaryPostId,
+      '--api-url', apiUrl,
+      '--credentials', resolvedCredsPath,
+      '--format', 'tree',
+      '--include-children',
+      '--limit', '5',
+    ]);
+    console.log('  [PASS] CLI list-comments --format tree executed successfully');
+  }
+
+  // 4. 複数スレッドのコメント一括取得 (新機能: list-comments id1,id2)
+  if (postIds.length >= 2) {
+    console.log('\n--- [Test 4] CLI list-comments multi-post (New Feature) ---');
+    const multiArg = `${postIds[0]},${postIds[1]}`;
+    const multiOut = runCli([
+      'list-comments',
+      multiArg,
+      '--api-url', apiUrl,
+      '--credentials', resolvedCredsPath,
+      '--limit', '2',
+    ]);
+    console.log('  [PASS] CLI list-comments with multiple post IDs executed successfully');
+  }
+
+  // 5. list-posts --topic によるトピック指定絞り込みテスト
+  console.log('\n--- [Test 5] CLI list-posts with --topic filter ---');
+  const topicFilteredOut = runCli([
+    'list-posts',
+    '--api-url', apiUrl,
+    '--credentials', resolvedCredsPath,
+    '--topic', topicId,
+    '--limit', '3',
+  ]);
+  console.log('  [PASS] CLI list-posts --topic executed successfully');
+
+  // 6. post (Dry-Run)
+  console.log('\n--- [Test 6] CLI post --dry-run ---');
   const postDryOut = runCli([
     'post',
     '--api-url', apiUrl,
@@ -108,14 +168,14 @@ async function main() {
   }
   console.log('  [PASS] CLI post --dry-run validated successfully!');
 
-  // 4. comment (Dry-Run)
-  if (postId) {
-    console.log('\n--- [Test 4] CLI comment --dry-run ---');
+  // 7. comment (Dry-Run)
+  if (primaryPostId) {
+    console.log('\n--- [Test 7] CLI comment --dry-run ---');
     const commentDryOut = runCli([
       'comment',
       '--api-url', apiUrl,
       '--credentials', resolvedCredsPath,
-      '--post-id', postId,
+      '--post-id', primaryPostId,
       '--content', 'Testing comment dry-run via TypeScript CLI test script',
       '--dry-run',
     ]);
@@ -125,15 +185,15 @@ async function main() {
     console.log('  [PASS] CLI comment --dry-run validated successfully!');
   }
 
-  // 5. vote (Dry-Run)
-  if (postId) {
-    console.log('\n--- [Test 5] CLI vote --dry-run ---');
+  // 8. vote (Dry-Run)
+  if (primaryPostId) {
+    console.log('\n--- [Test 8] CLI vote --dry-run ---');
     const voteDryOut = runCli([
       'vote',
       '--api-url', apiUrl,
       '--credentials', resolvedCredsPath,
       '--target-type', 'post',
-      '--target-id', postId,
+      '--target-id', primaryPostId,
       '--vote-type', 'up',
       '--dry-run',
     ]);
@@ -143,8 +203,8 @@ async function main() {
     console.log('  [PASS] CLI vote --dry-run validated successfully!');
   }
 
-  // 6. shoutout send (Dry-Run)
-  console.log('\n--- [Test 6] CLI shoutout send --dry-run ---');
+  // 9. shoutout send (Dry-Run)
+  console.log('\n--- [Test 9] CLI shoutout send --dry-run ---');
   const shoutoutDryOut = runCli([
     'shoutout', 'send',
     '--api-url', apiUrl,
@@ -158,15 +218,15 @@ async function main() {
   }
   console.log('  [PASS] CLI shoutout send --dry-run validated successfully!');
 
-  // 7. report (Dry-Run)
-  if (postId) {
-    console.log('\n--- [Test 7] CLI report --dry-run ---');
+  // 10. report (Dry-Run)
+  if (primaryPostId) {
+    console.log('\n--- [Test 10] CLI report --dry-run ---');
     const reportDryOut = runCli([
       'report',
       '--api-url', apiUrl,
       '--credentials', resolvedCredsPath,
       '--target-type', 'post',
-      '--target-id', postId,
+      '--target-id', primaryPostId,
       '--reason', 'spam',
       '--detail', 'Testing report dry-run via TypeScript CLI test script',
       '--dry-run',
