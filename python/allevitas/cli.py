@@ -111,8 +111,13 @@ get-post Options:
 
 list-comments Options:
   --post-id <id>              Target thread ID (required, can also be positional)
-  --page <n>                  Page number (optional)
-  --limit <n>                 Number of comments to fetch (optional)
+  --page <n>                  Page number (default: 1)
+  --limit <n>                 Number of comments to fetch (default: 10)
+  --format <flat|tree>        Output structure: flat (default) or tree
+  --include-children          Include child reply comments (default: false)
+  --include-children-in-limit Count children towards limit for flat timeline (default: false)
+  --child-limit <n>           Max replies per root comment in tree mode (default: 30)
+  --lang <code>               Language code (e.g. ja, en)
   --json                      Output in JSON format
 
 vote Options:
@@ -183,6 +188,11 @@ def main():
     parser.add_argument("--vote-type", type=str)
     parser.add_argument("--reason", type=str)
     parser.add_argument("--detail", type=str)
+    parser.add_argument("--format", type=str, default="flat")
+    parser.add_argument("--include-children", action="store_true", default=False)
+    parser.add_argument("--include-children-in-limit", action="store_true", default=False)
+    parser.add_argument("--child-limit", type=int, default=30)
+    parser.add_argument("--lang", type=str, default=None)
 
 
     try:
@@ -399,41 +409,96 @@ def main():
                 print("[Error] --post-id is required. Please specify a thread ID.", file=sys.stderr)
                 sys.exit(EXIT_GENERAL_ERROR)
 
+            format_type = (args.format or "flat").lower()
+            if format_type not in ("flat", "tree"):
+                print("[Error] --format must be either 'flat' or 'tree'.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
             client = create_client()
-            comments = client.thread.get_comments(post_id, page=args.page, limit=args.limit)
+            page = args.page if args.page is not None else 1
+            limit = args.limit if args.limit is not None else 10
+            comments = client.thread.get_comments(
+                post_id=post_id,
+                page=page,
+                limit=limit,
+                include_children=args.include_children,
+                format=format_type,
+                include_children_in_limit=args.include_children_in_limit,
+                child_limit=args.child_limit,
+                lang=args.lang,
+            )
 
             if args.json:
-                def _comment_to_dict(c):
-                    return {
-                        "id": c.id,
-                        "postId": c.post_id,
-                        "parentId": c.parent_id,
-                        "authorId": c.author_id,
-                        "content": c.content,
-                        "score": c.score,
-                        "depth": c.depth,
-                        "createdAt": c.created_at,
-                        "updatedAt": c.updated_at,
-                        "children": [_comment_to_dict(r) for r in c.children],
-                    }
-                print(json.dumps([_comment_to_dict(c) for c in comments], ensure_ascii=False, indent=2))
-            else:
-                print(f"\n=== Thread Comments (Post ID: {post_id} / Root: {len(comments)}) ===")
-                if not comments:
-                    print("No comments yet.")
+                if format_type == "tree":
+                    def _tree_to_dict(c):
+                        return {
+                            "id": c.id,
+                            "postId": c.post_id,
+                            "parentId": c.parent_id,
+                            "authorId": c.author_id,
+                            "content": c.content,
+                            "score": c.score,
+                            "depth": c.depth,
+                            "createdAt": c.created_at,
+                            "updatedAt": c.updated_at,
+                            "replyCount": c.reply_count,
+                            "totalReplies": c.total_replies,
+                            "hasMoreReplies": c.has_more_replies,
+                            "isHidden": c.is_hidden,
+                            "originalLanguage": c.original_language,
+                            "currentLanguage": c.current_language,
+                            "children": [_tree_to_dict(r) for r in getattr(c, "children", [])],
+                        }
+                    print(json.dumps([_tree_to_dict(c) for c in comments], ensure_ascii=False, indent=2))
                 else:
+                    def _flat_to_dict(c):
+                        return {
+                            "id": c.id,
+                            "postId": c.post_id,
+                            "parentId": c.parent_id,
+                            "authorId": c.author_id,
+                            "content": c.content,
+                            "depth": c.depth,
+                            "score": c.score,
+                            "replyCount": c.reply_count,
+                            "totalReplies": c.total_replies,
+                            "hasMoreReplies": c.has_more_replies,
+                            "createdAt": c.created_at,
+                            "updatedAt": c.updated_at,
+                            "isHidden": c.is_hidden,
+                            "originalLanguage": c.original_language,
+                            "currentLanguage": c.current_language,
+                        }
+                    print(json.dumps([_flat_to_dict(c) for c in comments], ensure_ascii=False, indent=2))
+            else:
+                mode_str = "Tree" if format_type == "tree" else "Flat"
+                print(f"\n=== Thread Comments (Post ID: {post_id} / Count: {len(comments)} / Mode: {mode_str}) ===")
+                if not comments:
+                    print("No comments found.")
+                elif format_type == "tree":
                     def _print_tree(comment_list, indent=0):
                         for c in comment_list:
                             pad = "  " * indent
                             prefix = "💬" if indent == 0 else "└─"
                             created_str = f" | Created: {c.created_at}" if c.created_at else ""
-                            print(f"{pad}{prefix} [{c.author_id}] (ID: {c.id}) | Score: {c.score} | Depth: {c.depth}{created_str}")
+                            rep_str = f" | Replies: {c.reply_count}" if c.reply_count else ""
+                            print(f"{pad}{prefix} [{c.author_id}] (ID: {c.id}) | Score: {c.score} | Depth: {c.depth}{rep_str}{created_str}")
                             lines = (c.content or "").split("\n")
                             for line in lines:
                                 print(f"{pad}   {line}")
-                            if c.children:
+                            if getattr(c, "children", None):
                                 _print_tree(c.children, indent + 1)
                     _print_tree(comments)
+                else:
+                    for c in comments:
+                        indent = "  " if c.depth > 1 else ""
+                        prefix = "└─" if c.depth > 1 else "💬"
+                        created_str = f" | Created: {c.created_at}" if c.created_at else ""
+                        rep_str = f" | Replies: {c.reply_count}" if c.reply_count else ""
+                        print(f"{indent}{prefix} [{c.author_id}] (ID: {c.id}) | Depth: {c.depth}{rep_str}{created_str}")
+                        lines = (c.content or "").split("\n")
+                        for line in lines:
+                            print(f"{indent}   {line}")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "post":

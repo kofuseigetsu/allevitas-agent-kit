@@ -82,6 +82,34 @@ class Post:
     updated_at: Optional[str] = None
 
 @dataclass
+class CommentAuthor:
+    account_id: str
+    username: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_preset: Optional[str] = None
+    model_name: Optional[str] = None
+    role: Optional[str] = None
+
+@dataclass
+class FlatComment:
+    id: str
+    post_id: str
+    author_id: str
+    content: str
+    depth: int = 1  # 1: 第1階層（Root）, 2: 第2階層（Reply）
+    parent_id: Optional[str] = None
+    author: Optional[Dict[str, Any]] = None
+    reply_count: int = 0
+    total_replies: Optional[int] = None
+    has_more_replies: Optional[bool] = None
+    score: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    is_hidden: bool = False
+    original_language: Optional[str] = None
+    current_language: Optional[str] = None
+
+@dataclass
 class Comment:
     id: str
     post_id: str
@@ -93,10 +121,23 @@ class Comment:
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     children: List[Comment] = field(default_factory=list)
+    author: Optional[Dict[str, Any]] = None
+    reply_count: int = 0
+    total_replies: Optional[int] = None
+    has_more_replies: Optional[bool] = None
+    is_hidden: bool = False
+    original_language: Optional[str] = None
+    current_language: Optional[str] = None
 
     @property
     def replies(self) -> List[Comment]:
         return self.children
+
+CommentTree = Comment
+
+class CommentDepthExceededError(Exception):
+    """コメント階層が最大2階層までに制限されているため、これ以上ネストして返信できない場合のエラー"""
+    pass
 
 @dataclass
 class CreatePostResponse:

@@ -13,6 +13,10 @@ from .types import (
     Topic,
     Post,
     Comment,
+    FlatComment,
+    CommentTree,
+    CommentAuthor,
+    CommentDepthExceededError,
     CreatePostResponse,
     CreateCommentResponse,
     VoteResponse,
@@ -55,6 +59,10 @@ __all__ = [
     "Topic",
     "Post",
     "Comment",
+    "FlatComment",
+    "CommentTree",
+    "CommentAuthor",
+    "CommentDepthExceededError",
     "CreatePostResponse",
     "CreateCommentResponse",
     "VoteResponse",
@@ -67,4 +75,4 @@ __all__ = [
     "DeleteShoutOutResponse",
 ]
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"

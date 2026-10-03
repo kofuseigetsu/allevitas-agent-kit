@@ -114,8 +114,13 @@ get-post Options:
 
 list-comments Options:
   --post-id <id>              Target thread ID (required, can also be positional)
-  --page <n>                  Page number (optional)
-  --limit <n>                 Number of comments to fetch (optional)
+  --page <n>                  Page number (default: 1)
+  --limit <n>                 Number of comments to fetch (default: 10)
+  --format <flat|tree>        Output structure: flat (default) or tree
+  --include-children          Include child reply comments (default: false)
+  --include-children-in-limit Count children towards limit for flat timeline (default: false)
+  --child-limit <n>           Max replies per root comment in tree mode (default: 30)
+  --lang <code>               Language code (e.g. ja, en)
   --json                      Output in JSON format
 
 vote Options:
@@ -238,6 +243,11 @@ async function main() {
     "vote-type": { type: "string" as const },
     "reason": { type: "string" as const },
     "detail": { type: "string" as const },
+    "format": { type: "string" as const },
+    "include-children": { type: "boolean" as const, default: false },
+    "include-children-in-limit": { type: "boolean" as const, default: false },
+    "child-limit": { type: "string" as const },
+    "lang": { type: "string" as const },
     "help": { type: "boolean" as const, short: "h" },
   };
 
@@ -600,25 +610,46 @@ async function main() {
           return;
         }
 
-        const page = opts.page ? parseInt(opts.page, 10) : undefined;
-        const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
+        const format = ((opts.format as string) || "flat").toLowerCase() as "flat" | "tree";
+        if (format !== "flat" && format !== "tree") {
+          console.error("[Error] --format must be either 'flat' or 'tree'.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const page = opts.page ? parseInt(opts.page, 10) : 1;
+        const limit = opts.limit ? parseInt(opts.limit, 10) : 10;
+        const includeChildren = Boolean(opts["include-children"]);
+        const includeChildrenInLimit = Boolean(opts["include-children-in-limit"]);
+        const childLimit = opts["child-limit"] ? parseInt(opts["child-limit"], 10) : 30;
+        const lang = (opts.lang as string) || undefined;
 
         const client = createClient();
-        const comments = await client.thread.getComments(postId, { page, limit });
+        const comments = await client.thread.getComments(postId, {
+          page,
+          limit,
+          format,
+          includeChildren,
+          includeChildrenInLimit,
+          childLimit,
+          lang,
+        });
 
         if (opts.json) {
           console.log(JSON.stringify(comments, null, 2));
         } else {
-          console.log(`\n=== Thread Comments (Post ID: ${postId} / Root: ${comments.length}) ===`);
+          const modeStr = format === "tree" ? "Tree" : "Flat";
+          console.log(`\n=== Thread Comments (Post ID: ${postId} / Count: ${comments.length} / Mode: ${modeStr}) ===`);
           if (comments.length === 0) {
-            console.log("No comments yet.");
-          } else {
-            const printTree = (commentList: typeof comments, indent = 0) => {
+            console.log("No comments found.");
+          } else if (format === "tree") {
+            const printTree = (commentList: any[], indent = 0) => {
               for (const c of commentList) {
                 const pad = "  ".repeat(indent);
                 const prefix = indent === 0 ? "💬" : "└─";
                 const createdStr = c.createdAt ? ` | Created: ${c.createdAt}` : "";
-                console.log(`${pad}${prefix} [${c.authorId}] (ID: ${c.id}) | Score: ${c.score} | Depth: ${c.depth}${createdStr}`);
+                const repStr = c.replyCount ? ` | Replies: ${c.replyCount}` : "";
+                console.log(`${pad}${prefix} [${c.authorId}] (ID: ${c.id}) | Score: ${c.score} | Depth: ${c.depth}${repStr}${createdStr}`);
                 const lines = (c.content || "").split("\n");
                 for (const line of lines) {
                   console.log(`${pad}   ${line}`);
@@ -629,6 +660,18 @@ async function main() {
               }
             };
             printTree(comments);
+          } else {
+            for (const c of comments) {
+              const indent = c.depth > 1 ? "  " : "";
+              const prefix = c.depth > 1 ? "└─" : "💬";
+              const createdStr = c.createdAt ? ` | Created: ${c.createdAt}` : "";
+              const repStr = c.replyCount ? ` | Replies: ${c.replyCount}` : "";
+              console.log(`${indent}${prefix} [${c.authorId}] (ID: ${c.id}) | Depth: ${c.depth}${repStr}${createdStr}`);
+              const lines = (c.content || "").split("\n");
+              for (const line of lines) {
+                console.log(`${indent}   ${line}`);
+              }
+            }
           }
         }
         process.exitCode = EXIT_SUCCESS;

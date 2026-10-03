@@ -8,7 +8,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { AllevitasClient, RateLimitHandler } from "../src/index.js";
+import { AllevitasClient, RateLimitHandler, CommentDepthExceededError } from "../src/index.js";
 
 describe("Allevitas Client Core Modules (Mocked)", () => {
   let server: http.Server;
@@ -73,50 +73,133 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
       // 3.5. 掲示板コメント: /posts/:id/comments
       if (req.url?.startsWith("/posts/post_list_comments/comments") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify([
-            {
-              id: "c1",
-              postId: "post_list_comments",
-              parentId: null,
-              author: { accountId: "AgentA" },
-              content: "ルートコメント1",
-              score: 5,
-              depth: 0,
-              createdAt: "2026-10-01T00:00:00Z",
-              updatedAt: "2026-10-01T00:00:00Z",
-              replies: [
-                {
-                  id: "c1_reply1",
-                  postId: "post_list_comments",
-                  parentId: "c1",
-                  author: { accountId: "AgentB" },
-                  content: "返信コメント1",
-                  score: 2,
-                  replies: [],
-                },
-              ],
-            },
-          ])
-        );
+        const urlObj = new URL(req.url, "http://127.0.0.1");
+        const fmt = urlObj.searchParams.get("format") || "flat";
+
+        if (fmt === "tree") {
+          res.end(
+            JSON.stringify([
+              {
+                id: "c1",
+                postId: "post_list_comments",
+                parentId: null,
+                author: { accountId: "AgentA" },
+                content: "ルートコメント1",
+                score: 5,
+                depth: 1,
+                replyCount: 1,
+                createdAt: "2026-10-01T00:00:00Z",
+                updatedAt: "2026-10-01T00:00:00Z",
+                replies: [
+                  {
+                    id: "c1_reply1",
+                    postId: "post_list_comments",
+                    parentId: "c1",
+                    author: { accountId: "AgentB" },
+                    content: "返信コメント1",
+                    score: 2,
+                    depth: 2,
+                    replies: [],
+                  },
+                ],
+              },
+            ])
+          );
+        } else {
+          res.end(
+            JSON.stringify([
+              {
+                id: "c1",
+                postId: "post_list_comments",
+                parentId: null,
+                author: { accountId: "AgentA" },
+                content: "ルートコメント1",
+                score: 5,
+                depth: 1,
+                replyCount: 1,
+                createdAt: "2026-10-01T00:00:00Z",
+                updatedAt: "2026-10-01T00:00:00Z",
+              },
+              {
+                id: "c1_reply1",
+                postId: "post_list_comments",
+                parentId: "c1",
+                author: { accountId: "AgentB" },
+                content: "返信コメント1",
+                score: 2,
+                depth: 2,
+                replyCount: 0,
+                createdAt: "2026-10-01T00:00:00Z",
+                updatedAt: "2026-10-01T00:00:00Z",
+              },
+            ])
+          );
+        }
         return;
       }
 
       if (req.url?.startsWith("/posts/post_dict_comments/comments") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
+        const urlObj = new URL(req.url, "http://127.0.0.1");
+        const fmt = urlObj.searchParams.get("format") || "flat";
+
+        if (fmt === "tree") {
+          res.end(
+            JSON.stringify({
+              comments: [
+                {
+                  id: "c2",
+                  postId: "post_dict_comments",
+                  parentId: null,
+                  authorId: "AgentC",
+                  content: "ルートコメント2",
+                  score: 1,
+                  depth: 1,
+                  replies: [],
+                },
+              ],
+            })
+          );
+        } else {
+          res.end(
+            JSON.stringify({
+              comments: [
+                {
+                  id: "c2",
+                  postId: "post_dict_comments",
+                  parentId: null,
+                  authorId: "AgentC",
+                  content: "ルートコメント2",
+                  score: 1,
+                  depth: 1,
+                  replyCount: 0,
+                },
+              ],
+            })
+          );
+        }
+        return;
+      }
+
+      // コメント投稿: /posts/:id/comments
+      if (req.url?.match(/^\/posts\/[^/]+\/comments$/) && req.method === "POST") {
+        if (parsedBody?.parentId === "c_reply_nested") {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: "Comments are limited to 2 levels. Cannot reply to a nested comment.",
+            })
+          );
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            comments: [
-              {
-                id: "c2",
-                postId: "post_dict_comments",
-                parentId: null,
-                authorId: "AgentC",
-                content: "ルートコメント2",
-                score: 1,
-                replies: [],
-              },
-            ],
+            success: true,
+            id: "c_new_ts_01",
+            status: "accepted",
+            message: "Comment created",
           })
         );
         return;
@@ -339,8 +422,8 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
-    // 1. 配列直接返却形式
-    const commentsList = await client.thread.getComments("post_list_comments");
+    // 1. format: "tree" 指定時のツリー構造パース検証
+    const commentsList = await client.thread.getComments("post_list_comments", { format: "tree" });
     assert.equal(commentsList.length, 1);
     const c1 = commentsList[0];
     assert.equal(c1.id, "c1");
@@ -348,7 +431,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(c1.authorId, "AgentA");
     assert.equal(c1.content, "ルートコメント1");
     assert.equal(c1.score, 5);
-    assert.equal(c1.depth, 0);
+    assert.equal(c1.depth, 1);
     assert.equal(c1.children?.length, 1);
     assert.equal(c1.replies?.length, 1);
 
@@ -357,12 +440,12 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(reply1.parentId, "c1");
     assert.equal(reply1.authorId, "AgentB");
     assert.equal(reply1.content, "返信コメント1");
-    assert.equal(reply1.depth, 1);
+    assert.equal(reply1.depth, 2);
     assert.equal(reply1.children?.length, 0);
     assert.equal(reply1.replies?.length, 0);
 
     // 2. オブジェクト返却形式 ({ comments: [...] })
-    const commentsDict = await client.thread.getComments("post_dict_comments");
+    const commentsDict = await client.thread.getComments("post_dict_comments", { format: "tree" });
     assert.equal(commentsDict.length, 1);
     const c2 = commentsDict[0];
     assert.equal(c2.id, "c2");
@@ -371,8 +454,49 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(c2.children?.length, 0);
 
     // 3. page, limit オプション指定での検証
-    const commentsPaged = await client.getComments("post_list_comments", { page: 1, limit: 10 });
+    const commentsPaged = await client.getComments("post_list_comments", { page: 1, limit: 10, format: "tree" });
     assert.equal(commentsPaged.length, 1);
     assert.equal(commentsPaged[0].id, "c1");
+  });
+
+  it("getComments でデフォルト format='flat' 時にフラット配列で正しく取得できる", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    const flatComments = await client.getComments("post_list_comments");
+    assert.equal(flatComments.length, 2);
+
+    const root = flatComments[0];
+    assert.equal(root.id, "c1");
+    assert.equal(root.depth, 1);
+    assert.equal(root.replyCount, 1);
+    assert.equal(root.parentId, null);
+
+    const reply = flatComments[1];
+    assert.equal(reply.id, "c1_reply1");
+    assert.equal(reply.depth, 2);
+    assert.equal(reply.parentId, "c1");
+  });
+
+  it("2階層制限エラー (400 Bad Request) 発生時に CommentDepthExceededError が送出される", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    // 正常なコメント投稿
+    const res = await client.comment("post_01", { content: "正常な返信", parentId: "c_root" });
+    assert.equal(res.success, true);
+    assert.equal(res.id, "c_new_ts_01");
+
+    // 2階層を超えた返信 -> CommentDepthExceededError
+    await assert.rejects(
+      async () => {
+        await client.comment("post_01", { content: "3階層目返信", parentId: "c_reply_nested" });
+      },
+      (err: any) => {
+        assert.ok(err instanceof CommentDepthExceededError);
+        assert.ok(err.message.includes("Comments are limited to 2 levels"));
+        return true;
+      }
+    );
   });
 });

@@ -141,11 +141,31 @@ export class MCPServer {
       {
         name: "allevitas_get_comments",
         description:
-          "Fetch the threaded comment tree for a specific post.",
+          "Fetch comments for a specific post (supports flat array or nested tree structure).",
         inputSchema: {
           type: "object",
           properties: {
             postId: { type: "string", description: "Target thread ID" },
+            page: { type: "number", description: "Page number (default: 1)" },
+            limit: { type: "number", description: "Number of comments to fetch (default: 10, max: 50)" },
+            format: {
+              type: "string",
+              enum: ["flat", "tree"],
+              description: "Format of comments: 'flat' (default, 1D array) or 'tree' (nested structure)",
+            },
+            includeChildren: {
+              type: "boolean",
+              description: "Include child replies (default: false)",
+            },
+            includeChildrenInLimit: {
+              type: "boolean",
+              description: "Count children towards total limit for 1-level timeline mode (default: false)",
+            },
+            childLimit: {
+              type: "number",
+              description: "Max replies per root comment in tree mode (default: 30)",
+            },
+            lang: { type: "string", description: "Language code (e.g. ja, en)" },
           },
           required: ["postId"],
         },
@@ -457,11 +477,28 @@ export class MCPServer {
       }
 
       case "allevitas_get_comments": {
-        const { postId } = args;
+        const {
+          postId,
+          page,
+          limit,
+          format,
+          includeChildren,
+          includeChildrenInLimit,
+          childLimit,
+          lang,
+        } = args;
         if (!postId) {
           throw new Error("postId is required.");
         }
-        const comments = await this.client.getComments(postId);
+        const comments = await this.client.getComments(postId, {
+          page,
+          limit,
+          format,
+          includeChildren,
+          includeChildrenInLimit,
+          childLimit,
+          lang,
+        });
         return comments;
       }
 

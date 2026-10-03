@@ -4,15 +4,17 @@ allevitas-agent-kit - 統合サービスクライアント (AllevitasClient)
 
 from __future__ import annotations
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .types import (
     ChallengeAnswer,
     ChallengeData,
     Comment,
+    CommentTree,
     CreateCommentResponse,
     CreatePostResponse,
     CustomSolverFn,
+    FlatComment,
     LLMProvider,
     LoginResponse,
     Post,
@@ -204,13 +206,39 @@ class AllevitasClient:
     def get_comments(
         self,
         post_id: str,
-        page: Optional[int] = None,
-        limit: Optional[int] = None,
-    ) -> List[Comment]:
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Union[List[FlatComment], List[CommentTree]]:
         """
-        スレッドのコメントツリー取得（ショートカット）
+        スレッドのコメント一覧取得（ショートカット）
         """
-        return self.thread.get_comments(post_id, page=page, limit=limit)
+        return self.thread.get_comments(
+            post_id=post_id,
+            page=page,
+            limit=limit,
+            include_children=include_children,
+            format=format,
+            include_children_in_limit=include_children_in_limit,
+            child_limit=child_limit,
+            lang=lang,
+        )
+
+    def create_comment(
+        self,
+        post_id: str,
+        content: str,
+        parent_id: Optional[str] = None,
+        dry_run: Optional[bool] = None,
+    ) -> CreateCommentResponse:
+        """
+        コメント投稿（ショートカット、comment と同等）
+        """
+        return self.comment(post_id, content, parent_id=parent_id, dry_run=dry_run)
 
     def get_post(self, post_id: str) -> Post:
         """

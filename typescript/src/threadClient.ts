@@ -5,6 +5,10 @@ import {
   CreatePostRequest,
   CreatePostResponse,
   Comment,
+  FlatComment,
+  CommentTree,
+  GetCommentsOptions,
+  CommentDepthExceededError,
   CreateCommentRequest,
   CreateCommentResponse,
   VoteRequest,
@@ -218,29 +222,45 @@ export class ThreadClient {
   }
 
   /**
-   * スレッドのコメントツリーを取得する (GET /api/posts/:id/comments)
+   * スレッドのコメント一覧を取得する (GET /api/posts/:id/comments)
    */
   async getComments(
     postId: string,
-    optionsOrPage?: number | { page?: number; limit?: number },
+    optionsOrPage?: number | GetCommentsOptions,
     limitParam?: number
-  ): Promise<Comment[]> {
-    let page: number | undefined;
-    let limit: number | undefined;
+  ): Promise<Array<FlatComment | CommentTree>> {
+    let page: number = 1;
+    let limit: number = 10;
+    let includeChildren: boolean = false;
+    let format: "flat" | "tree" = "flat";
+    let includeChildrenInLimit: boolean = false;
+    let childLimit: number = 30;
+    let lang: string | undefined;
 
     if (typeof optionsOrPage === "number") {
       page = optionsOrPage;
-      limit = limitParam;
+      limit = limitParam ?? 10;
     } else if (optionsOrPage) {
-      page = optionsOrPage.page;
-      limit = optionsOrPage.limit;
+      if (optionsOrPage.page !== undefined) page = optionsOrPage.page;
+      if (optionsOrPage.limit !== undefined) limit = optionsOrPage.limit;
+      if (optionsOrPage.includeChildren !== undefined) includeChildren = optionsOrPage.includeChildren;
+      if (optionsOrPage.format !== undefined) format = optionsOrPage.format;
+      if (optionsOrPage.includeChildrenInLimit !== undefined)
+        includeChildrenInLimit = optionsOrPage.includeChildrenInLimit;
+      if (optionsOrPage.childLimit !== undefined) childLimit = optionsOrPage.childLimit;
+      if (optionsOrPage.lang !== undefined) lang = optionsOrPage.lang;
     }
 
     const params = new URLSearchParams();
-    if (page !== undefined) params.append("page", String(page));
-    if (limit !== undefined) params.append("limit", String(limit));
-    const query = params.toString() ? `?${params.toString()}` : "";
+    params.append("page", String(page));
+    params.append("limit", String(limit));
+    params.append("includeChildren", includeChildren ? "true" : "false");
+    params.append("format", format);
+    params.append("includeChildrenInLimit", includeChildrenInLimit ? "true" : "false");
+    params.append("childLimit", String(childLimit));
+    if (lang) params.append("lang", lang);
 
+    const query = `?${params.toString()}`;
     const authHeaders = await this.getAuthHeaders();
     const res = await this.rateLimitHandler.execute<any>(() =>
       fetch(`${this.apiUrl}/posts/${postId}/comments${query}`, {
@@ -256,29 +276,61 @@ export class ThreadClient {
     // 配列直接返却と { comments: [...] } の双方に対応
     const rawList: any[] = Array.isArray(res) ? res : (res?.comments ?? []);
 
-    const parseComment = (c: any, depth = 0): Comment => {
-      const rawReplies = Array.isArray(c.replies)
-        ? c.replies
-        : Array.isArray(c.children)
-          ? c.children
-          : [];
-      const replies = rawReplies.map((r: any) => parseComment(r, depth + 1));
+    if (format === "tree") {
+      const parseTreeComment = (c: any, depth = 1): Comment => {
+        const rawReplies = Array.isArray(c.replies)
+          ? c.replies
+          : Array.isArray(c.children)
+            ? c.children
+            : [];
+        const replies = rawReplies.map((r: any) => parseTreeComment(r, depth + 1));
+        const replyCount = c.replyCount ?? c.reply_count ?? replies.length;
+        return {
+          id: String(c.id || ""),
+          postId: String(c.postId || postId),
+          parentId: c.parentId ? String(c.parentId) : null,
+          authorId: String(c.author?.accountId || c.authorId || ""),
+          content: String(c.content || ""),
+          score: Number(c.score || 0),
+          depth: Number(c.depth ?? depth),
+          createdAt: String(c.createdAt || ""),
+          updatedAt: String(c.updatedAt || ""),
+          children: replies,
+          replies: replies,
+          author: c.author,
+          replyCount: Number(replyCount),
+          totalReplies: c.totalReplies ?? c.total_replies,
+          hasMoreReplies: c.hasMoreReplies ?? c.has_more_replies,
+          isHidden: Boolean(c.isHidden ?? c.is_hidden),
+          originalLanguage: c.originalLanguage ?? c.original_language,
+          currentLanguage: c.currentLanguage ?? c.current_language,
+        };
+      };
+      return rawList.map((c) => parseTreeComment(c, 1));
+    }
+
+    // デフォルト: flat 形式
+    return rawList.map((c: any): FlatComment => {
+      const replyCount = c.replyCount ?? c.reply_count ?? 0;
       return {
         id: String(c.id || ""),
         postId: String(c.postId || postId),
-        parentId: c.parentId ? String(c.parentId) : null,
         authorId: String(c.author?.accountId || c.authorId || ""),
+        parentId: c.parentId ? String(c.parentId) : null,
+        depth: Number(c.depth ?? 1),
         content: String(c.content || ""),
+        author: c.author,
+        replyCount: Number(replyCount),
+        totalReplies: c.totalReplies ?? c.total_replies,
+        hasMoreReplies: c.hasMoreReplies ?? c.has_more_replies,
         score: Number(c.score || 0),
-        depth: Number(c.depth ?? depth),
-        createdAt: String(c.createdAt || ""),
-        updatedAt: String(c.updatedAt || ""),
-        children: replies,
-        replies: replies,
+        createdAt: c.createdAt ? String(c.createdAt) : undefined,
+        updatedAt: c.updatedAt ? String(c.updatedAt) : undefined,
+        isHidden: Boolean(c.isHidden ?? c.is_hidden),
+        originalLanguage: c.originalLanguage ?? c.original_language,
+        currentLanguage: c.currentLanguage ?? c.current_language,
       };
-    };
-
-    return rawList.map((c) => parseComment(c, 0));
+    });
   }
 
   /**
@@ -286,20 +338,35 @@ export class ThreadClient {
    */
   async comment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     const isDryRun = data.dryRun ?? this.dryRun;
-    return await this.auth.handle401AndRetry(async (token) => {
-      return await this.rateLimitHandler.execute<CreateCommentResponse>(() =>
-        fetch(`${this.apiUrl}/posts/${postId}/comments`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
-            "User-Agent": this.userAgent,
-            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
-          },
-          body: JSON.stringify(data),
-        })
-      );
-    });
+    try {
+      return await this.auth.handle401AndRetry(async (token) => {
+        const res = await this.rateLimitHandler.execute<CreateCommentResponse>(() =>
+          fetch(`${this.apiUrl}/posts/${postId}/comments`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+              "User-Agent": this.userAgent,
+              ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
+            },
+            body: JSON.stringify(data),
+          })
+        );
+        if (res && res.success === undefined) {
+          res.success = true;
+        }
+        return res;
+      });
+    } catch (error: any) {
+      const errStr = String(error?.message || error || "");
+      if (
+        errStr.includes("Comments are limited to 2 levels") ||
+        errStr.includes("Cannot reply to a nested comment")
+      ) {
+        throw new CommentDepthExceededError();
+      }
+      throw error;
+    }
   }
 
   /**

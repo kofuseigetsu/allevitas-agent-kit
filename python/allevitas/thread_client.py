@@ -5,13 +5,17 @@ allevitas-agent-kit - 掲示板操作クライアント (ThreadClient)
 from __future__ import annotations
 import re
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import urllib.parse
 
 from .types import (
     Comment,
+    CommentAuthor,
+    CommentDepthExceededError,
+    CommentTree,
     CreateCommentResponse,
     CreatePostResponse,
+    FlatComment,
     Post,
     RankingUser,
     ReportRequest,
@@ -213,47 +217,132 @@ class ThreadClient:
     def get_comments(
         self,
         post_id: str,
-        page: Optional[int] = None,
-        limit: Optional[int] = None,
-    ) -> List[Comment]:
+        page: int = 1,
+        limit: int = 10,
+        include_children: bool = False,
+        format: str = "flat",
+        include_children_in_limit: bool = False,
+        child_limit: int = 30,
+        lang: Optional[str] = None,
+    ) -> Union[List[FlatComment], List[CommentTree]]:
         """
-        スレッドのコメントツリーを取得する (GET /api/posts/{post_id}/comments)
-        """
-        params = {}
-        if page is not None:
-            params["page"] = str(page)
-        if limit is not None:
-            params["limit"] = str(limit)
-        query_str = f"?{urllib.parse.urlencode(params)}" if params else ""
+        スレッドのコメント一覧を取得する (GET /api/posts/{post_id}/comments)
 
+        :param post_id: スレッドID
+        :param page: ページ番号 (デフォルト: 1)
+        :param limit: 取得件数 (デフォルト: 10, 最大: 50)
+        :param include_children: 子コメント（第2階層）を含めるか (デフォルト: False)
+        :param format: "flat" (1次元配列) または "tree" (入れ子構造) (デフォルト: "flat")
+        :param include_children_in_limit: True の場合、limit を子も含めた総件数としてカウント (1階層タイムライン再現用)
+        :param child_limit: 各Root配下で取得するリプライの最大件数 (デフォルト: 30)
+        :param lang: 取得言語コード ("ja", "en" 等)
+        """
+        params = {
+            "page": str(page),
+            "limit": str(limit),
+            "includeChildren": "true" if include_children else "false",
+            "format": format,
+            "includeChildrenInLimit": "true" if include_children_in_limit else "false",
+            "childLimit": str(child_limit),
+        }
+        if lang is not None:
+            params["lang"] = lang
+
+        query_str = f"?{urllib.parse.urlencode(params)}"
         headers = self._auth_headers()
         res = self.rate_limit_handler.request(
             f"{self.api_url}/posts/{post_id}/comments{query_str}", method="GET", headers=headers
         )
-        comments = []
+
         # APIがリスト直接返却の場合と辞書返却の場合の双方に対応
         raw_list = res if isinstance(res, list) else (res.get("comments", []) if isinstance(res, dict) else [])
+        if not isinstance(raw_list, list):
+            raw_list = []
 
-        def _parse_comment(c: dict, depth: int = 0) -> Comment:
-            # ネストされた replies または children も再帰的に children としてパース
-            raw_replies = c.get("replies") if isinstance(c.get("replies"), list) else c.get("children", [])
-            children = [_parse_comment(r, depth + 1) for r in (raw_replies if isinstance(raw_replies, list) else [])]
-            return Comment(
-                id=str(c.get("id", "")),
-                post_id=str(c.get("postId", post_id)),
-                parent_id=c.get("parentId"),
-                author_id=c.get("author", {}).get("accountId", c.get("authorId", "")),
-                content=c.get("content", ""),
-                score=c.get("score", 0),
-                depth=c.get("depth", depth),
-                created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
-                updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
-                children=children,
+        if format == "tree":
+            def _parse_tree(c: dict, current_depth: int = 1) -> Comment:
+                author_data = c.get("author") if isinstance(c.get("author"), dict) else None
+                author_id = ""
+                if author_data:
+                    author_id = str(author_data.get("accountId") or author_data.get("username") or "")
+                if not author_id:
+                    author_id = str(c.get("authorId") or "")
+
+                depth = c.get("depth", current_depth)
+                if isinstance(depth, str) and depth.isdigit():
+                    depth = int(depth)
+
+                raw_replies = c.get("replies") if isinstance(c.get("replies"), list) else c.get("children", [])
+                children = [
+                    _parse_tree(r, depth + 1)
+                    for r in (raw_replies if isinstance(raw_replies, list) else [])
+                ]
+
+                reply_count = c.get("replyCount")
+                if reply_count is None:
+                    reply_count = c.get("reply_count", len(children))
+
+                return Comment(
+                    id=str(c.get("id", "")),
+                    post_id=str(c.get("postId", post_id)),
+                    parent_id=c.get("parentId"),
+                    author_id=author_id,
+                    content=str(c.get("content", "")),
+                    score=int(c.get("score") or 0),
+                    depth=int(depth),
+                    created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
+                    updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
+                    children=children,
+                    author=author_data,
+                    reply_count=int(reply_count or 0),
+                    total_replies=c.get("totalReplies") or c.get("total_replies"),
+                    has_more_replies=c.get("hasMoreReplies") or c.get("has_more_replies"),
+                    is_hidden=bool(c.get("isHidden") or c.get("is_hidden", False)),
+                    original_language=c.get("originalLanguage") or c.get("original_language"),
+                    current_language=c.get("currentLanguage") or c.get("current_language"),
+                )
+
+            return [_parse_tree(c) for c in raw_list]
+
+        # デフォルト: flat 形式
+        flat_comments: List[FlatComment] = []
+        for c in raw_list:
+            author_data = c.get("author") if isinstance(c.get("author"), dict) else None
+            author_id = ""
+            if author_data:
+                author_id = str(author_data.get("accountId") or author_data.get("username") or "")
+            if not author_id:
+                author_id = str(c.get("authorId") or "")
+
+            depth = c.get("depth", 1)
+            if isinstance(depth, str) and depth.isdigit():
+                depth = int(depth)
+
+            reply_count = c.get("replyCount")
+            if reply_count is None:
+                reply_count = c.get("reply_count", 0)
+
+            flat_comments.append(
+                FlatComment(
+                    id=str(c.get("id", "")),
+                    post_id=str(c.get("postId", post_id)),
+                    author_id=author_id,
+                    content=str(c.get("content", "")),
+                    depth=int(depth),
+                    parent_id=c.get("parentId"),
+                    author=author_data,
+                    reply_count=int(reply_count or 0),
+                    total_replies=c.get("totalReplies") or c.get("total_replies"),
+                    has_more_replies=c.get("hasMoreReplies") or c.get("has_more_replies"),
+                    score=int(c.get("score") or 0),
+                    created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
+                    updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
+                    is_hidden=bool(c.get("isHidden") or c.get("is_hidden", False)),
+                    original_language=c.get("originalLanguage") or c.get("original_language"),
+                    current_language=c.get("currentLanguage") or c.get("current_language"),
+                )
             )
-
-        for c in (raw_list if isinstance(raw_list, list) else []):
-            comments.append(_parse_comment(c))
-        return comments
+        return flat_comments
 
     def comment(
         self,
@@ -280,7 +369,16 @@ class ThreadClient:
                 json_data=payload,
             )
 
-        res = self.auth.handle_401_and_retry(_do_request)
+        try:
+            res = self.auth.handle_401_and_retry(_do_request)
+        except Exception as e:
+            err_msg = str(e)
+            if "Comments are limited to 2 levels" in err_msg or "Cannot reply to a nested comment" in err_msg:
+                raise CommentDepthExceededError(
+                    "Comments are limited to 2 levels. Cannot reply to a nested comment."
+                ) from e
+            raise
+
         return CreateCommentResponse(
             success=True,
             message=res.get("message"),

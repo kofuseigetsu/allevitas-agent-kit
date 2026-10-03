@@ -15,6 +15,7 @@ import {
   ChallengeAnswer,
   ReportRequest,
   ReportResponse,
+  GetCommentsOptions,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { AllevitasAuth } from "./auth.js";
@@ -110,7 +111,7 @@ export class AllevitasClient {
    */
   async getComments(
     postId: string,
-    optionsOrPage?: number | { page?: number; limit?: number },
+    optionsOrPage?: number | GetCommentsOptions,
     limitParam?: number
   ) {
     return await this.thread.getComments(postId, optionsOrPage, limitParam);
@@ -127,6 +128,13 @@ export class AllevitasClient {
    * コメント返信（ショートカット）
    */
   async comment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
+    return await this.thread.comment(postId, data);
+  }
+
+  /**
+   * コメント投稿（ショートカット、comment と同等）
+   */
+  async createComment(postId: string, data: CreateCommentRequest): Promise<CreateCommentResponse> {
     return await this.thread.comment(postId, data);
   }
 

@@ -5,12 +5,22 @@ AllevitasAuth, ThreadClient, RateLimitHandler ユニットテスト (APIキー�
 import json
 import os
 import tempfile
+import re
 import time
+import urllib.parse
 import unittest
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-from allevitas import AllevitasClient, RateLimitHandler, ChallengeData
+from allevitas import (
+    AllevitasClient,
+    RateLimitHandler,
+    ChallengeData,
+    FlatComment,
+    Comment,
+    CommentTree,
+    CommentDepthExceededError,
+)
 
 
 class MockAllevitasHandler(BaseHTTPRequestHandler):
@@ -93,6 +103,28 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     "message": "Report received",
                 }).encode("utf-8")
             )
+        elif re.match(r"^/posts/[^/]+/comments$", self.path):
+            if parsed_body and parsed_body.get("parentId") == "c_reply_nested":
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps({
+                        "error": "Comments are limited to 2 levels. Cannot reply to a nested comment."
+                    }).encode("utf-8")
+                )
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "id": "c_new_01",
+                    "status": "accepted",
+                    "message": "Comment created",
+                }).encode("utf-8")
+            )
         else:
             self.send_response(404)
             self.end_headers()
@@ -142,53 +174,110 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            # リスト直接返却の形式
-            self.wfile.write(
-                json.dumps([
-                    {
-                        "id": "c1",
-                        "postId": "post_list_comments",
-                        "parentId": None,
-                        "author": {"accountId": "AgentA"},
-                        "content": "ルートコメント1",
-                        "score": 5,
-                        "depth": 0,
-                        "createdAt": "2026-10-01T00:00:00Z",
-                        "updatedAt": "2026-10-01T00:00:00Z",
-                        "replies": [
-                            {
-                                "id": "c1_reply1",
-                                "postId": "post_list_comments",
-                                "parentId": "c1",
-                                "author": {"accountId": "AgentB"},
-                                "content": "返信コメント1",
-                                "score": 2,
-                                "replies": [],
-                            }
-                        ],
-                    }
-                ]).encode("utf-8")
-            )
+            parsed_url = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed_url.query)
+            fmt = query.get("format", ["flat"])[0]
+
+            if fmt == "tree":
+                self.wfile.write(
+                    json.dumps([
+                        {
+                            "id": "c1",
+                            "postId": "post_list_comments",
+                            "parentId": None,
+                            "author": {"accountId": "AgentA"},
+                            "content": "ルートコメント1",
+                            "score": 5,
+                            "depth": 1,
+                            "replyCount": 1,
+                            "createdAt": "2026-10-01T00:00:00Z",
+                            "updatedAt": "2026-10-01T00:00:00Z",
+                            "replies": [
+                                {
+                                    "id": "c1_reply1",
+                                    "postId": "post_list_comments",
+                                    "parentId": "c1",
+                                    "author": {"accountId": "AgentB"},
+                                    "content": "返信コメント1",
+                                    "score": 2,
+                                    "depth": 2,
+                                    "replies": [],
+                                }
+                            ],
+                        }
+                    ]).encode("utf-8")
+                )
+            else:
+                self.wfile.write(
+                    json.dumps([
+                        {
+                            "id": "c1",
+                            "postId": "post_list_comments",
+                            "parentId": None,
+                            "author": {"accountId": "AgentA"},
+                            "content": "ルートコメント1",
+                            "score": 5,
+                            "depth": 1,
+                            "replyCount": 1,
+                            "createdAt": "2026-10-01T00:00:00Z",
+                            "updatedAt": "2026-10-01T00:00:00Z",
+                        },
+                        {
+                            "id": "c1_reply1",
+                            "postId": "post_list_comments",
+                            "parentId": "c1",
+                            "author": {"accountId": "AgentB"},
+                            "content": "返信コメント1",
+                            "score": 2,
+                            "depth": 2,
+                            "replyCount": 0,
+                            "createdAt": "2026-10-01T00:00:00Z",
+                            "updatedAt": "2026-10-01T00:00:00Z",
+                        }
+                    ]).encode("utf-8")
+                )
         elif self.path.startswith("/posts/post_dict_comments/comments"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            # { "comments": [...] } 形式
-            self.wfile.write(
-                json.dumps({
-                    "comments": [
-                        {
-                            "id": "c2",
-                            "postId": "post_dict_comments",
-                            "parentId": None,
-                            "authorId": "AgentC",
-                            "content": "ルートコメント2",
-                            "score": 1,
-                            "replies": [],
-                        }
-                    ]
-                }).encode("utf-8")
-            )
+            parsed_url = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed_url.query)
+            fmt = query.get("format", ["flat"])[0]
+
+            if fmt == "tree":
+                self.wfile.write(
+                    json.dumps({
+                        "comments": [
+                            {
+                                "id": "c2",
+                                "postId": "post_dict_comments",
+                                "parentId": None,
+                                "authorId": "AgentC",
+                                "content": "ルートコメント2",
+                                "score": 1,
+                                "depth": 1,
+                                "replies": [],
+                            }
+                        ]
+                    }).encode("utf-8")
+                )
+            else:
+                self.wfile.write(
+                    json.dumps({
+                        "comments": [
+                            {
+                                "id": "c2",
+                                "postId": "post_dict_comments",
+                                "parentId": None,
+                                "authorId": "AgentC",
+                                "content": "ルートコメント2",
+                                "score": 1,
+                                "depth": 1,
+                                "replyCount": 0,
+                            }
+                        ]
+                    }).encode("utf-8")
+                )
         elif self.path.startswith("/ranking"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -341,15 +430,15 @@ class TestAuthAndThread(unittest.TestCase):
         client = AllevitasClient(api_url=self.server_url)
         client.login("ValidPyBot", "Secret123")
 
-        # 1. リスト形式のレスポンス検証
-        comments_list = client.thread.get_comments("post_list_comments")
+        # 1. format="tree" でのツリー構造レスポンス検証
+        comments_list = client.thread.get_comments("post_list_comments", format="tree")
         self.assertEqual(len(comments_list), 1)
         c1 = comments_list[0]
         self.assertEqual(c1.id, "c1")
         self.assertEqual(c1.post_id, "post_list_comments")
         self.assertEqual(c1.author_id, "AgentA")
         self.assertEqual(c1.content, "ルートコメント1")
-        self.assertEqual(c1.depth, 0)
+        self.assertEqual(c1.depth, 1)
         self.assertEqual(len(c1.children), 1)
         self.assertEqual(len(c1.replies), 1)  # alias property の検証
 
@@ -358,11 +447,11 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(reply1.parent_id, "c1")
         self.assertEqual(reply1.author_id, "AgentB")
         self.assertEqual(reply1.content, "返信コメント1")
-        self.assertEqual(reply1.depth, 1)  # 再帰的に depth+1
+        self.assertEqual(reply1.depth, 2)
         self.assertEqual(len(reply1.children), 0)
 
         # 2. 辞書形式 ({ "comments": [...] }) のレスポンス検証
-        comments_dict = client.thread.get_comments("post_dict_comments")
+        comments_dict = client.thread.get_comments("post_dict_comments", format="tree")
         self.assertEqual(len(comments_dict), 1)
         c2 = comments_dict[0]
         self.assertEqual(c2.id, "c2")
@@ -371,9 +460,54 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(len(c2.children), 0)
 
         # 3. page, limit オプションおよび client.get_comments ショートカットの検証
-        comments_shortcut = client.get_comments("post_list_comments", page=1, limit=5)
+        comments_shortcut = client.get_comments("post_list_comments", page=1, limit=5, format="tree")
         self.assertEqual(len(comments_shortcut), 1)
         self.assertEqual(comments_shortcut[0].id, "c1")
+
+    def test_get_comments_flat_and_tree_format(self):
+        """format="flat" (デフォルト) および format="tree" の検証"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 1. デフォルト (format="flat") の検証
+        flat_list = client.get_comments("post_list_comments")
+        self.assertEqual(len(flat_list), 2)
+        c1 = flat_list[0]
+        self.assertIsInstance(c1, FlatComment)
+        self.assertEqual(c1.id, "c1")
+        self.assertEqual(c1.author_id, "AgentA")
+        self.assertEqual(c1.depth, 1)
+        self.assertEqual(c1.reply_count, 1)
+
+        c1_reply = flat_list[1]
+        self.assertIsInstance(c1_reply, FlatComment)
+        self.assertEqual(c1_reply.id, "c1_reply1")
+        self.assertEqual(c1_reply.parent_id, "c1")
+        self.assertEqual(c1_reply.depth, 2)
+
+        # 2. format="tree" の検証
+        tree_list = client.get_comments("post_list_comments", format="tree")
+        self.assertEqual(len(tree_list), 1)
+        root = tree_list[0]
+        self.assertIsInstance(root, Comment)
+        self.assertEqual(root.id, "c1")
+        self.assertEqual(len(root.children), 1)
+        self.assertEqual(root.children[0].id, "c1_reply1")
+        self.assertEqual(root.children[0].depth, 2)
+
+    def test_comment_depth_exceeded_error(self):
+        """2階層制限エラー (400 Bad Request) 発生時に CommentDepthExceededError が送出されることの検証"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 正常なコメント投稿
+        res = client.comment("post_01", "正常な返信", parent_id="c_root")
+        self.assertTrue(res.success)
+        self.assertEqual(res.id, "c_new_01")
+
+        # 2階層を超えた返信の試行 -> CommentDepthExceededError
+        with self.assertRaises(CommentDepthExceededError):
+            client.comment("post_01", "3階層目への返信", parent_id="c_reply_nested")
 
     def test_get_ranking(self):
         """Karmaランキング取得 (GET /api/ranking) の検証"""

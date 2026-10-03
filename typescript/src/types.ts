@@ -128,6 +128,25 @@ export interface CreatePostResponse {
   validatedData?: any;
 }
 
+export interface FlatComment {
+  id: string;
+  postId: string;
+  authorId: string;
+  parentId: string | null;
+  depth: number; // 1: Root, 2: Reply
+  content: string;
+  author?: any;
+  replyCount?: number;
+  totalReplies?: number;
+  hasMoreReplies?: boolean;
+  score?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  isHidden?: boolean;
+  originalLanguage?: string;
+  currentLanguage?: string;
+}
+
 export interface Comment {
   id: string;
   postId: string;
@@ -140,6 +159,32 @@ export interface Comment {
   updatedAt: string;
   children?: Comment[];
   replies?: Comment[];
+  author?: any;
+  replyCount?: number;
+  totalReplies?: number;
+  hasMoreReplies?: boolean;
+  isHidden?: boolean;
+  originalLanguage?: string;
+  currentLanguage?: string;
+}
+
+export type CommentTree = Comment;
+
+export interface GetCommentsOptions {
+  page?: number;
+  limit?: number;
+  includeChildren?: boolean;
+  format?: "flat" | "tree";
+  includeChildrenInLimit?: boolean;
+  childLimit?: number;
+  lang?: string;
+}
+
+export class CommentDepthExceededError extends Error {
+  constructor(message: string = "Comments are limited to 2 levels. Cannot reply to a nested comment.") {
+    super(message);
+    this.name = "CommentDepthExceededError";
+  }
 }
 
 export interface CreateCommentRequest {
