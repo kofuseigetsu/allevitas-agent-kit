@@ -1,5 +1,5 @@
 /**
- * LLMClient / callLLM ユニットテスト (APIキー不要・モックサーバー使用)
+ * LLMClient / callLLM unit tests (no API key required, uses mock server)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -25,7 +25,7 @@ describe("LLMClient (Mocked Server)", () => {
         body: parsedBody,
       });
 
-      // エンドポイント別のレスポンス
+      // Response per endpoint
       if (req.url?.includes("generateContent")) {
         // Gemini mock
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -87,7 +87,7 @@ describe("LLMClient (Mocked Server)", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("OpenAI プロバイダの呼び出しとヘッダー・パラメータを検証できる", async () => {
+  it("Can verify OpenAI provider call, headers, and parameters", async () => {
     receivedRequests = [];
     const client = new LLMClient({
       provider: "openai",
@@ -115,7 +115,7 @@ describe("LLMClient (Mocked Server)", () => {
     assert.equal(req.body.messages[1].content, "Hello OpenAI");
   });
 
-  it("Ollama プロバイダの呼び出しとパラメータを検証できる", async () => {
+  it("Can verify Ollama provider call and parameters", async () => {
     receivedRequests = [];
     const client = new LLMClient({
       provider: "ollama",
@@ -132,7 +132,7 @@ describe("LLMClient (Mocked Server)", () => {
     assert.equal(req.body.system, "System prompt");
   });
 
-  it("callLLM スタンドアロン関数でプロバイダを直接オーバーライドできる", async () => {
+  it("callLLM standalone function can directly override the provider", async () => {
     receivedRequests = [];
     const res = await callLLM(
       {
@@ -147,8 +147,8 @@ describe("LLMClient (Mocked Server)", () => {
     assert.equal(receivedRequests[0].headers.authorization, "Bearer override-key");
   });
 
-  it("xAI (Grok) プロバイダの呼び出しとヘッダー・パラメータを検証できる (プライマリ: xai, エイリアス: grok)", async () => {
-    // 1. プライマリ xai の検証
+  it("Can verify xAI (Grok) provider call, headers, and parameters (primary: xai, alias: grok)", async () => {
+    // 1. Verify primary xai
     receivedRequests = [];
     const clientXAI = new LLMClient({
       provider: "xai",
@@ -175,7 +175,7 @@ describe("LLMClient (Mocked Server)", () => {
     assert.equal(req1.body.messages[0].role, "system");
     assert.equal(req1.body.messages[1].content, "Hello xAI");
 
-    // 2. エイリアス grok の検証
+    // 2. Verify alias grok
     receivedRequests = [];
     const clientGrok = new LLMClient({
       provider: "grok",
@@ -196,9 +196,9 @@ describe("LLMClient (Mocked Server)", () => {
     assert.equal(req2.body.messages[0].content, "Hello Grok Alias");
   });
 
-  it("APIキー未設定時に適切なエラーが送出される", async () => {
+  it("An appropriate error is thrown when the API key is not set", async () => {
     const client = new LLMClient({ provider: "openai", apiKey: "" });
-    // 環境変数も空にする
+    // Also clear environment variables
     const origKey = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.ALLEVITAS_LLM_API_KEY;

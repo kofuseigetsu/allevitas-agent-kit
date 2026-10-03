@@ -1,5 +1,5 @@
 /**
- * ChallengeSolver ユニットテスト (APIキー不要・モック使用)
+ * ChallengeSolver unit tests (no API key required, uses mocks)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -20,7 +20,7 @@ describe("ChallengeSolver (Mocked)", () => {
             challenge: {
               id: "chal_test_123",
               puzzleType: "LOG_FILTERING",
-              prompt: "以下のログから条件に合う件数を抽出してください...",
+              prompt: "Please extract the number of entries matching the condition from the following log...",
               expiresAt: Date.now() + 30000,
             },
           })
@@ -44,17 +44,17 @@ describe("ChallengeSolver (Mocked)", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("fetchChallenge でサーバーから逆CAPTCHA課題を正しく取得できる", async () => {
+  it("fetchChallenge correctly fetches a reverse CAPTCHA challenge from the server", async () => {
     const solver = new ChallengeSolver(serverUrl);
     const challenge = await solver.fetchChallenge();
 
     assert.equal(challenge.id, "chal_test_123");
     assert.equal(challenge.puzzleType, "LOG_FILTERING");
-    assert.ok(challenge.prompt.includes("以下のログ"));
+    assert.ok(challenge.prompt.includes("the following log"));
     assert.ok(challenge.expiresAt > Date.now());
   });
 
-  it("Self-Solve モードでエージェント独自の解答コールバックが機能する", async () => {
+  it("In Self-Solve mode, the agent's custom answer callback works", async () => {
     const solver = new ChallengeSolver(serverUrl, {
       llmProvider: "self",
       customSolver: async (ch) => {
@@ -82,7 +82,7 @@ describe("ChallengeSolver (Mocked)", () => {
     });
   });
 
-  it("有効期限が残り5秒未満のチャレンジはエラーとして弾かれる", async () => {
+  it("A challenge with less than 5 seconds until expiry is rejected as an error", async () => {
     const solver = new ChallengeSolver(serverUrl, {
       llmProvider: "self",
       customSolver: async () => ({ matchCount: 0, totalBytes: 0, targetIds: [] }),
@@ -92,7 +92,7 @@ describe("ChallengeSolver (Mocked)", () => {
       id: "chal_expired",
       puzzleType: "LOG_FILTERING",
       prompt: "expired",
-      expiresAt: Date.now() + 2000, // 残り2秒
+      expiresAt: Date.now() + 2000, // 2 seconds remaining
     };
 
     await assert.rejects(
@@ -106,11 +106,11 @@ describe("ChallengeSolver (Mocked)", () => {
     );
   });
 
-  it("マークダウンコードブロックや前後の挨拶が含まれるLLM応答から正しくJSONを抽出できる", async () => {
-    // LLMClient の call をモックするダミーオブジェクト
+  it("JSON is correctly extracted from an LLM response containing markdown code blocks and surrounding greetings", async () => {
+    // Dummy object that mocks LLMClient's call
     const mockLlmClient: any = {
       call: async () => {
-        return "はい、課題を解析しました。\n```json\n{\"matchCount\": 5, \"totalBytes\": 2048, \"targetIds\": [\"req_05\"]}\n```\nご確認のほどよろしくお願いいたします。";
+        return "Yes, I have analyzed the task.\n```json\n{\"matchCount\": 5, \"totalBytes\": 2048, \"targetIds\": [\"req_05\"]}\n```\nPlease check it at your convenience.";
       },
     };
 
@@ -130,7 +130,7 @@ describe("ChallengeSolver (Mocked)", () => {
     });
   });
 
-  it("correctAnswer で前回の誤答を踏まえた見直しプロンプトが渡り再解答できる", async () => {
+  it("correctAnswer passes a review prompt based on the previous wrong answer and allows re-answering", async () => {
     let capturedPrompt = "";
     const mockLlmClient: any = {
       call: async (args: any) => {
@@ -156,7 +156,7 @@ describe("ChallengeSolver (Mocked)", () => {
     assert.equal(corrected.matchCount, 3);
   });
 
-  it("generateReflection で教訓が抽出され、reflectionKnowledge に蓄積されて次の推論に注入される", async () => {
+  it("generateReflection extracts a lesson, accumulates it in reflectionKnowledge, and injects it into the next inference", async () => {
     let callCount = 0;
     let lastPrompt = "";
     const mockLlmClient: any = {
@@ -164,8 +164,8 @@ describe("ChallengeSolver (Mocked)", () => {
         callCount++;
         lastPrompt = args.prompt;
         if (args.jsonMode === false) {
-          // generateReflection の呼び出し
-          return "「ステータス200かつレスポンス時間が300msを超える条件を厳密にAND判定すること」";
+          // generateReflection call
+          return "\"Strictly AND-evaluate the conditions status 200 and response time exceeding 300ms\"";
         }
         return JSON.stringify({ matchCount: 4, totalBytes: 2000, targetIds: ["req_02"] });
       },
@@ -182,15 +182,15 @@ describe("ChallengeSolver (Mocked)", () => {
     const failedAnswer = { matchCount: 1, totalBytes: 500, targetIds: [] };
     const lesson = await solver.generateReflection(challenge, failedAnswer);
 
-    assert.ok(lesson.includes("ステータス200かつレスポンス時間が300msを超える条件"));
+    assert.ok(lesson.includes("status 200 and response time exceeding 300ms"));
     assert.deepEqual(solver.getReflectionKnowledge(), [
-      "ステータス200かつレスポンス時間が300msを超える条件を厳密にAND判定すること",
+      "Strictly AND-evaluate the conditions status 200 and response time exceeding 300ms",
     ]);
 
-    // 次回の solve 実行時に教訓がプロンプトに含まれているか検証
+    // Verify the lesson is included in the prompt on the next solve run
     await solver.solve(challenge);
     assert.ok(lastPrompt.includes("[Lessons from Previous Attempts]"));
-    assert.ok(lastPrompt.includes("ステータス200かつレスポンス時間が300msを超える条件"));
+    assert.ok(lastPrompt.includes("status 200 and response time exceeding 300ms"));
   });
 });
 

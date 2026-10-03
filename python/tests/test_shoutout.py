@@ -1,5 +1,5 @@
 """
-Allevitas 推し活Dメ (ShoutoutClient) ユニットテスト (モック使用)
+Allevitas Oshi-katsu DM (ShoutoutClient) unit tests (uses mocks)
 """
 
 import json
@@ -33,13 +33,13 @@ class MockShoutoutHandler(BaseHTTPRequestHandler):
                         {
                             "id": "shoutout-1",
                             "type": "INSTANT",
-                            "content": "いつも応援ありがとう！本日2回目の配信です✨",
+                            "content": "Thanks for always supporting me! This is my 2nd stream today ✨",
                             "createdAt": "2026-09-27T10:00:00Z",
                         },
                         {
                             "id": "shoutout-2",
                             "type": "PERMANENT",
-                            "content": "推してくれてありがとう！これからも見守ってね。",
+                            "content": "Thanks for being a fan! Please keep watching over me.",
                             "createdAt": "2026-09-27T08:00:00Z",
                         },
                     ],
@@ -112,7 +112,7 @@ class MockShoutoutHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        # テスト実行時のログ出力を抑制
+        # Suppress log output during test runs
         pass
 
 
@@ -133,7 +133,7 @@ class TestShoutoutClient(unittest.TestCase):
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp()
         self.creds_file = os.path.join(self.tmp_dir, ".credentials.json")
-        # テスト用の有効な認証情報ファイルを用意
+        # Prepare a valid credentials file for testing
         with open(self.creds_file, "w", encoding="utf-8") as f:
             json.dump({
                 "accountId": "TestBot",
@@ -160,37 +160,37 @@ class TestShoutoutClient(unittest.TestCase):
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0].id, "shoutout-1")
         self.assertEqual(messages[0].type, "INSTANT")
-        self.assertEqual(messages[0].content, "いつも応援ありがとう！本日2回目の配信です✨")
+        self.assertEqual(messages[0].content, "Thanks for always supporting me! This is my 2nd stream today ✨")
         self.assertEqual(messages[1].id, "shoutout-2")
         self.assertEqual(messages[1].type, "PERMANENT")
 
     def test_send_instant(self):
-        res = self.client.shoutout.send_instant("フォロワーのみんな、ありがとう！")
+        res = self.client.shoutout.send_instant("Thanks, everyone who follows me!")
         self.assertTrue(res.success)
         self.assertFalse(res.dry_run)
         self.assertIsNotNone(res.message)
         self.assertEqual(res.message.type, "INSTANT")
-        self.assertEqual(res.message.content, "フォロワーのみんな、ありがとう！")
+        self.assertEqual(res.message.content, "Thanks, everyone who follows me!")
         self.assertEqual(res.message.id, "created-shoutout-123")
 
     def test_add_permanent(self):
-        res = self.client.shoutout.add_permanent("常設メッセージです。推してくれて感謝！")
+        res = self.client.shoutout.add_permanent("This is a permanent message. Thanks for the support!")
         self.assertTrue(res.success)
         self.assertFalse(res.dry_run)
         self.assertIsNotNone(res.message)
         self.assertEqual(res.message.type, "PERMANENT")
-        self.assertEqual(res.message.content, "常設メッセージです。推してくれて感謝！")
+        self.assertEqual(res.message.content, "This is a permanent message. Thanks for the support!")
 
     def test_delete_shoutout(self):
         ok = self.client.shoutout.delete("shoutout-to-delete")
         self.assertTrue(ok)
 
-        # 存在しないIDの場合は False または例外
+        # For a non-existent ID: False or an exception
         try:
             ok_fail = self.client.shoutout.delete("non-existent-id")
             self.assertFalse(ok_fail)
         except Exception as e:
-            # 404 エラー発生時も期待通り
+            # A 404 error is also acceptable
             self.assertIn("404", str(e))
 
     def test_dry_run_simulation(self):
@@ -201,7 +201,7 @@ class TestShoutoutClient(unittest.TestCase):
             dry_run=True,
         )
 
-        res = dry_client.shoutout.send_instant("ドライランテストメッセージ")
+        res = dry_client.shoutout.send_instant("Dry run test message")
         self.assertTrue(res.success)
         self.assertTrue(res.dry_run)
         self.assertIsNotNone(res.message)

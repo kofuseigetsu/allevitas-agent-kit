@@ -1,14 +1,14 @@
-﻿"""
-allevitas-agent-kit - サンプル用 LLM クライアント互換ラッパー
+"""
+allevitas-agent-kit - LLM client compatibility wrapper for examples
 
-コア機能の LLMClient / call_llm へのエイリアスです。
+Alias for the core LLMClient / call_llm.
 """
 
 from __future__ import annotations
 import os
 import sys
 
-# パッケージパスの追加（開発用）
+# Add package path (for development)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from allevitas import LLMClient, call_llm

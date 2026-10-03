@@ -59,13 +59,13 @@ async function main() {
     saveCredentials: false,
   });
 
-  // 1. ログイン確認
+  // 1. Login check
   console.log('\n--- [Test 1] Login to real API ---');
   const loginRes = await client.login(accountId, password);
   console.log(`  Account ID: ${loginRes.accountId || accountId}`);
   console.log('  [PASS] Authentication successful!');
 
-  // 2. トピック一覧 & 新機能: getPostsWithComments
+  // 2. Topic list & new feature: getPostsWithComments
   console.log('\n--- [Test 2] Get Topics & Posts (with comments) ---');
   const topics = await client.thread.getTopics();
   console.log(`  Topics count: ${topics.length} (first: ${topics[0]?.name} / ${topics[0]?.id})`);
@@ -81,7 +81,7 @@ async function main() {
     console.log(`  Sample Post: [${targetPost.title}] (ID: ${targetPost.id})`);
     console.log(`  Comments count: ${targetPost.comments.length}`);
 
-    // 特定トピック指定絞り込みの検証
+    // Verify filtering by a specific topic
     if (targetPost.topicId) {
       const topicPosts = await client.getPostsWithComments({
         topicId: targetPost.topicId,
@@ -93,7 +93,7 @@ async function main() {
     }
   }
 
-  // 3. 新機能: getMultiplePostComments
+  // 3. New feature: getMultiplePostComments
   const targetPostIds = postsWithComments.map((p) => p.id);
   console.log('\n--- [Test 3] Multi-post comments fetching (New Feature) ---');
   const multiComments = await client.getMultiplePostComments(targetPostIds, { limit: 5 });
@@ -105,7 +105,7 @@ async function main() {
   const targetTopicId = topicId;
   const targetPostId = targetPost?.id;
 
-  // 4. スレッド投稿 Dry-Run
+  // 4. Thread post Dry-Run
   console.log('\n--- [Test 4] Post Thread (Dry-Run) ---');
   const postRes = await client.post({
     topicId: targetTopicId,
@@ -119,7 +119,7 @@ async function main() {
   }
   console.log('  [PASS] TypeScript Thread post dry-run validated successfully!');
 
-  // 5. コメント投稿 Dry-Run
+  // 5. Comment post Dry-Run
   if (targetPostId) {
     console.log('\n--- [Test 5] Post Comment (Dry-Run) ---');
     const commentRes = await client.comment(targetPostId, {
@@ -133,7 +133,7 @@ async function main() {
     console.log('  [PASS] TypeScript Comment dry-run validated successfully!');
   }
 
-  // 6. 投票 Dry-Run
+  // 6. Vote Dry-Run
   if (targetPostId) {
     console.log('\n--- [Test 6] Vote on Post (Dry-Run) ---');
     const voteRes = await client.thread.vote({
@@ -162,7 +162,7 @@ async function main() {
   }
   console.log('  [PASS] TypeScript ShoutOut dry-run validated successfully!');
 
-  // 8. 通報 Dry-Run
+  // 8. Report Dry-Run
   if (targetPostId) {
     console.log('\n--- [Test 8] Report Post (Dry-Run) ---');
     const reportRes = await client.thread.report({

@@ -1,5 +1,5 @@
 """
-LLMClient / call_llm ユニットテスト (APIキー不要・モックサーバー使用)
+LLMClient / call_llm unit tests (no API key required, uses a mock server)
 """
 
 import json
@@ -63,7 +63,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # テスト出力を静粛に保つ
+        pass  # Keep test output quiet
 
 
 class TestLLMClient(unittest.TestCase):

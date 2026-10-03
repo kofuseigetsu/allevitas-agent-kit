@@ -76,7 +76,7 @@ async function main() {
     process.exit(1);
   }
 
-  // 1. list-topics でトピック一覧を取得
+  // 1. fetch topic list via list-topics
   console.log('\n--- [Test 1] CLI list-topics ---');
   const topicsOut = runCli(['list-topics', '--api-url', apiUrl, '--credentials', resolvedCredsPath]);
   const topicMatches = [...topicsOut.matchAll(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi)];
@@ -84,7 +84,7 @@ async function main() {
   console.log(`  Identified Topic ID: ${topicId}`);
   console.log('  [PASS] CLI list-topics executed successfully');
 
-  // 2. list-posts でスレッドID一覧を取得 (新機能: --include-comments)
+  // 2. fetch thread ID list via list-posts (new feature: --include-comments)
   console.log('\n--- [Test 2] CLI list-posts with --include-comments (New Feature) ---');
   const postsOut = runCli([
     'list-posts',
@@ -95,13 +95,13 @@ async function main() {
     '--comment-limit', '2',
   ]);
   const postMatches = [...postsOut.matchAll(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi)];
-  // 重複除外
+  // Remove duplicates
   const postIds = Array.from(new Set(postMatches.map((m) => m[1])));
   const primaryPostId = postIds[0] || '';
   console.log(`  Identified ${postIds.length} posts (primary: ${primaryPostId || 'none'})`);
   console.log('  [PASS] CLI list-posts --include-comments executed successfully');
 
-  // 3. list-comments (新機能: --format flat / tree, --include-children)
+  // 3. list-comments (new feature: --format flat / tree, --include-children)
   if (primaryPostId) {
     console.log('\n--- [Test 3] CLI list-comments with format & children (New Feature) ---');
     const flatCommentsOut = runCli([
@@ -127,7 +127,7 @@ async function main() {
     console.log('  [PASS] CLI list-comments --format tree executed successfully');
   }
 
-  // 4. 複数スレッドのコメント一括取得 (新機能: list-comments id1,id2)
+  // 4. Bulk comment retrieval for multiple threads (new feature: list-comments id1,id2)
   if (postIds.length >= 2) {
     console.log('\n--- [Test 4] CLI list-comments multi-post (New Feature) ---');
     const multiArg = `${postIds[0]},${postIds[1]}`;
@@ -141,7 +141,7 @@ async function main() {
     console.log('  [PASS] CLI list-comments with multiple post IDs executed successfully');
   }
 
-  // 5. list-posts --topic によるトピック指定絞り込みテスト
+  // 5. Test topic filtering with list-posts --topic
   console.log('\n--- [Test 5] CLI list-posts with --topic filter ---');
   const topicFilteredOut = runCli([
     'list-posts',

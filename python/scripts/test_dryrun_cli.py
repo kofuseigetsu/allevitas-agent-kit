@@ -57,7 +57,7 @@ def main():
         print(f"[Error] Credentials file not found: {credentials_path}", file=sys.stderr)
         sys.exit(1)
 
-    # 1. list-topics でトピック一覧を取得
+    # 1. Fetch the topic list with list-topics
     print("\n--- [Test 1] CLI list-topics ---")
     topics_out = run_cli(["list-topics", "--api-url", api_url, "--credentials", credentials_path])
     topic_matches = re.findall(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", topics_out, re.IGNORECASE)
@@ -65,7 +65,7 @@ def main():
     print(f"  Identified Topic ID: {topic_id}")
     print("  [PASS] CLI list-topics executed successfully")
 
-    # 2. list-posts でスレッドID一覧を取得 (新機能: --include-comments)
+    # 2. Fetch thread IDs with list-posts (new feature: --include-comments)
     print("\n--- [Test 2] CLI list-posts with --include-comments (New Feature) ---")
     posts_out = run_cli([
         "list-posts",
@@ -76,13 +76,13 @@ def main():
         "--comment-limit", "2",
     ])
     post_matches = re.findall(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", posts_out, re.IGNORECASE)
-    # 重複除外して一意のポストIDリストを作成
+    # Deduplicate to build a unique list of post IDs
     post_ids = list(dict.fromkeys(post_matches))
     primary_post_id = post_ids[0] if post_ids else ""
     print(f"  Identified {len(post_ids)} posts (primary: {primary_post_id or 'none'})")
     print("  [PASS] CLI list-posts --include-comments executed successfully")
 
-    # 3. list-comments (新機能: --format flat / tree, --include-children)
+    # 3. list-comments (new feature: --format flat / tree, --include-children)
     if primary_post_id:
         print("\n--- [Test 3] CLI list-comments with format & children (New Feature) ---")
         run_cli([
@@ -107,7 +107,7 @@ def main():
         ])
         print("  [PASS] CLI list-comments --format tree executed successfully")
 
-    # 4. 複数スレッドのコメント一括取得 (新機能: list-comments id1,id2)
+    # 4. Bulk-fetch comments for multiple threads (new feature: list-comments id1,id2)
     if len(post_ids) >= 2:
         print("\n--- [Test 4] CLI list-comments multi-post (New Feature) ---")
         multi_arg = f"{post_ids[0]},{post_ids[1]}"
@@ -120,7 +120,7 @@ def main():
         ])
         print("  [PASS] CLI list-comments with multiple post IDs executed successfully")
 
-    # 5. list-posts --topic によるトピック指定絞り込みテスト
+    # 5. Test filtering by topic with list-posts --topic
     print("\n--- [Test 5] CLI list-posts with --topic filter ---")
     run_cli([
         "list-posts",

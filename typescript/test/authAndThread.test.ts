@@ -1,5 +1,5 @@
 /**
- * AllevitasAuth, ThreadClient, RateLimitHandler 統合テスト (APIキー不要・モックサーバー使用)
+ * AllevitasAuth, ThreadClient, RateLimitHandler integration tests (no API key required, uses mock server)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -23,7 +23,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
       }
       const parsedBody = bodyText ? JSON.parse(bodyText) : null;
 
-      // 1. レートリミットテスト用エンドポイント
+      // 1. Endpoint for rate limit tests
       if (req.url === "/rate-limited-endpoint") {
         rateLimitAttemptCount++;
         if (rateLimitAttemptCount < 2) {
@@ -39,7 +39,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 2. 認証: /auth/login
+      // 2. Auth: /auth/login
       if (req.url === "/auth/login" && req.method === "POST") {
         if (parsedBody?.accountId === "ValidBot" && parsedBody?.password === "CorrectPass") {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -58,7 +58,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 3. 掲示板: /topics
+      // 3. Board: /topics
       if (req.url === "/topics" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -70,7 +70,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 3.5. 掲示板コメント: /posts/:id/comments
+      // 3.5. Board comments: /posts/:id/comments
       if (req.url?.startsWith("/posts/post_list_comments/comments") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         const urlObj = new URL(req.url, "http://127.0.0.1");
@@ -84,7 +84,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
                 postId: "post_list_comments",
                 parentId: null,
                 author: { accountId: "AgentA" },
-                content: "ルートコメント1",
+                content: "Root comment 1",
                 score: 5,
                 depth: 1,
                 replyCount: 1,
@@ -96,7 +96,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
                     postId: "post_list_comments",
                     parentId: "c1",
                     author: { accountId: "AgentB" },
-                    content: "返信コメント1",
+                    content: "Reply comment 1",
                     score: 2,
                     depth: 2,
                     replies: [],
@@ -113,7 +113,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
                 postId: "post_list_comments",
                 parentId: null,
                 author: { accountId: "AgentA" },
-                content: "ルートコメント1",
+                content: "Root comment 1",
                 score: 5,
                 depth: 1,
                 replyCount: 1,
@@ -125,7 +125,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
                 postId: "post_list_comments",
                 parentId: "c1",
                 author: { accountId: "AgentB" },
-                content: "返信コメント1",
+                content: "Reply comment 1",
                 score: 2,
                 depth: 2,
                 replyCount: 0,
@@ -152,7 +152,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
                   postId: "post_dict_comments",
                   parentId: null,
                   authorId: "AgentC",
-                  content: "ルートコメント2",
+                  content: "Root comment 2",
                   score: 1,
                   depth: 1,
                   replies: [],
@@ -169,7 +169,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
                   postId: "post_dict_comments",
                   parentId: null,
                   authorId: "AgentC",
-                  content: "ルートコメント2",
+                  content: "Root comment 2",
                   score: 1,
                   depth: 1,
                   replyCount: 0,
@@ -181,7 +181,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 3.6. 掲示板コメント一覧 (汎用): /posts/:id/comments
+      // 3.6. Board comment list (generic): /posts/:id/comments
       if (req.url?.match(/^\/posts\/([^/]+)\/comments(\?.*)?$/) && req.method === "GET") {
         const match = req.url.match(/^\/posts\/([^/]+)\/comments/);
         const targetPostId = match ? match[1] : "post_unknown";
@@ -213,7 +213,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // コメント投稿: /posts/:id/comments
+      // Post comment: /posts/:id/comments
       if (req.url?.match(/^\/posts\/[^/]+\/comments$/) && req.method === "POST") {
         if (parsedBody?.parentId === "c_reply_nested") {
           res.writeHead(400, { "Content-Type": "application/json" });
@@ -237,7 +237,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 4. 掲示板詳細: /posts/:id
+      // 4. Board detail: /posts/:id
       const postDetailMatch = req.url?.match(/^\/posts\/([^/?]+)$/);
       if (postDetailMatch && req.method === "GET") {
         const targetPostId = postDetailMatch[1];
@@ -264,7 +264,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 4.5. 掲示板一覧: /posts
+      // 4.5. Board list: /posts
       if ((req.url === "/posts" || req.url?.startsWith("/posts?")) && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -281,7 +281,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 5. 掲示板: /posts (新規投稿)
+      // 5. Board: /posts (new post)
       if (req.url === "/posts" && req.method === "POST") {
         const isDryRun = req.headers["x-dry-run"] === "true" || parsedBody?.dryRun === true;
         if (isDryRun) {
@@ -307,7 +307,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 5. 逆CAPTCHA: /challenge
+      // 5. Reverse CAPTCHA: /challenge
       if (req.url === "/challenge" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -315,7 +315,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
             challenge: {
               id: "chal_auth_retry",
               puzzleType: "LOG_FILTERING",
-              prompt: "ログ解析課題",
+              prompt: "Log analysis task",
               expiresAt: Date.now() + 40000,
             },
           })
@@ -323,7 +323,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 6. 登録: /auth/register
+      // 6. Registration: /auth/register
       if (req.url === "/auth/register" && req.method === "POST") {
         if (parsedBody?.challengeAnswer?.matchCount === 99) {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -360,7 +360,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("RateLimitHandler が 429 時に自動リトライして最終的に成功する", async () => {
+  it("RateLimitHandler automatically retries on 429 and eventually succeeds", async () => {
     rateLimitAttemptCount = 0;
     const handler = new RateLimitHandler({ maxRetries: 2, baseDelayMs: 200 });
     const result = await handler.execute<any>(() =>
@@ -371,58 +371,58 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(result.count, 2);
   });
 
-  it("AllevitasClient でログイン・認証保持・掲示板アクセスが一貫して動作する", async () => {
+  it("AllevitasClient login, credential persistence, and board access work consistently", async () => {
     const tempCredPath = path.join(os.tmpdir(), `cred-test-${Date.now()}.json`);
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       credentialsPath: tempCredPath,
     });
 
-    // ログイン実行
+    // Perform login
     const loginRes = await client.login("ValidBot", "CorrectPass");
     assert.equal(loginRes.token, "mock-jwt-token-12345");
     assert.equal(await client.auth.getValidToken(), "mock-jwt-token-12345");
 
-    // クレデンシャル保存の確認
+    // Verify credentials are saved
     client.auth.saveCredentials(tempCredPath);
     assert.ok(fs.existsSync(tempCredPath));
     const saved = JSON.parse(fs.readFileSync(tempCredPath, "utf-8"));
     assert.equal(saved.accountId, "ValidBot");
     assert.equal(saved.token, "mock-jwt-token-12345");
 
-    // 掲示板トピック一覧の取得
+    // Fetch board topic list
     const topics = await client.thread.getTopics();
     assert.equal(topics.length, 2);
     assert.equal(topics[0].slug, "general");
 
-    // スレッド新規投稿
+    // Create a new thread
     const postRes = await client.post({
       topicId: "general",
-      title: "自律ボットによる投稿",
-      content: "テスト投稿本文です。",
+      title: "Post by autonomous bot",
+      content: "This is the test post body.",
     });
     assert.equal(postRes.id, "post_new_99");
 
-    // 一時ファイル削除
+    // Delete temporary files
     if (fs.existsSync(tempCredPath)) {
       fs.unlinkSync(tempCredPath);
     }
   });
 
-  it("dryRun オプション指定時に X-Dry-Run: true ヘッダーが付与され、安全にドライラン実行できる", async () => {
+  it("X-Dry-Run: true header is attached when the dryRun option is set, allowing a safe dry run", async () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       dryRun: true,
     });
 
-    // モックログイン
+    // Mock login
     await client.login("ValidBot", "CorrectPass");
 
-    // dryRun モードでのスレッド投稿
+    // Thread post in dryRun mode
     const postRes = await client.post({
       topicId: "general",
-      title: "ドライランテスト投稿",
-      content: "この投稿は実際には書き込まれません。",
+      title: "Dry run test post",
+      content: "This post will not actually be written.",
     });
 
     assert.equal(postRes.dryRun, true);
@@ -430,7 +430,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.ok(postRes.message?.includes("Dry Run"));
   });
 
-  it("無効な認証情報でログインした場合に適切な例外が発生する", async () => {
+  it("An appropriate exception is thrown when logging in with invalid credentials", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await assert.rejects(
       async () => {
@@ -443,25 +443,25 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     );
   });
 
-  it("逆CAPTCHA失敗時に同一問題の見直し（correctAnswer）が自動実行され登録に成功する", async () => {
+  it("On reverse CAPTCHA failure, review of the same problem (correctAnswer) runs automatically and registration succeeds", async () => {
     let solveCalls = 0;
     let correctCalls = 0;
     const mockSolver: any = {
       fetchChallenge: async () => ({
         id: "chal_auth_retry",
         puzzleType: "LOG_FILTERING",
-        prompt: "ログ解析課題",
+        prompt: "Log analysis task",
         expiresAt: Date.now() + 30000,
       }),
       solve: async () => {
         solveCalls++;
-        return { matchCount: 1, totalBytes: 100, targetIds: [] }; // 最初は誤答
+        return { matchCount: 1, totalBytes: 100, targetIds: [] }; // wrong answer at first
       },
       correctAnswer: async () => {
         correctCalls++;
-        return { matchCount: 99, totalBytes: 9999, targetIds: ["req_correct"] }; // 見直しで正解
+        return { matchCount: 99, totalBytes: 9999, targetIds: ["req_correct"] }; // correct after review
       },
-      generateReflection: async () => "反省教訓",
+      generateReflection: async () => "Reflection lesson",
       getReflectionKnowledge: () => [],
     };
 
@@ -478,18 +478,18 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(correctCalls, 1);
   });
 
-  it("getComments で配列直接返却および {comments: [...]} 形式のレスポンスを正しくパースできる", async () => {
+  it("getComments correctly parses both direct array responses and {comments: [...]} responses", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
-    // 1. format: "tree" 指定時のツリー構造パース検証
+    // 1. format: "tree" specified: verify tree structure parsing
     const commentsList = await client.thread.getComments("post_list_comments", { format: "tree" });
     assert.equal(commentsList.length, 1);
     const c1 = commentsList[0];
     assert.equal(c1.id, "c1");
     assert.equal(c1.postId, "post_list_comments");
     assert.equal(c1.authorId, "AgentA");
-    assert.equal(c1.content, "ルートコメント1");
+    assert.equal(c1.content, "Root comment 1");
     assert.equal(c1.score, 5);
     assert.equal(c1.depth, 1);
     assert.equal(c1.children?.length, 1);
@@ -499,27 +499,27 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(reply1.id, "c1_reply1");
     assert.equal(reply1.parentId, "c1");
     assert.equal(reply1.authorId, "AgentB");
-    assert.equal(reply1.content, "返信コメント1");
+    assert.equal(reply1.content, "Reply comment 1");
     assert.equal(reply1.depth, 2);
     assert.equal(reply1.children?.length, 0);
     assert.equal(reply1.replies?.length, 0);
 
-    // 2. オブジェクト返却形式 ({ comments: [...] })
+    // 2. Object return format ({ comments: [...] })
     const commentsDict = await client.thread.getComments("post_dict_comments", { format: "tree" });
     assert.equal(commentsDict.length, 1);
     const c2 = commentsDict[0];
     assert.equal(c2.id, "c2");
     assert.equal(c2.authorId, "AgentC");
-    assert.equal(c2.content, "ルートコメント2");
+    assert.equal(c2.content, "Root comment 2");
     assert.equal(c2.children?.length, 0);
 
-    // 3. page, limit オプション指定での検証
+    // 3. page, limit option verification
     const commentsPaged = await client.getComments("post_list_comments", { page: 1, limit: 10, format: "tree" });
     assert.equal(commentsPaged.length, 1);
     assert.equal(commentsPaged[0].id, "c1");
   });
 
-  it("getComments でデフォルト format='flat' 時にフラット配列で正しく取得できる", async () => {
+  it("getComments correctly returns a flat array with default format='flat'", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
@@ -538,19 +538,19 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(reply.parentId, "c1");
   });
 
-  it("2階層制限エラー (400 Bad Request) 発生時に CommentDepthExceededError が送出される", async () => {
+  it("CommentDepthExceededError is thrown on 2-level depth limit error (400 Bad Request)", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
-    // 正常なコメント投稿
-    const res = await client.comment("post_01", { content: "正常な返信", parentId: "c_root" });
+    // Normal comment post
+    const res = await client.comment("post_01", { content: "Normal reply", parentId: "c_root" });
     assert.equal(res.success, true);
     assert.equal(res.id, "c_new_ts_01");
 
-    // 2階層を超えた返信 -> CommentDepthExceededError
+    // Reply exceeding 2 levels -> CommentDepthExceededError
     await assert.rejects(
       async () => {
-        await client.comment("post_01", { content: "3階層目返信", parentId: "c_reply_nested" });
+        await client.comment("post_01", { content: "Third-level reply", parentId: "c_reply_nested" });
       },
       (err: any) => {
         assert.ok(err instanceof CommentDepthExceededError);
@@ -560,7 +560,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     );
   });
 
-  it("getPostsWithComments でスレッド一覧とコメントを一括取得できる", async () => {
+  it("getPostsWithComments fetches thread list and comments in bulk", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
@@ -580,7 +580,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(second.comments[0].id, "c_post_02_01");
   });
 
-  it("getMultiplePostComments で複数スレッドのコメントを並列取得できる", async () => {
+  it("getMultiplePostComments fetches comments for multiple threads in parallel", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
@@ -592,7 +592,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(multiComments.post_02[0].id, "c_post_02_01");
   });
 
-  it("waitForPost で非同期キューの完了を待機して投稿詳細を取得できる", async () => {
+  it("waitForPost waits for the async queue to complete and fetches post details", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
@@ -602,7 +602,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(post.content, "Full content of the thread for testing purposes.");
   });
 
-  it("waitForPost で存在しない post の場合にタイムアウトして QueueTimeoutError が発生する", async () => {
+  it("waitForPost times out and throws QueueTimeoutError for a nonexistent post", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
@@ -618,7 +618,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     );
   });
 
-  it("waitForComment で非同期キューの完了を待機してコメント詳細を取得できる", async () => {
+  it("waitForComment waits for the async queue to complete and fetches comment details", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 
@@ -627,7 +627,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(comment.postId, "post_01");
   });
 
-  it("post および comment で wait: true 指定時に待機してオブジェクトが返却される", async () => {
+  it("post and comment wait and return an object when wait: true is specified", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl });
     await client.login("ValidBot", "CorrectPass");
 

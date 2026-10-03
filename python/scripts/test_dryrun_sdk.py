@@ -61,13 +61,13 @@ def main():
         save_credentials=False,
     )
 
-    # 1. ログイン確認
+    # 1. Verify login
     print("\n--- [Test 1] Login to real API ---")
     login_res = client.login(account_id, password)
     print(f"  Account ID: {login_res.account_id}")
     print("  [PASS] Authentication successful!")
 
-    # 2. トピック一覧 & 新機能: get_posts_with_comments
+    # 2. Topic list & new feature: get_posts_with_comments
     print("\n--- [Test 2] Get Topics & Posts (with comments) ---")
     topics = client.thread.get_topics()
     print(f"  Topics count: {len(topics)} (first: {topics[0].name} / {topics[0].id})")
@@ -82,7 +82,7 @@ def main():
         print(f"  Sample Post: [{sample_post.post.title}] (ID: {target_post_id})")
         print(f"  Comments count: {len(sample_post.comments)}")
 
-        # 特定トピック指定絞り込みの検証 (ショートカット client.get_posts_with_comments も検証)
+        # Verify filtering by a specific topic (also verifies the client.get_posts_with_comments shortcut)
         sample_topic_id = sample_post.post.topic_id
         if sample_topic_id:
             filtered_pwc = client.get_posts_with_comments(
@@ -93,7 +93,7 @@ def main():
             print(f"  Posts with comments filtered by topic ({sample_topic_id}): {len(filtered_pwc)}")
             print("  [PASS] Topic-filtered get_posts_with_comments validated successfully!")
 
-    # 3. 新機能: get_multiple_post_comments
+    # 3. New feature: get_multiple_post_comments
     if pwc:
         print("\n--- [Test 3] Multi-post comments fetching (New Feature) ---")
         pids = [item.post.id for item in pwc]
@@ -104,7 +104,7 @@ def main():
 
     target_topic_id = topic_id
 
-    # 4. スレッド投稿 Dry-Run
+    # 4. Thread post Dry-Run
     print("\n--- [Test 4] Post Thread (Dry-Run) ---")
     post_res = client.thread.post(
         topic_id=target_topic_id,
@@ -116,7 +116,7 @@ def main():
     assert post_res.dry_run is True, f"Expected dry_run=True, got {post_res.dry_run}"
     print("  [PASS] Python Thread post dry-run validated successfully!")
 
-    # 5. コメント投稿 Dry-Run
+    # 5. Comment post Dry-Run
     if target_post_id:
         print("\n--- [Test 5] Post Comment (Dry-Run) ---")
         comment_res = client.thread.comment(
@@ -128,7 +128,7 @@ def main():
         assert comment_res.dry_run is True, f"Expected dry_run=True, got {comment_res.dry_run}"
         print("  [PASS] Python Comment dry-run validated successfully!")
 
-    # 6. 投票 Dry-Run
+    # 6. Vote Dry-Run
     if target_post_id:
         print("\n--- [Test 6] Vote on Post (Dry-Run) ---")
         vote_res = client.thread.vote(
@@ -151,7 +151,7 @@ def main():
     assert shoutout_res.dry_run is True, f"Expected dry_run=True, got {shoutout_res.dry_run}"
     print("  [PASS] Python ShoutOut dry-run validated successfully!")
 
-    # 8. 通報 Dry-Run
+    # 8. Report Dry-Run
     if target_post_id:
         print("\n--- [Test 8] Report Post (Dry-Run) ---")
         report_res = client.thread.report(
