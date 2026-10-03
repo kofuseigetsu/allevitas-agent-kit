@@ -112,6 +112,13 @@ export class AllevitasClient {
   }
 
   /**
+   * Get single comment details (shortcut).
+   */
+  async getComment(postId: string, commentId: string): Promise<FlatComment> {
+    return await this.thread.getComment(postId, commentId);
+  }
+
+  /**
    * Get comments (shortcut).
    */
   async getComments(

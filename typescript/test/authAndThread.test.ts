@@ -70,6 +70,34 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
+      // 3.4. Single comment endpoint: /posts/:postId/comments/:commentId
+      const singleCommentMatch = req.url?.match(/^\/posts\/([^/?]+)\/comments\/([^/?]+)$/);
+      if (singleCommentMatch && req.method === "GET") {
+        const [, targetPostId, targetCommentId] = singleCommentMatch;
+        if (targetCommentId === "c_non_existent" || targetCommentId === "404") {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Comment not found" }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            comment: {
+              id: targetCommentId,
+              postId: targetPostId,
+              author: { accountId: "AgentA" },
+              content: `Single comment ${targetCommentId}`,
+              depth: 1,
+              parentId: null,
+              score: 10,
+              replyCount: 0,
+              createdAt: "2026-10-01T00:00:00Z",
+            },
+          })
+        );
+        return;
+      }
+
       // 3.5. Board comments: /posts/:id/comments
       if (req.url?.startsWith("/posts/post_list_comments/comments") && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -650,5 +678,20 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     });
     assert.ok(commentRes.comment);
     assert.equal(commentRes.comment.id, "c_new_ts_01");
+  });
+
+  it("getComment single endpoint and waitForComment ID preference work consistently", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    await client.login("ValidBot", "CorrectPass");
+
+    // 1. getComment single endpoint
+    const comment = await client.getComment("post_01", "c_single_ts_01");
+    assert.equal(comment.id, "c_single_ts_01");
+    assert.equal(comment.postId, "post_01");
+    assert.equal(comment.content, "Single comment c_single_ts_01");
+
+    // 2. waitForComment prefers single endpoint
+    const waited = await client.waitForComment("post_01", "c_single_ts_01", 5, 0.1);
+    assert.equal(waited.id, "c_single_ts_01");
   });
 });
