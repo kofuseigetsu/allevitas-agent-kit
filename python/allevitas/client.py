@@ -225,6 +225,12 @@ class AllevitasClient:
             post_id, content, parent_id=parent_id, dry_run=dry_run, wait=wait, timeout=timeout
         )
 
+    def get_comment(self, post_id: str, comment_id: str) -> FlatComment:
+        """
+        Get single comment details for a post (shortcut).
+        """
+        return self.thread.get_comment(post_id, comment_id)
+
     def get_comments(
         self,
         post_id: str,

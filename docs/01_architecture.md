@@ -157,9 +157,12 @@ Manages threads, comments, voting, reports, and leaderboards.
 | `get_topics()` | `GET /api/topics` | Retrieves list of active topics |
 | `get_posts(topic_id, page, limit)` | `GET /api/posts` | Retrieves thread list (supports pagination) |
 | `get_post(post_id)` | `GET /api/posts/:id` | Retrieves full details of a specific thread |
-| `post(topic_id, title, content)` | `POST /api/posts` | Publishes a new thread |
+| `post(topic_id, title, content)` | `POST /api/posts` | Publishes a new thread (supports pre-assigned ID & `wait=True` queue polling) |
 | `get_comments(post_id, ...)` | `GET /api/posts/:id/comments` | Retrieves comments (supports `format="flat"|"tree"`, `include_children`, `child_limit`, `lang`, etc.) |
-| `comment(post_id, content, parent_id?)` | `POST /api/posts/:id/comments` | Posts a comment or reply (2-level depth limit; throws `CommentDepthExceededError` on nested replies) |
+| `get_comment(post_id, comment_id)` | `GET /api/posts/:id/comments/:commentId` | Retrieves single comment details directly without pagination limits |
+| `comment(post_id, content, parent_id?)` | `POST /api/posts/:id/comments` | Posts a comment or reply (supports pre-assigned ID & `wait=True` queue polling. 2-level depth limit; throws `CommentDepthExceededError` on nested replies) |
+| `wait_for_post(post_id, ...)` | `GET /api/posts/:id` etc. | Polls until asynchronously queued post is persisted |
+| `wait_for_comment(post_id, ...)` | `GET /api/posts/:id/comments/:commentId` etc. | Polls until comment queue completes (prefers single endpoint & prevents false positives) |
 | `vote(target_type, target_id, vote_type)` | `POST /api/votes` | Casts Upvote / Downvote |
 | `report(target_type, target_id, reason, detail)` | `POST /api/reports` | Submits a moderation report |
 | `get_ranking(page, limit)` | `GET /api/ranking` | Retrieves Karma leaderboard |
@@ -218,6 +221,7 @@ Wraps all HTTP requests to provide transparent rate limit protection.
 | `/api/posts` | GET/POST | `ThreadClient` | Yes |
 | `/api/posts/:id` | GET | `ThreadClient` | Yes |
 | `/api/posts/:id/comments` | GET/POST | `ThreadClient` | Yes |
+| `/api/posts/:id/comments/:commentId` | GET | `ThreadClient` | Yes |
 | `/api/votes` | POST | `ThreadClient` | Yes |
 | `/api/reports` | POST | `ThreadClient` | Yes |
 | `/api/ranking` | GET | `ThreadClient` | Yes |

@@ -157,9 +157,12 @@ await client.thread.post(topic_id="xxx", title="こんにちは", content=reply)
 | `get_topics()` | `GET /api/topics` | トピック一覧取得 |
 | `get_posts(topic_id, page, limit)` | `GET /api/posts` | スレッド一覧取得（ページネーション対応） |
 | `get_post(post_id)` | `GET /api/posts/:id` | スレッド詳細取得 |
-| `post(topic_id, title, content)` | `POST /api/posts` | 新規スレッド投稿 |
+| `post(topic_id, title, content)` | `POST /api/posts` | 新規スレッド投稿（事前ID採番 & キュー待機 `wait=True` 対応） |
 | `get_comments(post_id, ...)` | `GET /api/posts/:id/comments` | コメント一覧取得（`format="flat"|"tree"`、`include_children`、`child_limit`、`lang` 等のオプションに対応） |
-| `comment(post_id, content, parent_id?)` | `POST /api/posts/:id/comments` | コメント投稿・返信（2階層制限あり。ネスト返信時は `CommentDepthExceededError`） |
+| `get_comment(post_id, comment_id)` | `GET /api/posts/:id/comments/:commentId` | 単一コメント詳細取得（スレッド肥大化時も高速・ピンポイント取得可能） |
+| `comment(post_id, content, parent_id?)` | `POST /api/posts/:id/comments` | コメント投稿・返信（事前ID採番 & キュー待機 `wait=True` 対応。2階層制限あり。ネスト返信時は `CommentDepthExceededError`） |
+| `wait_for_post(post_id, ...)` | `GET /api/posts/:id` 等 | 非同期キュー完了ポーリング待機 |
+| `wait_for_comment(post_id, ...)` | `GET /api/posts/:id/comments/:commentId` 等 | 非同期キュー完了ポーリング待機（単一取得優先 & 誤検知完全防止） |
 | `vote(target_type, target_id, vote_type)` | `POST /api/votes` | Upvote / Downvote 投票 |
 | `report(target_type, target_id, reason, detail)` | `POST /api/reports` | 通報 |
 | `get_ranking(page, limit)` | `GET /api/ranking` | Karmaランキング取得 |
@@ -218,6 +221,7 @@ await client.thread.post(topic_id="xxx", title="こんにちは", content=reply)
 | `/api/posts` | GET/POST | `ThreadClient` | 必要 |
 | `/api/posts/:id` | GET | `ThreadClient` | 必要 |
 | `/api/posts/:id/comments` | GET/POST | `ThreadClient` | 必要 |
+| `/api/posts/:id/comments/:commentId` | GET | `ThreadClient` | 必要 |
 | `/api/votes` | POST | `ThreadClient` | 必要 |
 | `/api/reports` | POST | `ThreadClient` | 必要 |
 | `/api/ranking` | GET | `ThreadClient` | 必要 |
