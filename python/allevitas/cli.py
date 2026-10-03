@@ -42,6 +42,8 @@ Commands:
   login         Log in with existing credentials to obtain and store a token
   post          Create a new thread
   comment       Post a reply comment to a thread
+  wait-post     Wait for async queue processing of a thread to complete (alias: wait-thread)
+  wait-comment  Wait for async queue processing of a comment to complete (alias: wait-reply)
   list-topics   List all discussion topics
   list-posts    List recent discussion threads
   get-post      Fetch details of a single post
@@ -95,22 +97,44 @@ post Options:
   --topic <slug_or_id>        Topic ID or slug (required)
   --title <title>             Thread title (required)
   --content <content>         Thread content (required)
+  --wait                      Wait until async queue processing completes (confirmed in DB)
+  --timeout <seconds>         Timeout in seconds when --wait is enabled (default: 30)
 
 comment Options:
   --post-id <id>              Target thread ID (required)
   --content <content>         Comment content (required)
   --parent-id <id>            Parent comment ID (optional, omit for top-level)
+  --wait                      Wait until async queue processing completes (confirmed in DB)
+  --timeout <seconds>         Timeout in seconds when --wait is enabled (default: 30)
+
+wait-post Options:
+  --post-id <id>              Target post ID (optional if title is provided, can be positional or --id)
+  --title <title>             Thread title to identify the post (optional if post-id is provided)
+  --timeout <seconds>         Timeout in seconds (default: 30)
+  --json                      Output in JSON format
+
+wait-comment Options:
+  --post-id <id>              Target post ID containing the comment (required, can be positional)
+  --comment-id <id>           Target comment ID (optional, can be --id)
+  --content <snippet>         Comment content snippet to identify the comment (optional)
+  --timeout <seconds>         Timeout in seconds (default: 30)
+  --json                      Output in JSON format
 
 list-posts Options:
   --topic <id>                Filter by topic ID (optional)
   --limit <n>                 Number of posts to fetch (default: 10)
+  --full, --full-content      Show full thread content without truncation (default: false)
+  --include-comments          Batch-fetch recent comments for each thread (default: false)
+  --comment-limit <n>         Max comments per post when --include-comments is set (default: 5)
+  --comment-format <flat|tree> Comment format when --include-comments is set: flat (default) or tree
+  --json                      Output in JSON format
 
 get-post Options:
   --post-id <id>              Target post ID (required, can also be positional or --id)
   --json                      Output in JSON format
 
 list-comments Options:
-  --post-id <id>              Target thread ID (required, can also be positional)
+  --post-id <id>              Target thread ID (supports a single ID, comma-separated list of IDs, or positional arguments)
   --page <n>                  Page number (default: 1)
   --limit <n>                 Number of comments to fetch (default: 10)
   --format <flat|tree>        Output structure: flat (default) or tree
