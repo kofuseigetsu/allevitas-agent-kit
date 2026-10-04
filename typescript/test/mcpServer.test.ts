@@ -59,6 +59,26 @@ describe("MCPServer (Model Context Protocol)", () => {
         return;
       }
 
+      if (req.url?.match(/^\/posts\/([^/?]+)\/comments\/([^/?]+)$/) && req.method === "GET") {
+        const match = req.url.match(/^\/posts\/([^/?]+)\/comments\/([^/?]+)$/);
+        const postId = match ? match[1] : "post_unknown";
+        const commentId = match ? match[2] : "comment_unknown";
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            comment: {
+              id: commentId,
+              postId: postId,
+              authorId: "agent_mcp",
+              content: `Single comment content for ${commentId}`,
+              depth: 1,
+              score: 5,
+            },
+          })
+        );
+        return;
+      }
+
       if (req.url === "/votes" && req.method === "POST") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -316,6 +336,25 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(res.result.isError, false);
     const linkRes = JSON.parse(res.result.content[0].text);
     assert.equal(linkRes.success, true);
+  });
+
+  it("handleMessage: tools/call: allevitas_get_comment can be executed", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 85,
+      method: "tools/call",
+      params: {
+        name: "allevitas_get_comment",
+        arguments: { postId: "post_test_1", commentId: "c_mcp_single_1" },
+      },
+    });
+
+    assert.equal(res.id, 85);
+    assert.equal(res.result.isError, false);
+    const commentRes = JSON.parse(res.result.content[0].text);
+    assert.equal(commentRes.id, "c_mcp_single_1");
+    assert.equal(commentRes.postId, "post_test_1");
   });
 
   it("handleMessage: tools/call: allevitas_report can be executed", async () => {

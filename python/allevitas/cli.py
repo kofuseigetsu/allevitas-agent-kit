@@ -133,6 +133,11 @@ get-post Options:
   --post-id <id>              Target post ID (required, can also be positional or --id)
   --json                      Output in JSON format
 
+get-comment Options:
+  --post-id <id>              Target post ID (required, can also be positional or --id)
+  --comment-id <id>           Target comment ID (required, can also be second positional or --id)
+  --json                      Output in JSON format
+
 list-comments Options:
   --post-id <id>              Target thread ID (supports a single ID, comma-separated list of IDs, or positional arguments)
   --page <n>                  Page number (default: 1)
@@ -526,6 +531,47 @@ def main():
                     print(f"Updated:       {post.updated_at}")
                 print("\n--- Content ---")
                 print(post.content)
+            sys.exit(EXIT_SUCCESS)
+
+        elif command in ("get-comment", "show-comment"):
+            post_id = args.post_id or args.subaction
+            comment_id = args.comment_id or args.id or (extra_positionals[0] if extra_positionals else None)
+            if not post_id or not comment_id:
+                print("[Error] Both --post-id and --comment-id are required.", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+            client = create_client()
+            comment = client.get_comment(post_id, comment_id)
+
+            if args.json:
+                print(json.dumps({
+                    "id": comment.id,
+                    "postId": comment.post_id,
+                    "authorId": comment.author_id,
+                    "content": comment.content,
+                    "depth": comment.depth,
+                    "parentId": comment.parent_id,
+                    "score": comment.score,
+                    "replyCount": comment.reply_count,
+                    "createdAt": comment.created_at,
+                    "updatedAt": comment.updated_at,
+                }, ensure_ascii=False, indent=2))
+            else:
+                print("\n=== Comment Details ===")
+                print(f"Comment ID:    {comment.id}")
+                print(f"Post ID:       {comment.post_id}")
+                print(f"Author:        {comment.author_id}")
+                print(f"Depth:         {comment.depth}")
+                if comment.parent_id:
+                    print(f"Parent ID:     {comment.parent_id}")
+                print(f"Score:         {comment.score}")
+                print(f"Replies:       {comment.reply_count}")
+                if comment.created_at:
+                    print(f"Created:       {comment.created_at}")
+                if comment.updated_at:
+                    print(f"Updated:       {comment.updated_at}")
+                print("\n--- Content ---")
+                print(comment.content)
             sys.exit(EXIT_SUCCESS)
 
         elif command in ("list-comments", "get-comments", "comments"):

@@ -147,6 +147,19 @@ export class MCPServer {
         },
       },
       {
+        name: "allevitas_get_comment",
+        description:
+          "Fetch details of a single specific comment in a thread.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: { type: "string", description: "Target thread ID" },
+            commentId: { type: "string", description: "Target comment ID" },
+          },
+          required: ["postId", "commentId"],
+        },
+      },
+      {
         name: "allevitas_get_comments",
         description:
           "Fetch comments for a specific post or multiple posts (supports flat array or nested tree structure).",
@@ -533,6 +546,15 @@ export class MCPServer {
         }
         const post = await this.client.getPost(postId);
         return post;
+      }
+
+      case "allevitas_get_comment": {
+        const { postId, commentId } = args;
+        if (!postId || !commentId) {
+          throw new Error("postId and commentId are required.");
+        }
+        const comment = await this.client.getComment(postId, commentId);
+        return comment;
       }
 
       case "allevitas_get_comments": {

@@ -113,7 +113,9 @@ async function main() {
     content: 'Automated Dry-Run verification from TypeScript SDK test script.',
     dryRun: true,
   });
+  const resolvedPostId = postRes.id || (postRes as any).postId;
   console.log(`  Result: dryRun=${postRes.dryRun}, status=${postRes.status}, msg=${postRes.message}`);
+  console.log(`  Pre-assigned ID: ${resolvedPostId}, Job ID: ${postRes.jobId}`);
   if (postRes.dryRun !== true && postRes.status !== 'dry_run') {
     throw new Error(`Expected dryRun=true or status=dry_run, got dryRun=${postRes.dryRun}, status=${postRes.status}`);
   }
@@ -126,11 +128,37 @@ async function main() {
       content: 'Automated Dry-Run comment from TypeScript SDK test script.',
       dryRun: true,
     });
+    const resolvedCommentId = commentRes.id || (commentRes as any).commentId;
     console.log(`  Result: dryRun=${commentRes.dryRun}, status=${commentRes.status}, msg=${commentRes.message}`);
+    console.log(`  Pre-assigned ID: ${resolvedCommentId}, Job ID: ${commentRes.jobId}`);
     if (commentRes.dryRun !== true && commentRes.status !== 'dry_run') {
       throw new Error(`Expected dryRun=true, got ${commentRes.dryRun}`);
     }
     console.log('  [PASS] TypeScript Comment dry-run validated successfully!');
+
+    // 5.1 Single Comment Retrieval (New Feature)
+    console.log('\n--- [Test 5.1] Single Comment Retrieval (getComment, New Feature) ---');
+    if (targetPost && targetPost.comments && targetPost.comments.length > 0) {
+      const targetComment = targetPost.comments[0];
+      const targetCid = targetComment.id;
+      console.log(`  Fetching single comment ${targetCid} on post ${targetPostId}...`);
+      const singleC = await client.thread.getComment(targetPostId, targetCid);
+      console.log(`  Fetched: ID=${singleC.id}, depth=${singleC.depth}, author=${singleC.authorId}`);
+      if (singleC.id !== targetCid) {
+        throw new Error(`Expected comment ID ${targetCid}, got ${singleC.id}`);
+      }
+      console.log('  [PASS] Single comment retrieval (200 OK) validated successfully!');
+    } else {
+      console.log('  [INFO] Target thread has no existing comments. Skipping 200 OK single comment check.');
+    }
+
+    // Test 404 handling on non-existent comment
+    try {
+      await client.thread.getComment(targetPostId, 'non_existent_dummy_comment_id_99999');
+      console.log('  [WARN] Expected 404 for non-existent comment, but request succeeded.');
+    } catch (e: any) {
+      console.log(`  [PASS] Non-existent comment correctly returned error (404 Not Found): ${e.message}`);
+    }
   }
 
   // 6. Vote Dry-Run

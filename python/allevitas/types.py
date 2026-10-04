@@ -158,6 +158,10 @@ class CreatePostResponse:
     dry_run: bool = False
     post: Optional[Post] = None
 
+    @property
+    def post_id(self) -> Optional[str]:
+        return self.id
+
 @dataclass
 class CreateCommentResponse:
     success: bool
@@ -167,6 +171,10 @@ class CreateCommentResponse:
     status: Optional[str] = None
     dry_run: bool = False
     comment: Optional[Union[FlatComment, CommentTree]] = None
+
+    @property
+    def comment_id(self) -> Optional[str]:
+        return self.id
 
 @dataclass
 class VoteResponse:

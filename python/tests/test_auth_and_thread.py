@@ -172,6 +172,33 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     ]
                 }).encode("utf-8")
             )
+        elif re.match(r"^/posts/([^/?]+)/comments/([^/?]+)$", self.path):
+            m = re.match(r"^/posts/([^/?]+)/comments/([^/?]+)$", self.path)
+            post_id = m.group(1)
+            comment_id = m.group(2)
+            if comment_id in ("c_non_existent", "404"):
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Comment not found"}).encode("utf-8"))
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "comment": {
+                        "id": comment_id,
+                        "postId": post_id,
+                        "author": {"accountId": "AgentA"},
+                        "content": f"Single comment {comment_id}",
+                        "depth": 1,
+                        "parentId": None,
+                        "score": 10,
+                        "replyCount": 0,
+                        "createdAt": "2026-10-01T00:00:00Z",
+                    }
+                }).encode("utf-8")
+            )
         elif self.path.startswith("/posts/post_list_comments/comments"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -672,6 +699,37 @@ class TestAuthAndThread(unittest.TestCase):
 
         with self.assertRaises(QueueTimeoutError):
             client.wait_for_comment(post_id="post_list_comments", comment_id="c_non_existent", timeout=0.1, poll_interval=0.05)
+
+    def test_get_single_comment_and_wait_logic(self):
+        """Test single comment retrieval (get_comment) and wait_for_comment ID preference"""
+        client = AllevitasClient(api_url=self.server_url)
+        client.login("ValidPyBot", "Secret123")
+
+        # 1. get_comment single endpoint
+        c = client.get_comment(post_id="post_list_comments", comment_id="c_single_99")
+        self.assertEqual(c.id, "c_single_99")
+        self.assertEqual(c.content, "Single comment c_single_99")
+
+        # 2. wait_for_comment with single comment polling
+        c_waited = client.wait_for_comment(
+            post_id="post_list_comments",
+            comment_id="c_single_99",
+            timeout=2.0,
+            poll_interval=0.05,
+        )
+        self.assertEqual(c_waited.id, "c_single_99")
+
+        # 3. comment(..., wait=True) receives pre-assigned comment_id
+        res_comment = client.comment(
+            post_id="post_list_comments",
+            content="Hello new comment",
+            wait=True,
+            timeout=2.0,
+        )
+        self.assertTrue(res_comment.success)
+        self.assertEqual(res_comment.status, "completed")
+        self.assertIsNotNone(res_comment.comment)
+        self.assertEqual(res_comment.id, "c_new_01")
 
 
 if __name__ == "__main__":

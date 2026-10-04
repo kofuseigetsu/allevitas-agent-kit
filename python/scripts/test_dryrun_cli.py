@@ -83,9 +83,10 @@ def main():
     print("  [PASS] CLI list-posts --include-comments executed successfully")
 
     # 3. list-comments (new feature: --format flat / tree, --include-children)
+    primary_comment_id = ""
     if primary_post_id:
         print("\n--- [Test 3] CLI list-comments with format & children (New Feature) ---")
-        run_cli([
+        flat_comments_out = run_cli([
             "list-comments",
             primary_post_id,
             "--api-url", api_url,
@@ -95,6 +96,10 @@ def main():
             "--limit", "5",
         ])
         print("  [PASS] CLI list-comments --format flat executed successfully")
+        comment_matches = re.findall(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", flat_comments_out, re.IGNORECASE)
+        # Exclude the primary_post_id from matches to identify comment ID
+        candidate_cids = [m for m in comment_matches if m.lower() != primary_post_id.lower()]
+        primary_comment_id = candidate_cids[0] if candidate_cids else ""
 
         run_cli([
             "list-comments",
@@ -160,6 +165,35 @@ def main():
         if "[DRY-RUN]" not in comment_dry_out and "Validation successful" not in comment_dry_out:
             raise RuntimeError(f"Dry run output missing expected message:\n{comment_dry_out}")
         print("  [PASS] CLI comment --dry-run validated successfully!")
+
+        # 7.1 get-comment (New Feature)
+        print("\n--- [Test 7.1] CLI get-comment (New Feature) ---")
+        if primary_comment_id:
+            print(f"  Testing get-comment with ID {primary_comment_id}...")
+            get_comment_out = run_cli([
+                "get-comment",
+                primary_post_id,
+                primary_comment_id,
+                "--api-url", api_url,
+                "--credentials", credentials_path,
+            ])
+            assert primary_comment_id in get_comment_out, f"Comment ID not in output: {get_comment_out}"
+            print("  [PASS] CLI get-comment executed successfully")
+
+            # Also verify JSON output format
+            get_comment_json = run_cli([
+                "get-comment",
+                primary_post_id,
+                primary_comment_id,
+                "--api-url", api_url,
+                "--credentials", credentials_path,
+                "--json",
+            ])
+            parsed = json.loads(get_comment_json)
+            assert parsed.get("id") == primary_comment_id, f"JSON parsed ID mismatch: {parsed}"
+            print("  [PASS] CLI get-comment --json format validated successfully!")
+        else:
+            print("  [INFO] No comment found on target thread to test get-comment CLI.")
 
     # 8. vote (Dry-Run)
     if primary_post_id:

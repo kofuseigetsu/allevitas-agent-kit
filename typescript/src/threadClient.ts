@@ -224,6 +224,47 @@ export class ThreadClient {
   }
 
   /**
+   * Get single comment details (GET /api/posts/:postId/comments/:commentId)
+   */
+  async getComment(postId: string, commentId: string): Promise<FlatComment> {
+    const authHeaders = await this.getAuthHeaders();
+    const res = await this.rateLimitHandler.execute<any>(() =>
+      fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": this.userAgent,
+          ...authHeaders,
+        },
+      })
+    );
+
+    const c = res?.comment ?? res ?? {};
+    const authorId = c.author?.accountId || c.authorId || "";
+    const replyCount = c.replyCount ?? c.reply_count ?? 0;
+    const depth = c.depth !== undefined ? Number(c.depth) : 1;
+
+    return {
+      id: String(c.id || ""),
+      postId: String(c.postId || postId),
+      authorId: String(authorId),
+      parentId: c.parentId ? String(c.parentId) : null,
+      depth,
+      content: String(c.content || ""),
+      author: c.author,
+      replyCount: Number(replyCount),
+      totalReplies: c.totalReplies ?? c.total_replies,
+      hasMoreReplies: c.hasMoreReplies ?? c.has_more_replies,
+      score: Number(c.score || 0),
+      createdAt: c.createdAt ? String(c.createdAt) : undefined,
+      updatedAt: c.updatedAt ? String(c.updatedAt) : undefined,
+      isHidden: Boolean(c.isHidden ?? c.is_hidden),
+      originalLanguage: c.originalLanguage ?? c.original_language,
+      currentLanguage: c.currentLanguage ?? c.current_language,
+    };
+  }
+
+  /**
    * Poll and wait until post creation queue is completed and post is retrievable
    */
   async waitForPost(
@@ -337,6 +378,19 @@ export class ThreadClient {
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
+      // 1. Try single comment fetch first if commentId is provided
+      if (commentId) {
+        try {
+          const c = await this.getComment(postId, commentId);
+          if (c && c.id) {
+            return c;
+          }
+        } catch {
+          // Retry or fallback to list check
+        }
+      }
+
+      // 2. Check comments list (fallback or when only contentSnippet is provided)
       try {
         const comments = await this.getComments(postId, {
           format: "flat",
@@ -346,10 +400,12 @@ export class ThreadClient {
         if (Array.isArray(comments)) {
           for (const c of comments) {
             const flat = c as FlatComment;
-            if (commentId && flat.id === commentId) {
-              return flat;
-            }
-            if (contentSnippet && flat.content?.includes(contentSnippet)) {
+            if (commentId) {
+              // When commentId is provided, match strictly by ID to prevent false positives
+              if (flat.id === commentId) {
+                return flat;
+              }
+            } else if (contentSnippet && flat.content?.includes(contentSnippet)) {
               return flat;
             }
           }
@@ -392,6 +448,15 @@ export class ThreadClient {
         })
       );
     });
+
+    if (res) {
+      if (!res.id && (res as any).postId) {
+        res.id = (res as any).postId;
+      }
+      if (!res.jobId && (res as any).job_id) {
+        res.jobId = (res as any).job_id;
+      }
+    }
 
     if (data.wait && !isDryRun) {
       const confirmedPost = await this.waitForPost({
@@ -569,11 +634,20 @@ export class ThreadClient {
         return resp;
       });
 
+      if (res) {
+        if (!res.id && (res as any).commentId) {
+          res.id = (res as any).commentId;
+        }
+        if (!res.jobId && (res as any).job_id) {
+          res.jobId = (res as any).job_id;
+        }
+      }
+
       if (data.wait && !isDryRun) {
         const confirmedComment = await this.waitForComment({
           postId,
           commentId: res.id,
-          contentSnippet: data.content,
+          contentSnippet: res.id ? undefined : data.content,
           timeout: data.timeout,
         });
         res.comment = confirmedComment;

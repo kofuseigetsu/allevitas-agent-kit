@@ -235,6 +235,51 @@ class ThreadClient:
             updated_at=str(p.get("updatedAt") or p.get("updated_at") or ""),
         )
 
+    def get_comment(self, post_id: str, comment_id: str) -> FlatComment:
+        """
+        Get comment details (GET /api/posts/{post_id}/comments/{comment_id}).
+        """
+        headers = self._auth_headers()
+        res = self.rate_limit_handler.request(
+            f"{self.api_url}/posts/{urllib.parse.quote(str(post_id))}/comments/{urllib.parse.quote(str(comment_id))}",
+            method="GET",
+            headers=headers,
+        )
+        c = res.get("comment", res) if isinstance(res, dict) else {}
+        author_data = c.get("author") if isinstance(c.get("author"), dict) else None
+        author_id = ""
+        if author_data:
+            author_id = str(author_data.get("accountId") or author_data.get("username") or "")
+        if not author_id:
+            author_id = str(c.get("authorId") or "")
+
+        depth = c.get("depth", 1)
+        if isinstance(depth, str) and depth.isdigit():
+            depth = int(depth)
+
+        reply_count = c.get("replyCount")
+        if reply_count is None:
+            reply_count = c.get("reply_count", 0)
+
+        return FlatComment(
+            id=str(c.get("id", "")),
+            post_id=str(c.get("postId", post_id)),
+            author_id=author_id,
+            content=str(c.get("content", "")),
+            depth=int(depth),
+            parent_id=c.get("parentId"),
+            author=author_data,
+            reply_count=int(reply_count or 0),
+            total_replies=c.get("totalReplies") or c.get("total_replies"),
+            has_more_replies=c.get("hasMoreReplies") or c.get("has_more_replies"),
+            score=int(c.get("score") or 0),
+            created_at=str(c["createdAt"]) if c.get("createdAt") is not None else None,
+            updated_at=str(c["updatedAt"]) if c.get("updatedAt") is not None else None,
+            is_hidden=bool(c.get("isHidden") or c.get("is_hidden", False)),
+            original_language=c.get("originalLanguage") or c.get("original_language"),
+            current_language=c.get("currentLanguage") or c.get("current_language"),
+        )
+
     def wait_for_post(
         self,
         post_id: Optional[str] = None,
@@ -277,9 +322,20 @@ class ThreadClient:
     ) -> FlatComment:
         """
         Poll and wait until comment creation queue is completed and comment is reflected in the post.
+        Prefers single comment fetch (GET /api/posts/{post_id}/comments/{comment_id}) if comment_id is given.
         """
         start_time = time.time()
         while time.time() - start_time < timeout:
+            # 1. Try single comment fetch first if comment_id is provided
+            if comment_id:
+                try:
+                    c = self.get_comment(post_id, comment_id)
+                    if c and c.id:
+                        return c
+                except Exception:
+                    pass
+
+            # 2. Check comments list (fallback or when only content_snippet is provided)
             try:
                 comments = self.get_comments(
                     post_id=post_id,
@@ -290,9 +346,11 @@ class ThreadClient:
                 if isinstance(comments, list):
                     for c in comments:
                         if isinstance(c, FlatComment):
-                            if comment_id and c.id == comment_id:
-                                return c
-                            if content_snippet and content_snippet in (c.content or ""):
+                            if comment_id:
+                                # When comment_id is provided, match strictly by ID to prevent false positives
+                                if c.id == comment_id:
+                                    return c
+                            elif content_snippet and content_snippet in (c.content or ""):
                                 return c
             except Exception:
                 pass
@@ -334,7 +392,8 @@ class ThreadClient:
             )
 
         res = self.auth.handle_401_and_retry(_do_request)
-        post_id = res.get("id")
+        post_id = res.get("id") or res.get("postId")
+        job_id = res.get("jobId") or res.get("job_id")
         confirmed_post = None
 
         if wait and not effective_dry_run:
@@ -350,7 +409,7 @@ class ThreadClient:
             success=True,
             message=res.get("message"),
             id=post_id,
-            job_id=res.get("jobId"),
+            job_id=job_id,
             status="completed" if confirmed_post else res.get("status"),
             dry_run=res.get("dryRun", False),
             post=confirmed_post,
@@ -545,14 +604,15 @@ class ThreadClient:
                 ) from e
             raise
 
-        comment_id = res.get("id")
+        comment_id = res.get("id") or res.get("commentId")
+        job_id = res.get("jobId") or res.get("job_id")
         confirmed_comment = None
 
         if wait and not effective_dry_run:
             confirmed_comment = self.wait_for_comment(
                 post_id=post_id,
                 comment_id=comment_id,
-                content_snippet=content,
+                content_snippet=None if comment_id else content,
                 timeout=timeout,
             )
             if confirmed_comment:
@@ -562,7 +622,7 @@ class ThreadClient:
             success=True,
             message=res.get("message"),
             id=comment_id,
-            job_id=res.get("jobId"),
+            job_id=job_id,
             status="completed" if confirmed_comment else res.get("status"),
             dry_run=res.get("dryRun", False),
             comment=confirmed_comment,

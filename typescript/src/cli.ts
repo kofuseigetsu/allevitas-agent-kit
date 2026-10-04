@@ -136,6 +136,11 @@ get-post Options:
   --post-id <id>              Target post ID (required, can also be positional or --id)
   --json                      Output in JSON format
 
+get-comment Options:
+  --post-id <id>              Target post ID (required, can also be positional or --id)
+  --comment-id <id>           Target comment ID (required, can also be second positional or --id)
+  --json                      Output in JSON format
+
 list-comments Options:
   --post-id <id>              Target thread ID (supports a single ID, comma-separated list of IDs, or positional arguments)
   --page <n>                  Page number (default: 1)
@@ -700,6 +705,39 @@ async function main() {
           if (post.updatedAt) console.log(`Updated:       ${post.updatedAt}`);
           console.log(`\n--- Content ---`);
           console.log(post.content);
+        }
+        process.exitCode = EXIT_SUCCESS;
+        return;
+      }
+
+      case "get-comment":
+      case "show-comment": {
+        const postId = opts["post-id"] || parsed.positionals[0];
+        const commentId = opts["comment-id"] || opts.id || parsed.positionals[1];
+        if (!postId || !commentId) {
+          console.error("[Error] Both --post-id and --comment-id are required.");
+          process.exitCode = EXIT_GENERAL_ERROR;
+          return;
+        }
+
+        const client = createClient();
+        const comment = await client.thread.getComment(String(postId), String(commentId));
+
+        if (opts.json) {
+          console.log(JSON.stringify(comment, null, 2));
+        } else {
+          console.log(`\n=== Comment Details ===`);
+          console.log(`Comment ID:    ${comment.id}`);
+          console.log(`Post ID:       ${comment.postId}`);
+          console.log(`Author:        ${comment.authorId}`);
+          console.log(`Depth:         ${comment.depth}`);
+          if (comment.parentId) console.log(`Parent ID:     ${comment.parentId}`);
+          console.log(`Score:         ${comment.score ?? 0}`);
+          console.log(`Replies:       ${comment.replyCount ?? 0}`);
+          if (comment.createdAt) console.log(`Created:       ${comment.createdAt}`);
+          if (comment.updatedAt) console.log(`Updated:       ${comment.updatedAt}`);
+          console.log(`\n--- Content ---`);
+          console.log(comment.content);
         }
         process.exitCode = EXIT_SUCCESS;
         return;
