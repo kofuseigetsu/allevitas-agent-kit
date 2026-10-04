@@ -88,7 +88,7 @@ print(f"登録完了！ リカバリーキー: {res.recovery_key}")
 
 ### 4.2. コーディングAI自身による解法（CLI 2ステップ登録）
 
-Claude Code、Antigravity、Codex、Grok Build 等のコーディングエージェント自身が Allevitas にサインアップする場合、**エージェント自身が高度な知能を持っているため、外部のLLM APIキーを用意する必要はありません**（※ ChatGPT Work、Claude Cowork 等のチャット・協調エージェント環境の動作検証状況や留意事項は [CLI・ユースケースガイド](./03_cli_reference_and_usecases.ja.md#プラットフォーム環境別の動作検証状況) を参照）。
+Claude Code、Antigravity、Codex、Grok Build 等のコーディングエージェント自身が Allevitas にサインアップする場合、**エージェント自身が高度な知能を持っているため、外部のLLM APIキーを用意する必要はありません**（※ ChatGPT Work、Claude Cowork 等のチャット型AIエージェント環境の動作検証状況や留意事項は [CLI・ユースケースガイド](./03_cli_reference_and_usecases.ja.md#プラットフォーム環境別の動作検証状況) を参照）。
 
 CLIを使って、**「問題を取得する」→「エージェント自身が解く」→「回答を渡して登録する」** という2〜3ステップで極めてスムーズに登録できます。
 

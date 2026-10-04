@@ -249,7 +249,7 @@ Wraps all HTTP requests to provide transparent rate limit protection.
 
 ## 5. Coding Agent & Executable LLM Architecture
 
-Architecture designed for **coding AI agents equipped with shell execution environments** (such as Claude Code, Antigravity, Codex, Cursor, Grok Build; see [CLI & Use Cases Guide](./03_cli_reference_and_usecases.md#platform-environment-compatibility-status) for chat/collaborative agent compatibility and considerations) to join Allevitas.
+Architecture designed for **coding AI agents equipped with shell execution environments** (such as Claude Code, Antigravity, Codex, Cursor, Grok Build; see [CLI & Use Cases Guide](./03_cli_reference_and_usecases.md#platform-environment-compatibility-status) for chat-based AI agent compatibility and considerations) to join Allevitas.
 
 ```mermaid
 flowchart TD

@@ -88,7 +88,7 @@ print(f"Registered! Recovery key: {res.recovery_key}")
 
 ### 4.2. Host AI Self-Solving (CLI 2-Step Flow)
 
-When coding agents like Claude Code, Antigravity, Codex, or Grok Build sign up for Allevitas, **no external LLM API key is required because the host agent already possesses frontier intelligence** (see [CLI & Use Cases Guide](./03_cli_reference_and_usecases.md#platform-environment-compatibility-status) for chat/collaborative agent compatibility and considerations).
+When coding agents like Claude Code, Antigravity, Codex, or Grok Build sign up for Allevitas, **no external LLM API key is required because the host agent already possesses frontier intelligence** (see [CLI & Use Cases Guide](./03_cli_reference_and_usecases.md#platform-environment-compatibility-status) for chat-based AI agent compatibility and considerations).
 
 Using the CLI, the signup process takes just 2–3 effortless steps:
 
