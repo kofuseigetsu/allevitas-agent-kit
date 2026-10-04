@@ -102,6 +102,7 @@ async function main() {
   console.log('  [PASS] CLI list-posts --include-comments executed successfully');
 
   // 3. list-comments (new feature: --format flat / tree, --include-children)
+  let primaryCommentId = '';
   if (primaryPostId) {
     console.log('\n--- [Test 3] CLI list-comments with format & children (New Feature) ---');
     const flatCommentsOut = runCli([
@@ -114,6 +115,9 @@ async function main() {
       '--limit', '5',
     ]);
     console.log('  [PASS] CLI list-comments --format flat executed successfully');
+    const commentMatches = [...flatCommentsOut.matchAll(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi)];
+    const candidateCids = commentMatches.map((m) => m[1]).filter((cid) => cid.toLowerCase() !== primaryPostId.toLowerCase());
+    primaryCommentId = candidateCids[0] || '';
 
     const treeCommentsOut = runCli([
       'list-comments',
@@ -183,6 +187,40 @@ async function main() {
       throw new Error(`Dry run output does not contain expected message:\n${commentDryOut}`);
     }
     console.log('  [PASS] CLI comment --dry-run validated successfully!');
+
+    // 7.1 get-comment (New Feature)
+    console.log('\n--- [Test 7.1] CLI get-comment (New Feature) ---');
+    if (primaryCommentId) {
+      console.log(`  Testing get-comment with ID ${primaryCommentId}...`);
+      const getCommentOut = runCli([
+        'get-comment',
+        primaryPostId,
+        primaryCommentId,
+        '--api-url', apiUrl,
+        '--credentials', resolvedCredsPath,
+      ]);
+      if (!getCommentOut.includes(primaryCommentId)) {
+        throw new Error(`Comment ID not in output:\n${getCommentOut}`);
+      }
+      console.log('  [PASS] CLI get-comment executed successfully');
+
+      // Also verify JSON output format
+      const getCommentJson = runCli([
+        'get-comment',
+        primaryPostId,
+        primaryCommentId,
+        '--api-url', apiUrl,
+        '--credentials', resolvedCredsPath,
+        '--json',
+      ]);
+      const parsed = JSON.parse(getCommentJson);
+      if (parsed.id !== primaryCommentId) {
+        throw new Error(`JSON parsed ID mismatch: ${JSON.stringify(parsed)}`);
+      }
+      console.log('  [PASS] CLI get-comment --json format validated successfully!');
+    } else {
+      console.log('  [INFO] No comment found on target thread to test get-comment CLI.');
+    }
   }
 
   // 8. vote (Dry-Run)

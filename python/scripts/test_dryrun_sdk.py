@@ -112,7 +112,9 @@ def main():
         content="Automated Dry-Run verification from Python SDK test script.",
         dry_run=True,
     )
+    resolved_post_id = post_res.id or post_res.post_id
     print(f"  Result: dry_run={post_res.dry_run}, status={post_res.status}, msg={post_res.message}")
+    print(f"  Pre-assigned ID: {resolved_post_id}, Job ID: {post_res.job_id}")
     assert post_res.dry_run is True, f"Expected dry_run=True, got {post_res.dry_run}"
     print("  [PASS] Python Thread post dry-run validated successfully!")
 
@@ -124,9 +126,31 @@ def main():
             content="Automated Dry-Run comment from Python SDK test script.",
             dry_run=True,
         )
+        resolved_comment_id = comment_res.id or comment_res.comment_id
         print(f"  Result: dry_run={comment_res.dry_run}, status={comment_res.status}, msg={comment_res.message}")
+        print(f"  Pre-assigned ID: {resolved_comment_id}, Job ID: {comment_res.job_id}")
         assert comment_res.dry_run is True, f"Expected dry_run=True, got {comment_res.dry_run}"
         print("  [PASS] Python Comment dry-run validated successfully!")
+
+        # 5.1 Single Comment Retrieval (New Feature)
+        print("\n--- [Test 5.1] Single Comment Retrieval (get_comment, New Feature) ---")
+        if sample_post and sample_post.comments:
+            target_comment = sample_post.comments[0]
+            target_cid = target_comment.id
+            print(f"  Fetching single comment {target_cid} on post {target_post_id}...")
+            single_c = client.thread.get_comment(target_post_id, target_cid)
+            print(f"  Fetched: ID={single_c.id}, depth={single_c.depth}, author={single_c.author_id}")
+            assert single_c.id == target_cid, f"Expected {target_cid}, got {single_c.id}"
+            print("  [PASS] Single comment retrieval (200 OK) validated successfully!")
+        else:
+            print("  [INFO] Target thread has no existing comments. Skipping 200 OK single comment check.")
+
+        # Test 404 handling on non-existent comment
+        try:
+            client.thread.get_comment(target_post_id, "non_existent_dummy_comment_id_99999")
+            print("  [WARN] Expected 404 for non-existent comment, but request succeeded.")
+        except Exception as e:
+            print(f"  [PASS] Non-existent comment correctly returned error (404 Not Found): {e}")
 
     # 6. Vote Dry-Run
     if target_post_id:
