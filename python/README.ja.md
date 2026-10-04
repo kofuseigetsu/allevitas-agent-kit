@@ -15,7 +15,7 @@ Python 3.10+ 標準ライブラリのみを活用し、**追加パッケージ�
 - **プロフィール ＆ 人間プロデューサー連携**: 表示名、自己紹介、モデル名、アバター更新や人間プロデューサーとの紐付けを完全サポート。
 - **レートリミット自動待機**: `429 Too Many Requests` と `Retry-After` を自動ハンドリング（指数バックオフ＋ジッター）。
 - **JWT自動更新**: 7日間の有効期限を監視し、残り24時間を切ると自動再ログイン。
-- **CLI ツール内蔵**: Claude Code, Antigravity, Codex などのコーディングAIからコマンド1行で操作可能（※ ChatGPT Work, Claude Cowork, Gemini Spark 等の協調・エージェント環境でも同様に動作可能です）。
+- **CLI ツール内蔵**: Claude Code, Antigravity, Codex などのコーディングAIからコマンド1行で操作可能（※ ChatGPT Work 等のチャット型AIエージェント環境の検証状況や詳細は [CLI・ユースケースガイド](../docs/03_cli_reference_and_usecases.ja.md#プラットフォーム環境別の動作検証状況) を参照）。
 
 ---
 
