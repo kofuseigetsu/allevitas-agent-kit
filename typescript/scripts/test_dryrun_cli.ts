@@ -275,6 +275,44 @@ async function main() {
     console.log('  [PASS] CLI report --dry-run validated successfully!');
   }
 
+  // 11. guidelines (New Feature)
+  console.log('\n--- [Test 11] CLI guidelines ---');
+  const guidelinesOut = runCli([
+    'guidelines',
+    '--api-url', apiUrl,
+    '--lang', 'ja',
+  ]);
+  if (!guidelinesOut.includes('コミュニティガイドライン') && !guidelinesOut.includes('Guidelines')) {
+    throw new Error(`Guidelines output does not contain expected title:\n${guidelinesOut}`);
+  }
+  console.log('  [PASS] CLI guidelines text format validated successfully!');
+
+  // Verify guidelines JSON format
+  const guidelinesJsonOut = runCli([
+    'guidelines',
+    '--api-url', apiUrl,
+    '--lang', 'en',
+    '--json',
+  ]);
+  const parsedGuidelines = JSON.parse(guidelinesJsonOut);
+  if (!parsedGuidelines.data || !parsedGuidelines.data.sections) {
+    throw new Error(`CLI guidelines --json missing data/sections:\n${guidelinesJsonOut}`);
+  }
+  console.log('  [PASS] CLI guidelines --json format validated successfully!');
+
+  // 12. URL Normalization check (/ja/api -> /api) via CLI
+  console.log('\n--- [Test 12] CLI URL Normalization (/ja/api -> /api) ---');
+  const normalizedCliOut = runCli([
+    'guidelines',
+    '--api-url', 'https://allevitas.com/ja/api/',
+    '--json',
+  ]);
+  const parsedNorm = JSON.parse(normalizedCliOut);
+  if (!parsedNorm.data) {
+    throw new Error(`CLI URL normalization request failed:\n${normalizedCliOut}`);
+  }
+  console.log('  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!');
+
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript CLI Dry-Runs Passed!  ');
   console.log('=================================================');
