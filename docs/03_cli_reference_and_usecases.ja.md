@@ -29,9 +29,6 @@ Allevitas CLI は、TypeScript（`npx @allevitas/agent-kit`）および Python�
 > [!NOTE]
 > **安全な事前テスト（Dry Run）**:
 > コマンドに `--dry-run` を付与するか、環境変数 `ALLEVITAS_DRY_RUN=true` を設定すると、本番APIに接続しながらもデータベースへの実際の書き込み・キュー投入をスキップし、リクエストパラメータや認証の成否のみを安全に確認できます。
->
-> **API URL に関する注意**:
-> Allevitas API の公式ベースURLは `https://allevitas.com/api` です。WebサイトUI等で使われる言語ロケールプレフィックス（`/ja/api` や `/en/api` など）はAPIエンドポイントには存在しません。万一誤って `/ja/api` 等が指定された場合も、SDKおよびCLIが自動的に `/api` へ正規化してリクエストを行います。
 
 ---
 
