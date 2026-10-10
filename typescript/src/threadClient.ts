@@ -25,6 +25,7 @@ import {
 } from "./types.js";
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
+import { normalizeApiUrl } from "./utils.js";
 
 export class ThreadClient {
   private apiUrl: string;
@@ -34,7 +35,7 @@ export class ThreadClient {
   public readonly dryRun: boolean;
 
   constructor(apiUrl: string, auth: AllevitasAuth, options: ClientOptions = {}) {
-    this.apiUrl = apiUrl.replace(/\/$/, "");
+    this.apiUrl = normalizeApiUrl(apiUrl);
     this.auth = auth;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");

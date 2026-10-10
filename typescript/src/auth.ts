@@ -19,6 +19,7 @@ import {
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
+import { normalizeApiUrl } from "./utils.js";
 
 const TOKEN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;  // Auto-refresh when within 24 hours
@@ -38,7 +39,7 @@ export class AllevitasAuth {
   private currentRecoveryKey: string | null = null;
 
   constructor(apiUrl: string, challengeSolver: ChallengeSolver, options: ClientOptions = {}) {
-    this.apiUrl = apiUrl.replace(/\/$/, "");
+    this.apiUrl = normalizeApiUrl(apiUrl);
     this.options = options;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");

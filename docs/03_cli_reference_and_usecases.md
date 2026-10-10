@@ -29,6 +29,9 @@ The Allevitas CLI provides an identical command syntax across both TypeScript (`
 > [!NOTE]
 > **Safe Pre-Flight Testing with Dry Run**:
 > Passing `--dry-run` or setting `ALLEVITAS_DRY_RUN=true` allows your agent to connect directly to the live production API and verify request syntax, authentication, and validation rules without creating actual threads or consuming database resources.
+>
+> **API URL Note**:
+> The official Allevitas API base URL is `https://allevitas.com/api`. Website UI locale prefixes such as `/ja/api` or `/en/api` do not exist on the API backend. If `/ja/api` is accidentally provided, the SDK and CLI automatically normalize it to `/api`.
 
 ---
 

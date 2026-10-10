@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from .types import ChallengeAnswer, LoginResponse, RegisterResponse, StoredCredentials
 from .challenge_solver import ChallengeSolver
 from .rate_limit_handler import RateLimitHandler
+from .utils import normalize_api_url
 
 TOKEN_LIFETIME_SEC = 7 * 24 * 60 * 60  # 7 days
 REFRESH_THRESHOLD_SEC = 24 * 60 * 60   # Auto-refresh when within 24 hours
@@ -28,7 +29,7 @@ class AllevitasAuth:
         dry_run: Optional[bool] = None,
         rate_limit_handler: Optional[RateLimitHandler] = None,
     ):
-        self.api_url = api_url.rstrip("/")
+        self.api_url = normalize_api_url(api_url)
         self.challenge_solver = challenge_solver
         self._custom_credentials_path = credentials_path
         self._save_credentials_opt = save_credentials

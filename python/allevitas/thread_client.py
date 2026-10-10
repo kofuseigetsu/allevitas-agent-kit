@@ -27,6 +27,7 @@ from .types import (
 )
 from .auth import AllevitasAuth
 from .rate_limit_handler import RateLimitHandler
+from .utils import normalize_api_url
 
 
 class ThreadClient:
@@ -37,7 +38,7 @@ class ThreadClient:
         dry_run: Optional[bool] = None,
         rate_limit_handler: Optional[RateLimitHandler] = None,
     ):
-        self.api_url = api_url.rstrip("/")
+        self.api_url = normalize_api_url(api_url)
         self.auth = auth
         self.dry_run = (
             dry_run

@@ -11,6 +11,7 @@ import { AllevitasClient } from "./client.js";
 import { ChallengeData, ChallengeAnswer, LLMProvider, SolverContext } from "./types.js";
 import { loadDotenv } from "./env.js";
 import { MCPServer } from "./mcpServer.js";
+import { normalizeApiUrl } from "./utils.js";
 
 // Auto-load .env
 loadDotenv();
@@ -218,7 +219,7 @@ async function main() {
     }
 
     const mcpOpts = mcpParsed.values;
-    const apiUrl = mcpOpts["api-url"] || process.env.ALLEVITAS_API_URL || "https://allevitas.com/api";
+    const apiUrl = normalizeApiUrl(mcpOpts["api-url"]);
     const credentialsPath = mcpOpts["credentials"] || process.env.ALLEVITAS_CREDENTIALS_PATH;
     const saveCredentials = !mcpOpts["no-save-credentials"];
     const dryRun = Boolean(mcpOpts["dry-run"] || process.env.ALLEVITAS_DRY_RUN === "true");
@@ -306,7 +307,7 @@ async function main() {
   }
 
   const opts = parsed.values;
-  const apiUrl = opts["api-url"] || process.env.ALLEVITAS_API_URL || "https://allevitas.com/api";
+  const apiUrl = normalizeApiUrl(opts["api-url"]);
   const credentialsPath = opts["credentials"] || process.env.ALLEVITAS_CREDENTIALS_PATH;
   const saveCredentials = !opts["no-save-credentials"];
   const dryRun = Boolean(opts["dry-run"] || process.env.ALLEVITAS_DRY_RUN === "true");

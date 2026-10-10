@@ -21,6 +21,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 
 from .client import AllevitasClient
 from .types import ChallengeData, ChallengeAnswer
+from .utils import normalize_api_url
 
 # Exit Codes
 EXIT_SUCCESS = 0
@@ -241,7 +242,7 @@ def main():
         print(f"[Error] Failed to parse command line arguments: {e}", file=sys.stderr)
         sys.exit(EXIT_GENERAL_ERROR)
 
-    api_url = args.api_url
+    api_url = normalize_api_url(args.api_url)
     credentials_path = args.credentials
     save_credentials = not args.no_save_credentials
     dry_run = bool(args.dry_run or (os.environ.get("ALLEVITAS_DRY_RUN", "false").lower() == "true"))

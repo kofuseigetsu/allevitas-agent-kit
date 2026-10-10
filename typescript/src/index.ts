@@ -13,6 +13,7 @@ export * from "./llmClient.js";
 export * from "./client.js";
 export * from "./env.js";
 export * from "./mcpServer.js";
+export * from "./utils.js";
 
 import { loadDotenv } from "./env.js";
 loadDotenv();

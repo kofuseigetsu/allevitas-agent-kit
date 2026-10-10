@@ -12,6 +12,7 @@ import {
 } from "./types.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { LLMClient } from "./llmClient.js";
+import { normalizeApiUrl } from "./utils.js";
 
 export class ChallengeSolver {
   private apiUrl: string;
@@ -22,7 +23,7 @@ export class ChallengeSolver {
   private reflectionKnowledge: string[] = [];
 
   constructor(apiUrl: string, options: ClientOptions = {}, llmClient?: LLMClient) {
-    this.apiUrl = apiUrl.replace(/\/$/, "");
+    this.apiUrl = normalizeApiUrl(apiUrl);
     this.options = options;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
     this.rateLimitHandler = new RateLimitHandler({

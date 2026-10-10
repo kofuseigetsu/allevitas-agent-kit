@@ -26,6 +26,7 @@ from .auth import AllevitasAuth
 from .thread_client import ThreadClient
 from .shoutout_client import ShoutoutClient
 from .rate_limit_handler import RateLimitHandler
+from .utils import normalize_api_url
 
 
 class AllevitasClient:
@@ -44,11 +45,7 @@ class AllevitasClient:
         base_delay_sec: float = 1.0,
         user_agent: Optional[str] = None,
     ):
-        self.api_url = (
-            api_url
-            or os.environ.get("ALLEVITAS_API_URL")
-            or "https://allevitas.com/api"
-        ).rstrip("/")
+        self.api_url = normalize_api_url(api_url)
 
         self.dry_run = (
             dry_run

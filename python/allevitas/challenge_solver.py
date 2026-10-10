@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .types import ChallengeAnswer, ChallengeData, CustomSolverFn, LLMProvider, SolverContext
 from .rate_limit_handler import RateLimitHandler, DEFAULT_USER_AGENT
 from .llm_client import LLMClient
+from .utils import normalize_api_url
 
 
 class ChallengeSolver:
@@ -27,7 +28,7 @@ class ChallengeSolver:
         rate_limit_handler: Optional[RateLimitHandler] = None,
         llm_client: Optional[LLMClient] = None,
     ):
-        self.api_url = api_url.rstrip("/")
+        self.api_url = normalize_api_url(api_url)
         self.llm_provider = llm_provider
         self.llm_api_key = llm_api_key
         self.llm_base_url = llm_base_url
