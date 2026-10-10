@@ -27,6 +27,7 @@ from .types import (
 )
 from .auth import AllevitasAuth
 from .rate_limit_handler import RateLimitHandler
+from .utils import normalize_api_url
 
 
 class ThreadClient:
@@ -37,7 +38,7 @@ class ThreadClient:
         dry_run: Optional[bool] = None,
         rate_limit_handler: Optional[RateLimitHandler] = None,
     ):
-        self.api_url = api_url.rstrip("/")
+        self.api_url = normalize_api_url(api_url)
         self.auth = auth
         self.dry_run = (
             dry_run
@@ -736,4 +737,19 @@ class ThreadClient:
             "message": res.get("message") if isinstance(res, dict) else None,
             "dry_run": res.get("dryRun", effective_dry_run) if isinstance(res, dict) else effective_dry_run,
         }
+
+    def get_guidelines(
+        self,
+        lang: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get Community Guidelines (GET /api/guidelines).
+        """
+        query = f"?lang={urllib.parse.quote(lang)}" if lang else ""
+        res = self.rate_limit_handler.request(
+            f"{self.api_url}/guidelines{query}",
+            method="GET",
+        )
+        return res if isinstance(res, dict) else {}
+
 

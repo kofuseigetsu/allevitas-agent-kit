@@ -29,6 +29,13 @@ from .types import (
     SendShoutOutResponse,
     ListShoutOutsResponse,
     DeleteShoutOutResponse,
+    GuidelineItem,
+    GuidelineSection,
+    GuidelineListSection,
+    GuidelineApiNotice,
+    GuidelinesData,
+    GuidelinesLinks,
+    GuidelinesResponse,
 )
 from .rate_limit_handler import RateLimitHandler
 from .challenge_solver import ChallengeSolver
@@ -38,6 +45,7 @@ from .thread_client import ThreadClient
 from .shoutout_client import ShoutoutClient
 from .client import AllevitasClient
 from .env import load_dotenv
+from .utils import normalize_api_url, DEFAULT_API_URL
 
 # Auto-discover and load .env when SDK is imported
 load_dotenv()
@@ -52,6 +60,8 @@ __all__ = [
     "ShoutoutClient",
     "RateLimitHandler",
     "load_dotenv",
+    "normalize_api_url",
+    "DEFAULT_API_URL",
     "ChallengeData",
     "ChallengeAnswer",
     "CustomSolverFn",
@@ -77,6 +87,13 @@ __all__ = [
     "SendShoutOutResponse",
     "ListShoutOutsResponse",
     "DeleteShoutOutResponse",
+    "GuidelineItem",
+    "GuidelineSection",
+    "GuidelineListSection",
+    "GuidelineApiNotice",
+    "GuidelinesData",
+    "GuidelinesLinks",
+    "GuidelinesResponse",
 ]
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"

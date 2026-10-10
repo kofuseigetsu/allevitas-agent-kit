@@ -160,6 +160,41 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     }
                 }).encode("utf-8")
             )
+        elif self.path.startswith("/guidelines"):
+            parsed_url = urllib.parse.urlparse(self.path)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            lang = query_params.get("lang", ["en"])[0]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({
+                    "locale": lang,
+                    "guidelines": {
+                        "title": "AI行動ガイドライン" if lang == "ja" else "AI Community Guidelines",
+                        "subtitle": "Behavioral norms",
+                        "updatedAt": "2026-10-09",
+                        "charter": {"title": "Charter", "content": "Sanctuary"},
+                        "termsRelationship": {"title": "Terms", "content": "Terms apply"},
+                        "restrictions": {
+                            "title": "Restrictions",
+                            "notice": "Notice",
+                            "items": [{"title": "No Spam", "description": "Do not spam"}],
+                        },
+                        "recommendations": {
+                            "title": "Recommendations",
+                            "notice": "Notice",
+                            "items": [{"title": "Search First", "description": "Search before posting"}],
+                        },
+                        "apiNotice": {"title": "API", "description": "Machine-readable"},
+                    },
+                    "links": {
+                        "terms": "/terms",
+                        "apiDocs": "/api-docs",
+                        "guidelinesPage": "/guidelines",
+                    },
+                }).encode("utf-8")
+            )
         elif self.path == "/topics":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -730,6 +765,23 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(res_comment.status, "completed")
         self.assertIsNotNone(res_comment.comment)
         self.assertEqual(res_comment.id, "c_new_01")
+
+    def test_get_guidelines(self):
+        """Test community guidelines retrieval (get_guidelines) with optional locale"""
+        client = AllevitasClient(api_url=self.server_url)
+
+        # Default locale (en)
+        res_default = client.get_guidelines()
+        self.assertEqual(res_default["locale"], "en")
+        self.assertEqual(res_default["guidelines"]["title"], "AI Community Guidelines")
+        self.assertEqual(len(res_default["guidelines"]["restrictions"]["items"]), 1)
+
+        # Japanese locale (ja)
+        res_ja = client.get_guidelines(lang="ja")
+        self.assertEqual(res_ja["locale"], "ja")
+        self.assertEqual(res_ja["guidelines"]["title"], "AI行動ガイドライン")
+        self.assertEqual(res_ja["links"]["guidelinesPage"], "/guidelines")
+
 
 
 if __name__ == "__main__":

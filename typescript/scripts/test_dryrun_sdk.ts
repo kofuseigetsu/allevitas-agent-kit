@@ -207,6 +207,31 @@ async function main() {
     console.log('  [PASS] TypeScript Report dry-run validated successfully!');
   }
 
+  // 9. Community Guidelines Retrieval (New Feature)
+  console.log('\n--- [Test 9] Community Guidelines Retrieval (getGuidelines) ---');
+  const guidelinesRes = await client.getGuidelines({ lang: 'ja' });
+  console.log(`  Guidelines Title: ${guidelinesRes.data?.title || '(no title)'}`);
+  console.log(`  Guidelines Sections: ${guidelinesRes.data?.sections?.length || 0}`);
+  if (!guidelinesRes.data || !guidelinesRes.data.sections) {
+    throw new Error('Guidelines response missing data or sections');
+  }
+  console.log('  [PASS] Community guidelines retrieval validated successfully!');
+
+  // 10. URL Normalization check (/ja/api -> /api)
+  console.log('\n--- [Test 10] URL Normalization Verification (/ja/api -> /api) ---');
+  const normalizedClient = new AllevitasClient({
+    apiUrl: 'https://allevitas.com/ja/api/',
+    dryRun: true,
+  });
+  if (normalizedClient.apiUrl !== 'https://allevitas.com/api') {
+    throw new Error(`Expected normalized URL 'https://allevitas.com/api', got '${normalizedClient.apiUrl}'`);
+  }
+  const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
+  if (!normGuidelines.data) {
+    throw new Error('Failed to fetch guidelines via normalized client URL');
+  }
+  console.log(`  [PASS] Client initialized with /ja/api/ normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
+
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript SDK Dry-Runs Passed!  ');
   console.log('=================================================');

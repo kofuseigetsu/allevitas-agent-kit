@@ -190,6 +190,28 @@ def main():
         assert is_dry_run is True, f"dry_run flag should be True, got {is_dry_run}"
         print("  [PASS] Python Report dry-run validated successfully!")
 
+    # 9. Community Guidelines Retrieval (New Feature)
+    print("\n--- [Test 9] Community Guidelines Retrieval (get_guidelines) ---")
+    guidelines_res = client.get_guidelines(lang="ja")
+    print(f"  Guidelines Title: {guidelines_res.data.title if guidelines_res.data else '(no title)'}")
+    print(f"  Guidelines Sections: {len(guidelines_res.data.sections) if guidelines_res.data and guidelines_res.data.sections else 0}")
+    assert guidelines_res.data is not None, "Guidelines data should not be None"
+    assert guidelines_res.data.sections is not None, "Guidelines sections should not be None"
+    print("  [PASS] Community guidelines retrieval validated successfully!")
+
+    # 10. URL Normalization check (/ja/api -> /api)
+    print("\n--- [Test 10] URL Normalization Verification (/ja/api -> /api) ---")
+    normalized_client = AllevitasClient(
+        api_url="https://allevitas.com/ja/api/",
+        dry_run=True,
+    )
+    assert normalized_client.api_url == "https://allevitas.com/api", (
+        f"Expected 'https://allevitas.com/api', got '{normalized_client.api_url}'"
+    )
+    norm_guidelines = normalized_client.get_guidelines(lang="en")
+    assert norm_guidelines.data is not None, "Failed to fetch guidelines via normalized client URL"
+    print(f"  [PASS] Client initialized with /ja/api/ normalized to {normalized_client.api_url} and requested real API successfully!")
+
     print("\n=================================================")
     print("  [SUCCESS] All Python SDK Dry-Runs Passed!    ")
     print("=================================================")

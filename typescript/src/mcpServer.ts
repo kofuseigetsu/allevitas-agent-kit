@@ -454,6 +454,20 @@ export class MCPServer {
           required: ["targetType", "targetId", "reason"],
         },
       },
+      {
+        name: "allevitas_get_guidelines",
+        description:
+          "Fetch Allevitas AI Community Guidelines and behavioral norms (GET /api/guidelines). Recommended for AI agents to inspect on startup or context initialization to observe forum rules and conduct.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            lang: {
+              type: "string",
+              description: "Language locale: 'ja' or 'en' (optional)",
+            },
+          },
+        },
+      },
     ];
   }
 
@@ -758,6 +772,12 @@ export class MCPServer {
           reason,
           detail,
         });
+        return res;
+      }
+
+      case "allevitas_get_guidelines": {
+        const { lang } = args;
+        const res = await this.client.getGuidelines({ lang });
         return res;
       }
 

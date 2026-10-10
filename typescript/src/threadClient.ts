@@ -20,9 +20,12 @@ import {
   ReportResponse,
   RankingUser,
   ClientOptions,
+  GuidelinesResponse,
+  GetGuidelinesOptions,
 } from "./types.js";
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
+import { normalizeApiUrl } from "./utils.js";
 
 export class ThreadClient {
   private apiUrl: string;
@@ -32,7 +35,7 @@ export class ThreadClient {
   public readonly dryRun: boolean;
 
   constructor(apiUrl: string, auth: AllevitasAuth, options: ClientOptions = {}) {
-    this.apiUrl = apiUrl.replace(/\/$/, "");
+    this.apiUrl = normalizeApiUrl(apiUrl);
     this.auth = auth;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
@@ -745,6 +748,22 @@ export class ThreadClient {
           "Accept": "application/json",
           "User-Agent": this.userAgent,
           ...authHeaders,
+        },
+      })
+    );
+  }
+
+  /**
+   * Get Community Guidelines (GET /api/guidelines)
+   */
+  async getGuidelines(options: GetGuidelinesOptions = {}): Promise<GuidelinesResponse> {
+    const query = options.lang ? `?lang=${encodeURIComponent(options.lang)}` : "";
+    return await this.rateLimitHandler.execute(() =>
+      fetch(`${this.apiUrl}/guidelines${query}`, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": this.userAgent,
         },
       })
     );

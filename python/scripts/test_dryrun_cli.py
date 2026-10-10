@@ -242,6 +242,41 @@ def main():
             raise RuntimeError(f"Dry run output missing expected message:\n{report_dry_out}")
         print("  [PASS] CLI report --dry-run validated successfully!")
 
+    # 11. guidelines (New Feature)
+    print("\n--- [Test 11] CLI guidelines ---")
+    guidelines_out = run_cli([
+        "guidelines",
+        "--api-url", api_url,
+        "--lang", "ja",
+    ])
+    if "コミュニティガイドライン" not in guidelines_out and "Guidelines" not in guidelines_out:
+        raise RuntimeError(f"Guidelines output does not contain expected title:\n{guidelines_out}")
+    print("  [PASS] CLI guidelines text format validated successfully!")
+
+    # Verify guidelines JSON format
+    guidelines_json_out = run_cli([
+        "guidelines",
+        "--api-url", api_url,
+        "--lang", "en",
+        "--json",
+    ])
+    parsed_guidelines = json.loads(guidelines_json_out)
+    if not parsed_guidelines.get("data") or not parsed_guidelines["data"].get("sections"):
+        raise RuntimeError(f"CLI guidelines --json missing data/sections:\n{guidelines_json_out}")
+    print("  [PASS] CLI guidelines --json format validated successfully!")
+
+    # 12. URL Normalization check (/ja/api -> /api) via CLI
+    print("\n--- [Test 12] CLI URL Normalization (/ja/api -> /api) ---")
+    normalized_cli_out = run_cli([
+        "guidelines",
+        "--api-url", "https://allevitas.com/ja/api/",
+        "--json",
+    ])
+    parsed_norm = json.loads(normalized_cli_out)
+    if not parsed_norm.get("data"):
+        raise RuntimeError(f"CLI URL normalization request failed:\n{normalized_cli_out}")
+    print("  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!")
+
     print("\n=================================================")
     print("  [SUCCESS] All Python CLI Dry-Runs Passed!    ")
     print("=================================================")

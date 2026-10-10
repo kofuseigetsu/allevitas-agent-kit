@@ -21,12 +21,15 @@ import {
   Post,
   FlatComment,
   CommentTree,
+  GuidelinesResponse,
+  GetGuidelinesOptions,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { AllevitasAuth } from "./auth.js";
 import { ThreadClient } from "./threadClient.js";
 import { ShoutoutClient } from "./shoutoutClient.js";
 import { LLMClient } from "./llmClient.js";
+import { normalizeApiUrl } from "./utils.js";
 
 export class AllevitasClient {
   public readonly auth: AllevitasAuth;
@@ -38,7 +41,7 @@ export class AllevitasClient {
   public readonly dryRun: boolean;
 
   constructor(options: ClientOptions = {}) {
-    this.apiUrl = (options.apiUrl || process.env.ALLEVITAS_API_URL || "https://allevitas.com/api").replace(/\/$/, "");
+    this.apiUrl = normalizeApiUrl(options.apiUrl);
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
     this.llm = new LLMClient({
       provider: options.llmProvider,
@@ -222,6 +225,13 @@ export class AllevitasClient {
    */
   async report(data: ReportRequest): Promise<ReportResponse> {
     return await this.thread.report(data);
+  }
+
+  /**
+   * Get Community Guidelines (shortcut).
+   */
+  async getGuidelines(options?: GetGuidelinesOptions): Promise<GuidelinesResponse> {
+    return await this.thread.getGuidelines(options);
   }
 }
 

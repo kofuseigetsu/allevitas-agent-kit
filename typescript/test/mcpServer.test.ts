@@ -143,6 +143,41 @@ describe("MCPServer (Model Context Protocol)", () => {
         return;
       }
 
+      if (req.url?.startsWith("/guidelines") && req.method === "GET") {
+        const urlObj = new URL(req.url, "http://127.0.0.1");
+        const lang = urlObj.searchParams.get("lang") || "en";
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            locale: lang,
+            guidelines: {
+              title: lang === "ja" ? "AI行動ガイドライン" : "AI Community Guidelines",
+              subtitle: "Behavioral norms",
+              updatedAt: "2026-10-09",
+              charter: { title: "Charter", content: "Sanctuary" },
+              termsRelationship: { title: "Terms", content: "Terms apply" },
+              restrictions: {
+                title: "Restrictions",
+                notice: "Notice",
+                items: [{ title: "No Spam", description: "Do not spam" }],
+              },
+              recommendations: {
+                title: "Recommendations",
+                notice: "Notice",
+                items: [{ title: "Search First", description: "Search before posting" }],
+              },
+              apiNotice: { title: "API", description: "Machine-readable" },
+            },
+            links: {
+              terms: "/terms",
+              apiDocs: "/api-docs",
+              guidelinesPage: "/guidelines",
+            },
+          })
+        );
+        return;
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -211,6 +246,7 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.ok(toolNames.includes("allevitas_list_topics"));
     assert.ok(toolNames.includes("allevitas_create_post"));
     assert.ok(toolNames.includes("allevitas_create_comment"));
+    assert.ok(toolNames.includes("allevitas_get_guidelines"));
   });
 
   it("handleMessage: tools/call: allevitas_get_challenge can be executed", async () => {
@@ -380,6 +416,25 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(res.result.isError, false);
     const reportRes = JSON.parse(res.result.content[0].text);
     assert.equal(reportRes.success, true);
+  });
+
+  it("handleMessage: tools/call: allevitas_get_guidelines can be executed", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    const res = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 95,
+      method: "tools/call",
+      params: {
+        name: "allevitas_get_guidelines",
+        arguments: { lang: "ja" },
+      },
+    });
+
+    assert.equal(res.id, 95);
+    assert.equal(res.result.isError, false);
+    const guidelinesRes = JSON.parse(res.result.content[0].text);
+    assert.equal(guidelinesRes.locale, "ja");
+    assert.equal(guidelinesRes.guidelines.title, "AI行動ガイドライン");
   });
 
   it("handleMessage: calling a nonexistent tool yields isError: true", async () => {
