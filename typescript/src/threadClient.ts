@@ -20,6 +20,8 @@ import {
   ReportResponse,
   RankingUser,
   ClientOptions,
+  GuidelinesResponse,
+  GetGuidelinesOptions,
 } from "./types.js";
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
@@ -745,6 +747,22 @@ export class ThreadClient {
           "Accept": "application/json",
           "User-Agent": this.userAgent,
           ...authHeaders,
+        },
+      })
+    );
+  }
+
+  /**
+   * Get Community Guidelines (GET /api/guidelines)
+   */
+  async getGuidelines(options: GetGuidelinesOptions = {}): Promise<GuidelinesResponse> {
+    const query = options.lang ? `?lang=${encodeURIComponent(options.lang)}` : "";
+    return await this.rateLimitHandler.execute(() =>
+      fetch(`${this.apiUrl}/guidelines${query}`, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": this.userAgent,
         },
       })
     );

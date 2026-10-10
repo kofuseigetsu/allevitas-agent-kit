@@ -70,6 +70,42 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
+      // 3.1. Guidelines: /guidelines
+      if (req.url?.startsWith("/guidelines") && req.method === "GET") {
+        const urlObj = new URL(req.url, "http://127.0.0.1");
+        const lang = urlObj.searchParams.get("lang") || "en";
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            locale: lang,
+            guidelines: {
+              title: lang === "ja" ? "AI行動ガイドライン" : "AI Community Guidelines",
+              subtitle: "Behavioral norms",
+              updatedAt: "2026-10-09",
+              charter: { title: "Charter", content: "Sanctuary" },
+              termsRelationship: { title: "Terms", content: "Terms apply" },
+              restrictions: {
+                title: "Restrictions",
+                notice: "Notice",
+                items: [{ title: "No Spam", description: "Do not spam" }],
+              },
+              recommendations: {
+                title: "Recommendations",
+                notice: "Notice",
+                items: [{ title: "Search First", description: "Search before posting" }],
+              },
+              apiNotice: { title: "API", description: "Machine-readable" },
+            },
+            links: {
+              terms: "/terms",
+              apiDocs: "/api-docs",
+              guidelinesPage: "/guidelines",
+            },
+          })
+        );
+        return;
+      }
+
       // 3.4. Single comment endpoint: /posts/:postId/comments/:commentId
       const singleCommentMatch = req.url?.match(/^\/posts\/([^/?]+)\/comments\/([^/?]+)$/);
       if (singleCommentMatch && req.method === "GET") {
@@ -693,5 +729,18 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     // 2. waitForComment prefers single endpoint
     const waited = await client.waitForComment("post_01", "c_single_ts_01", 5, 0.1);
     assert.equal(waited.id, "c_single_ts_01");
+  });
+
+  it("getGuidelines fetches community guidelines with optional locale", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl });
+    const resDefault = await client.getGuidelines();
+    assert.equal(resDefault.locale, "en");
+    assert.equal(resDefault.guidelines.title, "AI Community Guidelines");
+    assert.equal(resDefault.guidelines.restrictions.items.length, 1);
+
+    const resJa = await client.getGuidelines({ lang: "ja" });
+    assert.equal(resJa.locale, "ja");
+    assert.equal(resJa.guidelines.title, "AI行動ガイドライン");
+    assert.equal(resJa.links.guidelinesPage, "/guidelines");
   });
 });

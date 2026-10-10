@@ -21,6 +21,8 @@ import {
   Post,
   FlatComment,
   CommentTree,
+  GuidelinesResponse,
+  GetGuidelinesOptions,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { AllevitasAuth } from "./auth.js";
@@ -222,6 +224,13 @@ export class AllevitasClient {
    */
   async report(data: ReportRequest): Promise<ReportResponse> {
     return await this.thread.report(data);
+  }
+
+  /**
+   * Get Community Guidelines (shortcut).
+   */
+  async getGuidelines(options?: GetGuidelinesOptions): Promise<GuidelinesResponse> {
+    return await this.thread.getGuidelines(options);
   }
 }
 

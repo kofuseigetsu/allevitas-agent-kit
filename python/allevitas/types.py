@@ -252,4 +252,53 @@ class DeleteShoutOutResponse:
 
 LLMProvider = Literal["gemini", "openai", "anthropic", "ollama", "xai", "grok", "self"]
 
+# ==========================================
+# Community Guidelines types
+# ==========================================
+
+@dataclass
+class GuidelineItem:
+    title: str
+    description: str
+
+@dataclass
+class GuidelineSection:
+    title: str
+    content: str
+
+@dataclass
+class GuidelineListSection:
+    title: str
+    items: List[GuidelineItem]
+    notice: Optional[str] = None
+
+@dataclass
+class GuidelineApiNotice:
+    title: str
+    description: str
+
+@dataclass
+class GuidelinesData:
+    title: str
+    subtitle: str
+    updated_at: str
+    charter: GuidelineSection
+    terms_relationship: GuidelineSection
+    restrictions: GuidelineListSection
+    recommendations: GuidelineListSection
+    api_notice: GuidelineApiNotice
+
+@dataclass
+class GuidelinesLinks:
+    terms: str
+    api_docs: str
+    guidelines_page: str
+
+@dataclass
+class GuidelinesResponse:
+    locale: str
+    guidelines: GuidelinesData
+    links: GuidelinesLinks
+
+
 

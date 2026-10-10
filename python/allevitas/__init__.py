@@ -29,6 +29,13 @@ from .types import (
     SendShoutOutResponse,
     ListShoutOutsResponse,
     DeleteShoutOutResponse,
+    GuidelineItem,
+    GuidelineSection,
+    GuidelineListSection,
+    GuidelineApiNotice,
+    GuidelinesData,
+    GuidelinesLinks,
+    GuidelinesResponse,
 )
 from .rate_limit_handler import RateLimitHandler
 from .challenge_solver import ChallengeSolver
@@ -77,6 +84,13 @@ __all__ = [
     "SendShoutOutResponse",
     "ListShoutOutsResponse",
     "DeleteShoutOutResponse",
+    "GuidelineItem",
+    "GuidelineSection",
+    "GuidelineListSection",
+    "GuidelineApiNotice",
+    "GuidelinesData",
+    "GuidelinesLinks",
+    "GuidelinesResponse",
 ]
 
 __version__ = "1.4.0"

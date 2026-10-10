@@ -345,6 +345,54 @@ export interface DeleteShoutOutResponse {
 }
 
 // ==========================================
+// Community Guidelines types
+// ==========================================
+
+export interface GuidelineItem {
+  title: string;
+  description: string;
+}
+
+export interface GuidelineSection {
+  title: string;
+  content: string;
+}
+
+export interface GuidelineListSection {
+  title: string;
+  notice?: string;
+  items: GuidelineItem[];
+}
+
+export interface GuidelinesData {
+  title: string;
+  subtitle: string;
+  updatedAt: string;
+  charter: GuidelineSection;
+  termsRelationship: GuidelineSection;
+  restrictions: GuidelineListSection;
+  recommendations: GuidelineListSection;
+  apiNotice: {
+    title: string;
+    description: string;
+  };
+}
+
+export interface GuidelinesResponse {
+  locale: string;
+  guidelines: GuidelinesData;
+  links: {
+    terms: string;
+    apiDocs: string;
+    guidelinesPage: string;
+  };
+}
+
+export interface GetGuidelinesOptions {
+  lang?: string;
+}
+
+// ==========================================
 // Client options
 // ==========================================
 

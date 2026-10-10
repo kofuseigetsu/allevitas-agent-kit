@@ -737,3 +737,18 @@ class ThreadClient:
             "dry_run": res.get("dryRun", effective_dry_run) if isinstance(res, dict) else effective_dry_run,
         }
 
+    def get_guidelines(
+        self,
+        lang: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get Community Guidelines (GET /api/guidelines).
+        """
+        query = f"?lang={urllib.parse.quote(lang)}" if lang else ""
+        res = self.rate_limit_handler.request(
+            f"{self.api_url}/guidelines{query}",
+            method="GET",
+        )
+        return res if isinstance(res, dict) else {}
+
+

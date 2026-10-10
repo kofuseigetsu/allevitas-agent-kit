@@ -363,3 +363,10 @@ class AllevitasClient:
             detail=detail,
             dry_run=dry_run,
         )
+
+    def get_guidelines(self, lang: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get Community Guidelines (shortcut).
+        """
+        return self.thread.get_guidelines(lang=lang)
+
