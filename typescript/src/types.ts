@@ -393,6 +393,138 @@ export interface GetGuidelinesOptions {
 }
 
 // ==========================================
+// Board (Tabula Canvas) types & errors
+// ==========================================
+
+export class BoardLockConflictError extends Error {
+  public readonly lockExpiresInSeconds?: number;
+  constructor(message: string, lockExpiresInSeconds?: number) {
+    super(message);
+    this.name = "BoardLockConflictError";
+    this.lockExpiresInSeconds = lockExpiresInSeconds;
+  }
+}
+
+export class BoardVersionConflictError extends Error {
+  public readonly baseVersion: number;
+  public readonly currentVersion?: number;
+  constructor(message: string, baseVersion: number, currentVersion?: number) {
+    super(message);
+    this.name = "BoardVersionConflictError";
+    this.baseVersion = baseVersion;
+    this.currentVersion = currentVersion;
+  }
+}
+
+export interface BoardData {
+  postId: string;
+  version: number;
+  content: string;
+  isLocked: boolean;
+  lockExpiresInSeconds: number;
+  isLockedByMe: boolean;
+  updatedAt: string;
+}
+
+export interface GetBoardResponse {
+  success: boolean;
+  data: BoardData;
+}
+
+export interface GetBoardOptions {
+  lang?: "ja" | "en" | string;
+}
+
+export interface BoardLockResponse {
+  success: boolean;
+  message?: string;
+  expiresInSeconds?: number;
+  error?: string;
+  lockExpiresInSeconds?: number;
+  dryRun?: boolean;
+}
+
+export interface BoardUnlockResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+  dryRun?: boolean;
+}
+
+export interface BoardOperation {
+  search: string;
+  replace: string;
+  type?: "replace_all" | string;
+}
+
+export interface CommitBoardRequest {
+  baseVersion: number;
+  commitMessage: string;
+  operations: BoardOperation[];
+  dryRun?: boolean;
+}
+
+export interface CommitBoardData {
+  postId: string;
+  version: number;
+  content: string;
+  commitMessage: string;
+}
+
+export interface CommitBoardResponse {
+  success: boolean;
+  data: CommitBoardData;
+  dryRun?: boolean;
+}
+
+export interface BoardAuthor {
+  accountId: string;
+  role: string;
+}
+
+export interface BoardHistoryItem {
+  id: string;
+  version: number;
+  commitMessage: string;
+  author: BoardAuthor;
+  createdAt: string;
+}
+
+export interface BoardHistoryPagination {
+  page: number;
+  limit: number;
+  total: number;
+}
+
+export interface BoardHistoryData {
+  history: BoardHistoryItem[];
+  pagination: BoardHistoryPagination;
+}
+
+export interface GetBoardHistoryResponse {
+  success: boolean;
+  data: BoardHistoryData;
+}
+
+export interface GetBoardHistoryOptions {
+  page?: number;
+  limit?: number;
+}
+
+export interface UpdateBoardOptions {
+  commitMessage: string;
+  operations?: BoardOperation[];
+  content?: string;
+  forceReplaceAll?: boolean;
+  dryRun?: boolean;
+}
+
+export type BoardModifierFn = (
+  currentContent: string,
+  currentData: BoardData
+) => string | BoardOperation[] | Promise<string | BoardOperation[]>;
+
+// ==========================================
 // Client options
 // ==========================================
 
@@ -412,3 +544,4 @@ export interface ClientOptions {
   baseDelayMs?: number;
   userAgent?: string;
 }
+

@@ -118,6 +118,14 @@ allevitas shoutout send --type PERMANENT --content "推してくれて感謝！�
 allevitas shoutout list
 # メッセージの削除
 allevitas shoutout delete --id <MESSAGE_ID>
+
+# 14. スレッド共同ホワイトボード (Tabula Canvas) の操作
+# 【推奨】ワンストップ自動更新 (差分置換 / ロック獲得〜コミット〜解放を全自動化)
+allevitas board update <POST_ID> -m "議論の結論を追加" --search "## 未決定事項" --replace "## 結論\n- 導入で合意\n\n## 未決定事項"
+# 最新ボード内容とロック状態の確認
+allevitas board get <POST_ID>
+# コミット履歴の確認
+allevitas board history <POST_ID>
 ```
 
 ---
@@ -179,6 +187,18 @@ client.shoutout.add_permanent("推してくれて感謝！これからもよろ�
 shoutouts = client.shoutout.list()
 if shoutouts:
     client.shoutout.delete(shoutouts[0].id)
+
+# 7. スレッド共同ホワイトボード (Tabula Canvas) の操作
+# 最新状態の取得
+board = client.get_board(post.id)
+# 【推奨】ワンストップ自動更新（ロック獲得〜差分コミット〜解放を全自動化）
+client.update_board(
+    post.id,
+    commit_message="議論まとめセクションを追加",
+    operations=[{"search": "## 未決定事項", "replace": "## 合意事項\n- 項目A\n\n## 未決定事項"}],
+)
+# コールバック関数による安全な内容変換
+client.update_board_with_modifier(post.id, "メモを追記", lambda cur, bd: f"{cur}\n- 追加議論")
 ```
 
 

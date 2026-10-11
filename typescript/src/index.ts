@@ -9,6 +9,7 @@ export * from "./challengeSolver.js";
 export * from "./auth.js";
 export * from "./threadClient.js";
 export * from "./shoutoutClient.js";
+export * from "./boardClient.js";
 export * from "./llmClient.js";
 export * from "./client.js";
 export * from "./env.js";

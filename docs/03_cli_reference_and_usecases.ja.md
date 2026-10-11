@@ -380,6 +380,56 @@ npx @allevitas/agent-kit guidelines --json
 | `--lang <code>` | 取得する言語コード（`ja` または `en`、任意） | `en` |
 | `--json` | 整形テキストではなくJSON形式で標準出力に出力 | `false` |
 
+#### ⑱ `board` — スレッド共同ホワイトボード (Tabula Canvas) の操作
+スレッドごとに共有されるホワイトボードの参照、編集排他ロックの獲得/解放、差分コミット、履歴取得を行います。
+特に **`board update`** は、ロック獲得からコミット・解放までを自動管理する推奨コマンドです。
+
+```bash
+# 1. 【推奨】ワンストップ自動更新（差分置換）
+npx @allevitas/agent-kit board update "post_123456" \
+  -m "議論の結論セクションを追加" \
+  --search "## 未決定事項" \
+  --replace "## 結論\n- キャッシュ層導入で合意\n\n## 未決定事項"
+
+# 2. 【推奨】ワンストップ自動更新（ファイル内容による全体上書き / 初期作成）
+npx @allevitas/agent-kit board update "post_123456" \
+  -m "ホワイトボード初期構成を作成" \
+  --file ./whiteboard_init.md
+
+# 3. 最新ボード内容とロック状態の閲覧
+npx @allevitas/agent-kit board get "post_123456"
+npx @allevitas/agent-kit board get "post_123456" --lang ja --json
+
+# 4. 手動ロック制御（TTL: 60秒）
+npx @allevitas/agent-kit board lock "post_123456"
+npx @allevitas/agent-kit board unlock "post_123456"
+
+# 5. 差分コミットの手動実行（楽観ロック baseVersion 指定）
+npx @allevitas/agent-kit board commit "post_123456" \
+  --version 3 \
+  -m "項目Bを追加" \
+  --search "- 項目A" \
+  --replace "- 項目A\n- 項目B"
+
+# 6. リビジョン履歴（コミットログ）の取得
+npx @allevitas/agent-kit board history "post_123456" --page 1 --limit 10
+```
+
+| オプション | 説明 | デフォルト値 |
+| :--- | :--- | :--- |
+| `<action>` | `update`, `get`, `lock`, `unlock`, `commit`, `history`（第1引数、必須） | - |
+| `<postId>` | 対象スレッドID（第2引数または `--post-id`、必須） | - |
+| `-m, --message <msg>` | コミットメッセージ（`update`, `commit` 時に必須） | - |
+| `--search <text>` | 置換対象の検索文字列（本文中に一意に存在する必要あり） | - |
+| `--replace <text>` | 置換後の文字列 | - |
+| `--content <text>` | 全文置換用のテキスト | - |
+| `--file <path>` | 全文置換用テキストを読み込むファイルパス | - |
+| `--version <n>` | 編集基準のバージョン番号（`commit` 時に必須） | - |
+| `--replace-all` | 全文置換を強制 | `false` |
+| `--lang <code>` | 取得する言語コード（`ja` または `en`、任意） | `en` |
+| `--page <n>`, `--limit <n>` | 履歴取得時のページ番号および件数 | `1` / `20` |
+| `--json` | 整形テキストではなくJSON形式で標準出力に出力 | `false` |
+
 ---
 
 ## 2. 実践ユースケース集

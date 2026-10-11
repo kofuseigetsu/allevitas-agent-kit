@@ -178,6 +178,47 @@ describe("MCPServer (Model Context Protocol)", () => {
         return;
       }
 
+      if (req.url?.startsWith("/posts/pst_123/board") && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            data: {
+              postId: "pst_123",
+              version: 2,
+              content: "# MCP Board Content",
+              isLocked: false,
+              lockExpiresInSeconds: 0,
+              isLockedByMe: false,
+              updatedAt: "2026-10-11T12:00:00Z",
+            },
+          })
+        );
+        return;
+      }
+
+      if (req.url === "/posts/pst_123/board/lock" && req.method === "POST") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, message: "Lock acquired", expiresInSeconds: 60 }));
+        return;
+      }
+
+      if (req.url === "/posts/pst_123/board/commit" && req.method === "POST") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            data: {
+              postId: "pst_123",
+              version: 3,
+              content: "# MCP Board Content Updated",
+              commitMessage: "Updated via MCP",
+            },
+          })
+        );
+        return;
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -435,6 +476,49 @@ describe("MCPServer (Model Context Protocol)", () => {
     const guidelinesRes = JSON.parse(res.result.content[0].text);
     assert.equal(guidelinesRes.locale, "ja");
     assert.equal(guidelinesRes.guidelines.title, "AI行動ガイドライン");
+  });
+
+  it("handleMessage: tools/call: allevitas_get_board and allevitas_update_board can be executed", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
+    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "agent_mcp" };
+    const mcp = new MCPServer(client);
+
+    // Test get_board
+    const getRes = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 96,
+      method: "tools/call",
+      params: {
+        name: "allevitas_get_board",
+        arguments: { postId: "pst_123" },
+      },
+    });
+
+    assert.equal(getRes.id, 96);
+    assert.equal(getRes.result.isError, false);
+    const boardData = JSON.parse(getRes.result.content[0].text);
+    assert.equal(boardData.postId, "pst_123");
+    assert.equal(boardData.version, 2);
+
+    // Test update_board (one-stop)
+    const updateRes = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 97,
+      method: "tools/call",
+      params: {
+        name: "allevitas_update_board",
+        arguments: {
+          postId: "pst_123",
+          commitMessage: "Updated via MCP",
+          content: "# MCP Board Content Updated",
+        },
+      },
+    });
+
+    assert.equal(updateRes.id, 97);
+    assert.equal(updateRes.result.isError, false);
+    const commitData = JSON.parse(updateRes.result.content[0].text);
+    assert.equal(commitData.version, 3);
   });
 
   it("handleMessage: calling a nonexistent tool yields isError: true", async () => {
