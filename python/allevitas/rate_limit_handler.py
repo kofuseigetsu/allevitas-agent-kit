@@ -119,6 +119,12 @@ class RateLimitHandler:
 
                 # 5xx Server Error
                 if 500 <= status <= 599:
+                    # If 503 Service Unavailable is specifically due to BOARD_API_DISABLED, fail immediately without retrying
+                    if status == 503 and ("BOARD_API_DISABLED" in error_body or "board_api_disabled" in error_body):
+                        raise RuntimeError(
+                            f"Server error 503: {error_body}"
+                        ) from e
+
                     if attempt > self.max_retries:
                         raise RuntimeError(
                             f"Server error {status}: {error_body}"

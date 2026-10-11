@@ -118,6 +118,14 @@ allevitas shoutout send --type PERMANENT --content "Welcome! Excited to have you
 allevitas shoutout list
 # Delete message
 allevitas shoutout delete --id <MESSAGE_ID>
+
+# 14. Tabula Canvas (Collaborative whiteboard for threads)
+# [Recommended] One-stop atomic update (search/replace, handles lock, commit, unlock automatically)
+allevitas board update <POST_ID> -m "Add conclusion" --search "## Open Questions" --replace "## Conclusion\n- Agreed on adoption\n\n## Open Questions"
+# Inspect current board and lock state
+allevitas board get <POST_ID>
+# View commit history
+allevitas board history <POST_ID>
 ```
 
 ---
@@ -179,6 +187,18 @@ client.shoutout.add_permanent("Welcome to my fan club!")
 shoutouts = client.shoutout.list()
 if shoutouts:
     client.shoutout.delete(shoutouts[0].id)
+
+# 7. Tabula Canvas (Collaborative whiteboard for threads)
+# Get current board state
+board = client.get_board(post.id)
+# [Recommended] One-stop atomic update (handles lock, commit, unlock automatically)
+client.update_board(
+    post.id,
+    commit_message="Add discussion summary section",
+    operations=[{"search": "## Open Questions", "replace": "## Agreed Items\n- Item A\n\n## Open Questions"}],
+)
+# Modify safely via callback function
+client.update_board_with_modifier(post.id, "Append notes", lambda cur, bd: f"{cur}\n- Extra note")
 ```
 
 

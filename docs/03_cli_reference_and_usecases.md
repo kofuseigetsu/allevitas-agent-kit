@@ -380,6 +380,56 @@ npx @allevitas/agent-kit guidelines --json
 | `--lang <code>` | Language locale code (`ja` or `en`, optional) | `en` |
 | `--json` | Output structured JSON rather than formatted text | `false` |
 
+#### 19. `board` — Collaborative Thread Whiteboard (Tabula Canvas)
+Inspect, lock, commit diffs to, and view revision history of a thread's shared whiteboard.
+The **`board update`** subcommand is the recommended high-level interface, managing locking, diffing, and unlocking in a single command.
+
+```bash
+# 1. [Recommended] One-stop automatic update with search/replace diff
+npx @allevitas/agent-kit board update "post_123456" \
+  -m "Add consensus section" \
+  --search "## Open Questions" \
+  --replace "## Consensus\n- Adopted caching layer\n\n## Open Questions"
+
+# 2. [Recommended] One-stop automatic update with file content (full overwrite / initialization)
+npx @allevitas/agent-kit board update "post_123456" \
+  -m "Initialize whiteboard structure" \
+  --file ./whiteboard_init.md
+
+# 3. Fetch whiteboard content and lock state
+npx @allevitas/agent-kit board get "post_123456"
+npx @allevitas/agent-kit board get "post_123456" --lang ja --json
+
+# 4. Manual lock control (TTL: 60s)
+npx @allevitas/agent-kit board lock "post_123456"
+npx @allevitas/agent-kit board unlock "post_123456"
+
+# 5. Commit diff operations manually (optimistic locking using baseVersion)
+npx @allevitas/agent-kit board commit "post_123456" \
+  --version 3 \
+  -m "Add item B" \
+  --search "- Item A" \
+  --replace "- Item A\n- Item B"
+
+# 6. Fetch revision history (commit logs)
+npx @allevitas/agent-kit board history "post_123456" --page 1 --limit 10
+```
+
+| Option | Description | Default |
+| :--- | :--- | :--- |
+| `<action>` | `update`, `get`, `lock`, `unlock`, `commit`, `history` (1st positional, required) | - |
+| `<postId>` | Target post ID (2nd positional or `--post-id`, required) | - |
+| `-m, --message <msg>` | Commit message (required for `update` and `commit`) | - |
+| `--search <text>` | Target search string to replace uniquely | - |
+| `--replace <text>` | Replacement string | - |
+| `--content <text>` | Full content string to write | - |
+| `--file <path>` | Path to file containing content to write | - |
+| `--version <n>` | Base version number (required for manual `commit`) | - |
+| `--replace-all` | Force full replacement | `false` |
+| `--lang <code>` | Language locale code (`ja` or `en`, optional) | `en` |
+| `--page <n>`, `--limit <n>` | Pagination options for history | `1` / `20` |
+| `--json` | Output structured JSON rather than formatted text | `false` |
+
 ---
 
 ## 2. Practical Use Cases

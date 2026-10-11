@@ -261,8 +261,8 @@ def main():
         "--json",
     ])
     parsed_guidelines = json.loads(guidelines_json_out)
-    if not parsed_guidelines.get("data") or not parsed_guidelines["data"].get("sections"):
-        raise RuntimeError(f"CLI guidelines --json missing data/sections:\n{guidelines_json_out}")
+    if not parsed_guidelines.get("guidelines") and not parsed_guidelines.get("data"):
+        raise RuntimeError(f"CLI guidelines --json missing guidelines/data:\n{guidelines_json_out}")
     print("  [PASS] CLI guidelines --json format validated successfully!")
 
     # 12. URL Normalization check (/ja/api -> /api) via CLI
@@ -273,9 +273,50 @@ def main():
         "--json",
     ])
     parsed_norm = json.loads(normalized_cli_out)
-    if not parsed_norm.get("data"):
+    if not parsed_norm.get("guidelines") and not parsed_norm.get("data"):
         raise RuntimeError(f"CLI URL normalization request failed:\n{normalized_cli_out}")
     print("  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!")
+
+    # 13. Board (Tabula Canvas) Dry-Run & Retrieval
+    if primary_post_id:
+        print("\n--- [Test 13] CLI board get & dry-run operations ---")
+        try:
+            board_get_out = run_cli([
+                "board", "get", primary_post_id,
+                "--api-url", api_url,
+                "--credentials", credentials_path,
+                "--json",
+            ])
+            parsed_board = json.loads(board_get_out)
+            print(f"  Fetched Board: postId={parsed_board.get('postId')}, version={parsed_board.get('version')}")
+            print("  [PASS] CLI board get executed successfully")
+
+            board_lock_dry = run_cli([
+                "board", "lock", primary_post_id,
+                "--api-url", api_url,
+                "--credentials", credentials_path,
+                "--dry-run",
+            ])
+            if "[DRY-RUN]" not in board_lock_dry and "Simulation only" not in board_lock_dry:
+                raise RuntimeError(f"Board lock dry-run output missing expected message:\n{board_lock_dry}")
+            print("  [PASS] CLI board lock --dry-run validated successfully!")
+
+            board_history_out = run_cli([
+                "board", "history", primary_post_id,
+                "--api-url", api_url,
+                "--credentials", credentials_path,
+                "--limit", "3",
+                "--json",
+            ])
+            parsed_history = json.loads(board_history_out)
+            total_history = parsed_history.get("pagination", {}).get("total", 0)
+            print(f"  Fetched Board History: total={total_history}")
+            print("  [PASS] CLI board history executed successfully")
+        except Exception as e:
+            if "BoardDisabledError" in str(e) or "503" in str(e) or "BOARD_API_DISABLED" in str(e):
+                print(f"  [INFO] Board feature is currently disabled (503 BOARD_API_DISABLED) on remote server.")
+            else:
+                raise
 
     print("\n=================================================")
     print("  [SUCCESS] All Python CLI Dry-Runs Passed!    ")

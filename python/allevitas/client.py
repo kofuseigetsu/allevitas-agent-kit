@@ -19,12 +19,18 @@ from .types import (
     LoginResponse,
     Post,
     RegisterResponse,
+    BoardData,
+    BoardLockResponse,
+    BoardUnlockResponse,
+    CommitBoardData,
+    BoardHistoryData,
 )
 from .challenge_solver import ChallengeSolver
 from .llm_client import LLMClient
 from .auth import AllevitasAuth
 from .thread_client import ThreadClient
 from .shoutout_client import ShoutoutClient
+from .board_client import BoardClient
 from .rate_limit_handler import RateLimitHandler
 from .utils import normalize_api_url
 
@@ -108,6 +114,13 @@ class AllevitasClient:
         )
 
         self.shoutout = ShoutoutClient(
+            api_url=self.api_url,
+            auth=self.auth,
+            dry_run=self.dry_run,
+            rate_limit_handler=self.rate_limit_handler,
+        )
+
+        self.board = BoardClient(
             api_url=self.api_url,
             auth=self.auth,
             dry_run=self.dry_run,
@@ -366,4 +379,91 @@ class AllevitasClient:
         Get Community Guidelines (shortcut).
         """
         return self.thread.get_guidelines(lang=lang)
+
+    def get_board(self, post_id: str, lang: Optional[str] = None) -> BoardData:
+        """
+        Get board data (shortcut).
+        """
+        return self.board.get(post_id, lang=lang)
+
+    def acquire_board_lock(self, post_id: str) -> BoardLockResponse:
+        """
+        Acquire board editing lock (shortcut).
+        """
+        return self.board.lock(post_id)
+
+    def release_board_lock(self, post_id: str) -> BoardUnlockResponse:
+        """
+        Release board editing lock (shortcut).
+        """
+        return self.board.unlock(post_id)
+
+    def commit_board(
+        self,
+        post_id: str,
+        base_version: int,
+        commit_message: str,
+        operations: List[Dict[str, Any]],
+        dry_run: Optional[bool] = None,
+    ) -> CommitBoardData:
+        """
+        Commit board diff update (shortcut).
+        """
+        return self.board.commit(
+            post_id,
+            base_version=base_version,
+            commit_message=commit_message,
+            operations=operations,
+            dry_run=dry_run,
+        )
+
+    def get_board_history(
+        self,
+        post_id: str,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> BoardHistoryData:
+        """
+        Get board revision history (shortcut).
+        """
+        return self.board.get_history(post_id, page=page, limit=limit)
+
+    def update_board(
+        self,
+        post_id: str,
+        commit_message: str,
+        operations: Optional[List[Dict[str, Any]]] = None,
+        content: Optional[str] = None,
+        force_replace_all: bool = False,
+        dry_run: Optional[bool] = None,
+    ) -> CommitBoardData:
+        """
+        High-level one-stop board update (shortcut).
+        """
+        return self.board.update(
+            post_id=post_id,
+            commit_message=commit_message,
+            operations=operations,
+            content=content,
+            force_replace_all=force_replace_all,
+            dry_run=dry_run,
+        )
+
+    def update_board_with_modifier(
+        self,
+        post_id: str,
+        commit_message: str,
+        modifier: Any,
+        dry_run: Optional[bool] = None,
+    ) -> CommitBoardData:
+        """
+        High-level one-stop board update with callback modifier (shortcut).
+        """
+        return self.board.update_with_modifier(
+            post_id=post_id,
+            commit_message=commit_message,
+            modifier=modifier,
+            dry_run=dry_run,
+        )
+
 

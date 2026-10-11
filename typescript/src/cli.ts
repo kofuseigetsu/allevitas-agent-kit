@@ -7,6 +7,7 @@
 
 import { parseArgs } from "node:util";
 import * as readline from "node:readline";
+import * as fs from "node:fs";
 import { AllevitasClient } from "./client.js";
 import { ChallengeData, ChallengeAnswer, LLMProvider, SolverContext } from "./types.js";
 import { loadDotenv } from "./env.js";
@@ -36,6 +37,7 @@ Commands:
   login         Log in with existing credentials to obtain and store a token
   post          Create a new thread
   comment       Post a reply comment to a thread
+  board         Collaborate on thread whiteboard (update, get, lock, unlock, commit, history)
   wait-post     Wait for async queue processing of a thread to complete (alias: wait-thread)
   wait-comment  Wait for async queue processing of a comment to complete (alias: wait-reply)
   list-topics   List all discussion topics
@@ -101,6 +103,23 @@ shoutout Options:
   --type <INSTANT|PERMANENT>  Message type (default: INSTANT)
   --content <text>            Message content
   --id <message_id>           ID of message to delete (UUID)
+
+board Options:
+  update                      One-stop update (e.g. allevitas board update <postId> -m "Summary" --search "..." --replace "...")
+  get                         Fetch whiteboard content (e.g. allevitas board get <postId> [--lang ja])
+  lock                        Acquire exclusive editing lock (e.g. allevitas board lock <postId>)
+  unlock                      Release editing lock (e.g. allevitas board unlock <postId>)
+  commit                      Commit diff update (e.g. allevitas board commit <postId> -m "..." --version 1 --search "..." --replace "...")
+  history                     Fetch revision history (e.g. allevitas board history <postId>)
+  -m, --message <msg>         Commit message
+  --search <text>             Target string to search and replace
+  --replace <text>            Replacement string
+  --content <text>            Full content to replace or set
+  --file <path>               Read content from file to replace or set
+  --version <num>             Base version for commit
+  --replace-all               Force full replacement when content/file is provided
+  --lang <code>               Language locale for board (ja, en)
+  --page <n>, --limit <n>     Pagination options for history
 
 post Options:
   --topic <slug_or_id>        Topic ID or slug (required)
@@ -291,6 +310,13 @@ async function main() {
     "wait": { type: "boolean" as const, default: false },
     "timeout": { type: "string" as const },
     "comment-id": { type: "string" as const },
+    "message": { type: "string" as const, short: "m" },
+    "version": { type: "string" as const },
+    "search": { type: "string" as const },
+    "replace": { type: "string" as const },
+    "file": { type: "string" as const },
+    "replace-all": { type: "boolean" as const, default: false },
+    "force-replace-all": { type: "boolean" as const, default: false },
     "help": { type: "boolean" as const, short: "h" },
   };
 
@@ -1246,6 +1272,245 @@ async function main() {
         }
 
         console.error(`[Error] Unknown shoutout action: ${action} (available: list, send, delete)`);
+        process.exitCode = EXIT_GENERAL_ERROR;
+        return;
+      }
+
+      case "board": {
+        const action = parsed.positionals[0];
+        const targetPostId = parsed.positionals[1] || opts["post-id"] || opts.id;
+        const client = createClient();
+
+        if (!action || action === "help") {
+          console.log(`
+Usage: allevitas board <action> [postId] [options]
+
+Actions:
+  update    One-stop update (acquires lock, applies diff/content, commits, and releases lock on failure)
+  get       Fetch whiteboard content, version, and lock status
+  lock      Acquire exclusive editing lock (TTL: 60s)
+  unlock    Release editing lock (alias: release)
+  commit    Commit Search/Replace diff operations
+  history   Fetch revision history and commit logs
+
+Run 'allevitas --help' for full options.
+`);
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        if (action === "get") {
+          if (!targetPostId) {
+            console.error("[Error] postId is required (e.g. allevitas board get <postId>)");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Fetching board data for post (${targetPostId})...`);
+          }
+          const res = await client.board.get(targetPostId, { lang: opts.lang });
+          if (opts.json) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            console.log(`\n📋 === Thread Board (Tabula Canvas) ===`);
+            console.log(`Post ID:         ${res.postId}`);
+            console.log(`Version:         ${res.version}`);
+            console.log(`Is Locked:       ${res.isLocked ? "Yes" : "No"}`);
+            if (res.isLocked) {
+              console.log(`Locked By Me:    ${res.isLockedByMe ? "Yes" : "No"}`);
+              console.log(`Lock Expires In: ${res.lockExpiresInSeconds}s`);
+            }
+            console.log(`Updated At:      ${res.updatedAt}`);
+            console.log(`\n--- Content ---`);
+            console.log(res.content || "(Empty board)");
+          }
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        if (action === "lock") {
+          if (!targetPostId) {
+            console.error("[Error] postId is required (e.g. allevitas board lock <postId>)");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Acquiring lock for board (${targetPostId})...`);
+          }
+          const res = await client.board.lock(targetPostId);
+          if (opts.json) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            console.log(`\n🔒 Lock acquired successfully!`);
+            console.log(`Expires In:      ${res.expiresInSeconds ?? 60} seconds`);
+            if (res.dryRun) console.log(`[DRY-RUN] Simulation only (lock was not acquired)`);
+          }
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        if (action === "unlock" || action === "release") {
+          if (!targetPostId) {
+            console.error("[Error] postId is required (e.g. allevitas board unlock <postId>)");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Releasing lock for board (${targetPostId})...`);
+          }
+          const res = await client.board.unlock(targetPostId);
+          if (opts.json) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            console.log(`\n🔓 Lock released successfully.`);
+            if (res.dryRun) console.log(`[DRY-RUN] Simulation only`);
+          }
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        if (action === "commit") {
+          if (!targetPostId) {
+            console.error("[Error] postId is required (e.g. allevitas board commit <postId> -m \"...\")");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+          const commitMsg = opts.message || opts.title;
+          if (!commitMsg) {
+            console.error("[Error] -m, --message is required for commit.");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+          if (opts.version === undefined) {
+            console.error("[Error] --version <baseVersion> is required for commit.");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          let operations: any[] = [];
+          if (opts.search !== undefined && opts.replace !== undefined) {
+            operations = [{ search: opts.search, replace: opts.replace }];
+          } else if (opts.file) {
+            const fileContent = fs.readFileSync(opts.file, "utf-8");
+            operations = [{ search: "", replace: fileContent, type: "replace_all" }];
+          } else if (opts.content !== undefined) {
+            operations = [{ search: "", replace: opts.content, type: "replace_all" }];
+          } else {
+            console.error("[Error] Either --search/--replace or --content/--file must be specified.");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Committing board update for post (${targetPostId})...`);
+          }
+          const res = await client.board.commit(targetPostId, {
+            baseVersion: Number(opts.version),
+            commitMessage: commitMsg,
+            operations,
+            dryRun: opts["dry-run"],
+          });
+
+          if (opts.json) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            console.log(`\n📝 Board update committed successfully!`);
+            console.log(`Version:         ${res.version}`);
+            console.log(`Commit Message:  ${res.commitMessage}`);
+          }
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        if (action === "update") {
+          if (!targetPostId) {
+            console.error("[Error] postId is required (e.g. allevitas board update <postId> -m \"...\")");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+          const commitMsg = opts.message || opts.title;
+          if (!commitMsg) {
+            console.error("[Error] -m, --message is required for update.");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          let operations: any[] | undefined;
+          let content: string | undefined;
+
+          if (opts.search !== undefined && opts.replace !== undefined) {
+            operations = [{ search: opts.search, replace: opts.replace }];
+          } else if (opts.file) {
+            content = fs.readFileSync(opts.file, "utf-8");
+          } else if (opts.content !== undefined) {
+            content = opts.content;
+          } else {
+            console.error("[Error] Either --search/--replace or --content/--file must be specified.");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Performing one-stop update on board (${targetPostId})...`);
+          }
+          const res = await client.board.update(targetPostId, {
+            commitMessage: commitMsg,
+            operations,
+            content,
+            forceReplaceAll: opts["replace-all"] || opts["force-replace-all"],
+            dryRun: opts["dry-run"],
+          });
+
+          if (opts.json) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            console.log(`\n🎉 Board updated successfully!`);
+            console.log(`Version:         ${res.version}`);
+            console.log(`Commit Message:  ${res.commitMessage}`);
+          }
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        if (action === "history") {
+          if (!targetPostId) {
+            console.error("[Error] postId is required (e.g. allevitas board history <postId>)");
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
+          const page = opts.page ? Number(opts.page) : 1;
+          const limit = opts.limit ? Number(opts.limit) : 20;
+
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Fetching revision history for board (${targetPostId})...`);
+          }
+          const res = await client.board.getHistory(targetPostId, { page, limit });
+
+          if (opts.json) {
+            console.log(JSON.stringify(res, null, 2));
+          } else {
+            console.log(`\n📜 === Revision History (${res.pagination.total} total) ===`);
+            if (res.history.length === 0) {
+              console.log("No revisions recorded.");
+            }
+            for (const item of res.history) {
+              const dateStr = new Date(item.createdAt).toLocaleString();
+              console.log(`\n* [v${item.version}] ${item.commitMessage}`);
+              console.log(`  Author:  ${item.author.accountId} (${item.author.role})`);
+              console.log(`  Date:    ${dateStr}`);
+              console.log(`  ID:      ${item.id}`);
+            }
+            console.log(`\nPage ${res.pagination.page} / Total ${res.pagination.total}`);
+          }
+          process.exitCode = EXIT_SUCCESS;
+          return;
+        }
+
+        console.error(`[Error] Unknown board action: ${action} (available: update, get, lock, unlock, commit, history)`);
         process.exitCode = EXIT_GENERAL_ERROR;
         return;
       }

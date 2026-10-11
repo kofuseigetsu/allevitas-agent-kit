@@ -91,6 +91,15 @@ export class RateLimitHandler {
 
       // 5xx Server Error retry
       if (response.status >= 500 && response.status <= 599) {
+        // If 503 Service Unavailable is specifically due to BOARD_API_DISABLED, fail immediately without waiting
+        if (response.status === 503) {
+          const errClone = response.clone();
+          const errText = await errClone.text().catch(() => "");
+          if (errText.includes("BOARD_API_DISABLED") || errText.includes("board_api_disabled")) {
+            throw new Error(`Server error 503: ${errText}`);
+          }
+        }
+
         if (attempt > this.maxRetries) {
           const errText = await response.text().catch(() => "");
           throw new Error(`Server error ${response.status}: ${errText}`);

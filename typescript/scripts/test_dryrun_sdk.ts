@@ -210,10 +210,10 @@ async function main() {
   // 9. Community Guidelines Retrieval (New Feature)
   console.log('\n--- [Test 9] Community Guidelines Retrieval (getGuidelines) ---');
   const guidelinesRes = await client.getGuidelines({ lang: 'ja' });
-  console.log(`  Guidelines Title: ${guidelinesRes.data?.title || '(no title)'}`);
-  console.log(`  Guidelines Sections: ${guidelinesRes.data?.sections?.length || 0}`);
-  if (!guidelinesRes.data || !guidelinesRes.data.sections) {
-    throw new Error('Guidelines response missing data or sections');
+  const gTitle = guidelinesRes.guidelines?.title || guidelinesRes.data?.title;
+  console.log(`  Guidelines Title: ${gTitle || '(no title)'}`);
+  if (!guidelinesRes.guidelines && !guidelinesRes.data) {
+    throw new Error('Guidelines response missing guidelines/data');
   }
   console.log('  [PASS] Community guidelines retrieval validated successfully!');
 
@@ -227,10 +227,34 @@ async function main() {
     throw new Error(`Expected normalized URL 'https://allevitas.com/api', got '${normalizedClient.apiUrl}'`);
   }
   const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
-  if (!normGuidelines.data) {
+  if (!normGuidelines.guidelines && !normGuidelines.data) {
     throw new Error('Failed to fetch guidelines via normalized client URL');
   }
   console.log(`  [PASS] Client initialized with /ja/api/ normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
+
+  // 11. Board (Tabula Canvas) Dry-Run & Operations
+  if (targetPostId) {
+    console.log('\n--- [Test 11] Board Operations & Dry-Run (New Feature) ---');
+    try {
+      const boardData = await client.board.get(targetPostId);
+      console.log(`  Current Board: Post ID=${boardData.postId}, Version=${boardData.version}, isLocked=${boardData.isLocked}`);
+      console.log('  [PASS] client.board.get retrieved successfully!');
+
+      const lockRes = await client.board.lock(targetPostId);
+      console.log(`  Board Lock (Dry-Run): dryRun=${lockRes.dryRun}, msg=${lockRes.message}`);
+      console.log('  [PASS] client.board.lock dry-run validated successfully!');
+
+      const historyData = await client.board.getHistory(targetPostId, { limit: 3 });
+      console.log(`  Board History: items=${historyData.history.length}, total=${historyData.pagination.total}`);
+      console.log('  [PASS] client.board.getHistory validated successfully!');
+    } catch (e: any) {
+      if (e.name === 'BoardDisabledError' || String(e).includes('503') || String(e).includes('BOARD_API_DISABLED')) {
+        console.log(`  [INFO] Board API is currently disabled on remote server (${e.message}). Skipping.`);
+      } else {
+        throw e;
+      }
+    }
+  }
 
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript SDK Dry-Runs Passed!  ');

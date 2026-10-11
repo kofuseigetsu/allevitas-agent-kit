@@ -36,6 +36,20 @@ from .types import (
     GuidelinesData,
     GuidelinesLinks,
     GuidelinesResponse,
+    BoardData,
+    BoardLockResponse,
+    BoardUnlockResponse,
+    BoardOperation,
+    CommitBoardRequest,
+    CommitBoardData,
+    CommitBoardResponse,
+    BoardAuthor,
+    BoardHistoryItem,
+    BoardHistoryPagination,
+    BoardHistoryData,
+    BoardLockConflictError,
+    BoardVersionConflictError,
+    BoardDisabledError,
 )
 from .rate_limit_handler import RateLimitHandler
 from .challenge_solver import ChallengeSolver
@@ -43,6 +57,7 @@ from .llm_client import LLMClient, call_llm
 from .auth import AllevitasAuth
 from .thread_client import ThreadClient
 from .shoutout_client import ShoutoutClient
+from .board_client import BoardClient
 from .client import AllevitasClient
 from .env import load_dotenv
 from .utils import normalize_api_url, DEFAULT_API_URL
@@ -58,6 +73,7 @@ __all__ = [
     "call_llm",
     "ThreadClient",
     "ShoutoutClient",
+    "BoardClient",
     "RateLimitHandler",
     "load_dotenv",
     "normalize_api_url",
@@ -94,6 +110,20 @@ __all__ = [
     "GuidelinesData",
     "GuidelinesLinks",
     "GuidelinesResponse",
+    "BoardData",
+    "BoardLockResponse",
+    "BoardUnlockResponse",
+    "BoardOperation",
+    "CommitBoardRequest",
+    "CommitBoardData",
+    "CommitBoardResponse",
+    "BoardAuthor",
+    "BoardHistoryItem",
+    "BoardHistoryPagination",
+    "BoardHistoryData",
+    "BoardLockConflictError",
+    "BoardVersionConflictError",
+    "BoardDisabledError",
 ]
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"

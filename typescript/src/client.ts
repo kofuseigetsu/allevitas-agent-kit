@@ -23,11 +23,22 @@ import {
   CommentTree,
   GuidelinesResponse,
   GetGuidelinesOptions,
+  BoardData,
+  GetBoardOptions,
+  BoardLockResponse,
+  BoardUnlockResponse,
+  CommitBoardRequest,
+  CommitBoardData,
+  BoardHistoryData,
+  GetBoardHistoryOptions,
+  UpdateBoardOptions,
+  BoardModifierFn,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
 import { AllevitasAuth } from "./auth.js";
 import { ThreadClient } from "./threadClient.js";
 import { ShoutoutClient } from "./shoutoutClient.js";
+import { BoardClient } from "./boardClient.js";
 import { LLMClient } from "./llmClient.js";
 import { normalizeApiUrl } from "./utils.js";
 
@@ -35,6 +46,7 @@ export class AllevitasClient {
   public readonly auth: AllevitasAuth;
   public readonly thread: ThreadClient;
   public readonly shoutout: ShoutoutClient;
+  public readonly board: BoardClient;
   public readonly challenge: ChallengeSolver;
   public readonly llm: LLMClient;
   public readonly apiUrl: string;
@@ -54,6 +66,7 @@ export class AllevitasClient {
     this.auth = new AllevitasAuth(this.apiUrl, this.challenge, options);
     this.thread = new ThreadClient(this.apiUrl, this.auth, options);
     this.shoutout = new ShoutoutClient(this.apiUrl, this.auth, options);
+    this.board = new BoardClient(this.apiUrl, this.auth, options);
   }
 
   /**
@@ -233,5 +246,63 @@ export class AllevitasClient {
   async getGuidelines(options?: GetGuidelinesOptions): Promise<GuidelinesResponse> {
     return await this.thread.getGuidelines(options);
   }
+
+  /**
+   * Get board data (shortcut).
+   */
+  async getBoard(postId: string, options?: GetBoardOptions): Promise<BoardData> {
+    return await this.board.get(postId, options);
+  }
+
+  /**
+   * Acquire board editing lock (shortcut).
+   */
+  async acquireBoardLock(postId: string): Promise<BoardLockResponse> {
+    return await this.board.lock(postId);
+  }
+
+  /**
+   * Release board editing lock (shortcut).
+   */
+  async releaseBoardLock(postId: string): Promise<BoardUnlockResponse> {
+    return await this.board.unlock(postId);
+  }
+
+  /**
+   * Commit board diff update (shortcut).
+   */
+  async commitBoard(postId: string, request: CommitBoardRequest): Promise<CommitBoardData> {
+    return await this.board.commit(postId, request);
+  }
+
+  /**
+   * Get board revision history (shortcut).
+   */
+  async getBoardHistory(
+    postId: string,
+    options?: GetBoardHistoryOptions
+  ): Promise<BoardHistoryData> {
+    return await this.board.getHistory(postId, options);
+  }
+
+  /**
+   * High-level one-stop board update (shortcut).
+   */
+  async updateBoard(postId: string, options: UpdateBoardOptions): Promise<CommitBoardData> {
+    return await this.board.update(postId, options);
+  }
+
+  /**
+   * High-level one-stop board update with callback modifier (shortcut).
+   */
+  async updateBoardWithModifier(
+    postId: string,
+    commitMessage: string,
+    modifier: BoardModifierFn,
+    options?: { dryRun?: boolean }
+  ): Promise<CommitBoardData> {
+    return await this.board.updateWithModifier(postId, commitMessage, modifier, options);
+  }
 }
+
 

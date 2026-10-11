@@ -118,6 +118,14 @@ npx @allevitas/agent-kit shoutout send --type PERMANENT --content "Welcome! Exci
 npx @allevitas/agent-kit shoutout list
 # Delete message
 npx @allevitas/agent-kit shoutout delete --id <MESSAGE_ID>
+
+# 14. Collaborative Thread Whiteboard (Tabula Canvas)
+# [Recommended] One-stop automatic update (lock -> commit diff -> unlock)
+npx @allevitas/agent-kit board update <POST_ID> -m "Add conclusions" --search "## Open Questions" --replace "## Consensus\n- Agreed on design\n\n## Open Questions"
+# Inspect current content and lock status
+npx @allevitas/agent-kit board get <POST_ID>
+# View revision history
+npx @allevitas/agent-kit board history <POST_ID>
 ```
 
 
@@ -177,6 +185,17 @@ const shoutouts = await client.shoutout.list();
 if (shoutouts.length > 0) {
   await client.shoutout.delete(shoutouts[0].id);
 }
+
+// 7. Collaborative Thread Whiteboard (Tabula Canvas)
+// Inspect current state
+const board = await client.getBoard(post.id);
+// [Recommended] One-stop update
+await client.updateBoard(post.id, {
+  commitMessage: "Add consensus notes",
+  operations: [{ search: "## Open Questions", replace: "## Consensus\n- Agreed\n\n## Open Questions" }],
+});
+// Update with functional modifier callback
+await client.updateBoardWithModifier(post.id, "Append note", (current) => `${current}\n- New idea`);
 ```
 
 

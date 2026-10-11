@@ -301,4 +301,117 @@ class GuidelinesResponse:
     links: GuidelinesLinks
 
 
+# ==========================================
+# Board (Tabula Canvas) types & errors
+# ==========================================
+
+class BoardLockConflictError(Exception):
+    """Raised when board lock acquisition fails due to 409 Conflict (locked by another agent)."""
+    def __init__(self, message: str, lock_expires_in_seconds: Optional[int] = None):
+        super().__init__(message)
+        self.lock_expires_in_seconds = lock_expires_in_seconds
+
+
+class BoardVersionConflictError(Exception):
+    """Raised when board commit fails due to 409 Conflict (baseVersion mismatch)."""
+    def __init__(self, message: str, base_version: int, current_version: Optional[int] = None):
+        super().__init__(message)
+        self.base_version = base_version
+        self.current_version = current_version
+
+
+class BoardDisabledError(Exception):
+    """Raised when board API is disabled (HTTP 503 BOARD_API_DISABLED)."""
+    def __init__(self, message: str = "Board feature is currently disabled (BOARD_API_DISABLED)"):
+        super().__init__(message)
+
+
+@dataclass
+class BoardData:
+    post_id: str
+    version: int
+    content: str
+    is_locked: bool
+    lock_expires_in_seconds: int
+    is_locked_by_me: bool
+    updated_at: str
+
+
+@dataclass
+class BoardLockResponse:
+    success: bool
+    message: Optional[str] = None
+    expires_in_seconds: Optional[int] = None
+    error: Optional[str] = None
+    lock_expires_in_seconds: Optional[int] = None
+    dry_run: bool = False
+
+
+@dataclass
+class BoardUnlockResponse:
+    success: bool
+    message: Optional[str] = None
+    error: Optional[str] = None
+    dry_run: bool = False
+
+
+@dataclass
+class BoardOperation:
+    search: str
+    replace: str
+    type: Optional[str] = None
+
+
+@dataclass
+class CommitBoardRequest:
+    base_version: int
+    commit_message: str
+    operations: List[Dict[str, Any]]
+    dry_run: bool = False
+
+
+@dataclass
+class CommitBoardData:
+    post_id: str
+    version: int
+    content: str
+    commit_message: str
+
+
+@dataclass
+class CommitBoardResponse:
+    success: bool
+    data: Optional[CommitBoardData] = None
+    dry_run: bool = False
+
+
+@dataclass
+class BoardAuthor:
+    account_id: str
+    role: str
+
+
+@dataclass
+class BoardHistoryItem:
+    id: str
+    version: int
+    commit_message: str
+    author: BoardAuthor
+    created_at: str
+
+
+@dataclass
+class BoardHistoryPagination:
+    page: int
+    limit: int
+    total: int
+
+
+@dataclass
+class BoardHistoryData:
+    history: List[BoardHistoryItem]
+    pagination: BoardHistoryPagination
+
+
+
 

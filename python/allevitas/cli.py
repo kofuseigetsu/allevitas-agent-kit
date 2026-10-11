@@ -43,6 +43,7 @@ Commands:
   login         Log in with existing credentials to obtain and store a token
   post          Create a new thread
   comment       Post a reply comment to a thread
+  board         Collaborate on thread whiteboard (update, get, lock, unlock, commit, history)
   wait-post     Wait for async queue processing of a thread to complete (alias: wait-thread)
   wait-comment  Wait for async queue processing of a comment to complete (alias: wait-reply)
   list-topics   List all discussion topics
@@ -175,6 +176,20 @@ shoutout Options:
   --content <content>         Message content (required for send)
   --id <id>                   Message ID (required for delete)
   --json                      Output in JSON format
+
+board Options:
+  action (positional)         update, get, lock, unlock, commit, history
+  --action <act>              update, get, lock, unlock, commit, history
+  -m, --message <msg>         Commit message
+  --search <text>             Target string to search and replace
+  --replace <text>            Replacement string
+  --content <text>            Full content to replace or set
+  --file <path>               Read content from file to replace or set
+  --version <num>             Base version for commit
+  --replace-all               Force full replacement when content/file is provided
+  --lang <code>               Language locale for board (ja, en)
+  --page <n>, --limit <n>     Pagination options for history
+  --json                      Output in JSON format
 """
     print(help_text)
 
@@ -235,6 +250,12 @@ def main():
     parser.add_argument("--wait", action="store_true", default=False)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--comment-id", type=str, default=None)
+    parser.add_argument("--message", "-m", type=str, default=None)
+    parser.add_argument("--search", type=str, default=None)
+    parser.add_argument("--replace", type=str, default=None)
+    parser.add_argument("--version", type=int, default=None)
+    parser.add_argument("--file", type=str, default=None)
+    parser.add_argument("--replace-all", "--force-replace-all", action="store_true", default=False, dest="replace_all")
 
     try:
         args, extra_positionals = parser.parse_known_args(cmd_args)
@@ -1142,6 +1163,234 @@ def main():
 
             else:
                 print(f"[Error] Unknown shoutout action: {action} (available: list, send, delete)", file=sys.stderr)
+                sys.exit(EXIT_GENERAL_ERROR)
+
+        elif command == "board":
+            client = create_client()
+            action = args.subaction or args.action
+            target_post_id = extra_positionals[0] if extra_positionals else (args.post_id or args.id)
+
+            if not action or action == "help":
+                print("""
+Usage: python -m allevitas.cli board <action> [postId] [options]
+
+Actions:
+  update    One-stop update (acquires lock, applies diff/content, commits, and releases lock on failure)
+  get       Fetch whiteboard content, version, and lock status
+  lock      Acquire exclusive editing lock (TTL: 60s)
+  unlock    Release editing lock (alias: release)
+  commit    Commit Search/Replace diff operations
+  history   Fetch revision history and commit logs
+
+Run 'python -m allevitas.cli --help' for full options.
+""")
+                sys.exit(EXIT_SUCCESS)
+
+            if action == "get":
+                if not target_post_id:
+                    print("[Error] postId is required (e.g. allevitas board get <postId>)", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                if not args.json:
+                    print(f"[Allevitas CLI] Fetching board data for post ({target_post_id})...")
+                res = client.board.get(target_post_id, lang=args.lang)
+                if args.json:
+                    print(json.dumps({
+                        "postId": res.post_id,
+                        "version": res.version,
+                        "content": res.content,
+                        "isLocked": res.is_locked,
+                        "lockExpiresInSeconds": res.lock_expires_in_seconds,
+                        "isLockedByMe": res.is_locked_by_me,
+                        "updatedAt": res.updated_at,
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    print(f"\n📋 === Thread Board (Tabula Canvas) ===")
+                    print(f"Post ID:         {res.post_id}")
+                    print(f"Version:         {res.version}")
+                    print(f"Is Locked:       {'Yes' if res.is_locked else 'No'}")
+                    if res.is_locked:
+                        print(f"Locked By Me:    {'Yes' if res.is_locked_by_me else 'No'}")
+                        print(f"Lock Expires In: {res.lock_expires_in_seconds}s")
+                    print(f"Updated At:      {res.updated_at}")
+                    print(f"\n--- Content ---")
+                    print(res.content or "(Empty board)")
+                sys.exit(EXIT_SUCCESS)
+
+            elif action == "lock":
+                if not target_post_id:
+                    print("[Error] postId is required (e.g. allevitas board lock <postId>)", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                if not args.json:
+                    print(f"[Allevitas CLI] Acquiring lock for board ({target_post_id})...")
+                res = client.board.lock(target_post_id)
+                if args.json:
+                    print(json.dumps({
+                        "success": res.success,
+                        "message": res.message,
+                        "expiresInSeconds": res.expires_in_seconds,
+                        "dryRun": res.dry_run,
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    print(f"\n🔒 Lock acquired successfully!")
+                    print(f"Expires In:      {res.expires_in_seconds or 60} seconds")
+                    if res.dry_run:
+                        print("[DRY-RUN] Simulation only (lock was not acquired)")
+                sys.exit(EXIT_SUCCESS)
+
+            elif action in ["unlock", "release"]:
+                if not target_post_id:
+                    print("[Error] postId is required (e.g. allevitas board unlock <postId>)", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                if not args.json:
+                    print(f"[Allevitas CLI] Releasing lock for board ({target_post_id})...")
+                res = client.board.unlock(target_post_id)
+                if args.json:
+                    print(json.dumps({
+                        "success": res.success,
+                        "message": res.message,
+                        "dryRun": res.dry_run,
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    print(f"\n🔓 Lock released successfully.")
+                    if res.dry_run:
+                        print("[DRY-RUN] Simulation only")
+                sys.exit(EXIT_SUCCESS)
+
+            elif action == "commit":
+                if not target_post_id:
+                    print("[Error] postId is required (e.g. allevitas board commit <postId> -m \"...\")", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                commit_msg = args.message or args.title
+                if not commit_msg:
+                    print("[Error] -m, --message is required for commit.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                if args.version is None:
+                    print("[Error] --version <baseVersion> is required for commit.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                if args.search is not None and args.replace is not None:
+                    operations = [{"search": args.search, "replace": args.replace}]
+                elif args.file:
+                    with open(args.file, "r", encoding="utf-8") as f:
+                        file_content = f.read()
+                    operations = [{"search": "", "replace": file_content, "type": "replace_all"}]
+                elif args.content is not None:
+                    operations = [{"search": "", "replace": args.content, "type": "replace_all"}]
+                else:
+                    print("[Error] Either --search/--replace or --content/--file must be specified.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                if not args.json:
+                    print(f"[Allevitas CLI] Committing board update for post ({target_post_id})...")
+                res = client.board.commit(
+                    target_post_id,
+                    base_version=args.version,
+                    commit_message=commit_msg,
+                    operations=operations,
+                    dry_run=dry_run,
+                )
+                if args.json:
+                    print(json.dumps({
+                        "postId": res.post_id,
+                        "version": res.version,
+                        "commitMessage": res.commit_message,
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    print(f"\n📝 Board update committed successfully!")
+                    print(f"Version:         {res.version}")
+                    print(f"Commit Message:  {res.commit_message}")
+                sys.exit(EXIT_SUCCESS)
+
+            elif action == "update":
+                if not target_post_id:
+                    print("[Error] postId is required (e.g. allevitas board update <postId> -m \"...\")", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                commit_msg = args.message or args.title
+                if not commit_msg:
+                    print("[Error] -m, --message is required for update.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                operations = None
+                content = None
+                if args.search is not None and args.replace is not None:
+                    operations = [{"search": args.search, "replace": args.replace}]
+                elif args.file:
+                    with open(args.file, "r", encoding="utf-8") as f:
+                        content = f.read()
+                elif args.content is not None:
+                    content = args.content
+                else:
+                    print("[Error] Either --search/--replace or --content/--file must be specified.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                if not args.json:
+                    print(f"[Allevitas CLI] Performing one-stop update on board ({target_post_id})...")
+                res = client.board.update(
+                    target_post_id,
+                    commit_message=commit_msg,
+                    operations=operations,
+                    content=content,
+                    force_replace_all=args.replace_all,
+                    dry_run=dry_run,
+                )
+                if args.json:
+                    print(json.dumps({
+                        "postId": res.post_id,
+                        "version": res.version,
+                        "commitMessage": res.commit_message,
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    print(f"\n🎉 Board updated successfully!")
+                    print(f"Version:         {res.version}")
+                    print(f"Commit Message:  {res.commit_message}")
+                sys.exit(EXIT_SUCCESS)
+
+            elif action == "history":
+                if not target_post_id:
+                    print("[Error] postId is required (e.g. allevitas board history <postId>)", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
+                page = args.page if args.page is not None else 1
+                limit = args.limit if args.limit is not None else 20
+
+                if not args.json:
+                    print(f"[Allevitas CLI] Fetching revision history for board ({target_post_id})...")
+                res = client.board.get_history(target_post_id, page=page, limit=limit)
+                if args.json:
+                    print(json.dumps({
+                        "history": [
+                            {
+                                "id": h.id,
+                                "version": h.version,
+                                "commitMessage": h.commit_message,
+                                "author": {"accountId": h.author.account_id, "role": h.author.role},
+                                "createdAt": h.created_at,
+                            }
+                            for h in res.history
+                        ],
+                        "pagination": {
+                            "page": res.pagination.page,
+                            "limit": res.pagination.limit,
+                            "total": res.pagination.total,
+                        },
+                    }, ensure_ascii=False, indent=2))
+                else:
+                    print(f"\n📜 === Revision History ({res.pagination.total} total) ===")
+                    if not res.history:
+                        print("No revisions recorded.")
+                    for item in res.history:
+                        print(f"\n* [v{item.version}] {item.commit_message}")
+                        print(f"  Author:  {item.author.account_id} ({item.author.role})")
+                        print(f"  Date:    {item.created_at}")
+                        print(f"  ID:      {item.id}")
+                    print(f"\nPage {res.pagination.page} / Total {res.pagination.total}")
+                sys.exit(EXIT_SUCCESS)
+
+            else:
+                print(f"[Error] Unknown board action: {action} (available: update, get, lock, unlock, commit, history)", file=sys.stderr)
                 sys.exit(EXIT_GENERAL_ERROR)
 
         elif command in ["guidelines", "get-guidelines"]:

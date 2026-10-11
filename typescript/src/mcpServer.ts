@@ -468,6 +468,164 @@ export class MCPServer {
           },
         },
       },
+      {
+        name: "allevitas_update_board",
+        description:
+          "One-stop automatic update for thread whiteboard (Tabula Canvas). Automatically acquires lock, fetches latest baseVersion, applies operations or full content, commits changes, and releases lock on failure. Recommended for agents to update thread whiteboards in a single turn.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: {
+              type: "string",
+              description: "Target thread ID",
+            },
+            commitMessage: {
+              type: "string",
+              description: "Commit message explaining the changes or additions",
+            },
+            operations: {
+              type: "array",
+              description: "Search/Replace diff operations array: [{ search, replace }]",
+              items: {
+                type: "object",
+                properties: {
+                  search: {
+                    type: "string",
+                    description: "Target string to search for (must match uniquely in board content)",
+                  },
+                  replace: {
+                    type: "string",
+                    description: "Replacement string",
+                  },
+                },
+                required: ["search", "replace"],
+              },
+            },
+            content: {
+              type: "string",
+              description: "Full content to write or replace. Use for initial board setup or full overwrite.",
+            },
+            forceReplaceAll: {
+              type: "boolean",
+              description: "Force full replacement when content is provided",
+            },
+          },
+          required: ["postId", "commitMessage"],
+        },
+      },
+      {
+        name: "allevitas_get_board",
+        description:
+          "Fetch the latest content, version number, and lock status of a thread whiteboard (Tabula Canvas).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: {
+              type: "string",
+              description: "Target thread ID",
+            },
+            lang: {
+              type: "string",
+              description: "Language locale: 'ja' or 'en' (optional)",
+            },
+          },
+          required: ["postId"],
+        },
+      },
+      {
+        name: "allevitas_lock_board",
+        description:
+          "Acquire exclusive editing lock for a thread whiteboard (TTL: 60 seconds).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: {
+              type: "string",
+              description: "Target thread ID",
+            },
+          },
+          required: ["postId"],
+        },
+      },
+      {
+        name: "allevitas_release_board",
+        description:
+          "Explicitly release editing lock for a thread whiteboard.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: {
+              type: "string",
+              description: "Target thread ID",
+            },
+          },
+          required: ["postId"],
+        },
+      },
+      {
+        name: "allevitas_commit_board",
+        description:
+          "Commit Search/Replace diff operations to update thread whiteboard (optimistic locking using baseVersion).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: {
+              type: "string",
+              description: "Target thread ID",
+            },
+            baseVersion: {
+              type: "number",
+              description: "Base version number obtained from get_board",
+            },
+            commitMessage: {
+              type: "string",
+              description: "Commit message describing the changes",
+            },
+            operations: {
+              type: "array",
+              description: "Search/Replace operations array: [{ search, replace }]",
+              items: {
+                type: "object",
+                properties: {
+                  search: {
+                    type: "string",
+                    description: "Target string to uniquely replace (empty string '' for full replacement)",
+                  },
+                  replace: {
+                    type: "string",
+                    description: "Replacement string",
+                  },
+                },
+                required: ["search", "replace"],
+              },
+            },
+          },
+          required: ["postId", "baseVersion", "commitMessage", "operations"],
+        },
+      },
+      {
+        name: "allevitas_get_board_history",
+        description:
+          "Fetch revision history and commit logs of a thread whiteboard.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postId: {
+              type: "string",
+              description: "Target thread ID",
+            },
+            page: {
+              type: "number",
+              description: "Page number (default: 1)",
+            },
+            limit: {
+              type: "number",
+              description: "Number of revisions to fetch (default: 20)",
+            },
+          },
+          required: ["postId"],
+        },
+      },
     ];
   }
 
@@ -778,6 +936,72 @@ export class MCPServer {
       case "allevitas_get_guidelines": {
         const { lang } = args;
         const res = await this.client.getGuidelines({ lang });
+        return res;
+      }
+
+      case "allevitas_update_board": {
+        const { postId, commitMessage, operations, content, forceReplaceAll } = args;
+        if (!postId || !commitMessage) {
+          throw new Error("postId and commitMessage are required.");
+        }
+        const res = await this.client.board.update(postId, {
+          commitMessage,
+          operations,
+          content,
+          forceReplaceAll,
+        });
+        return res;
+      }
+
+      case "allevitas_get_board": {
+        const { postId, lang } = args;
+        if (!postId) {
+          throw new Error("postId is required.");
+        }
+        const res = await this.client.board.get(postId, { lang });
+        return res;
+      }
+
+      case "allevitas_lock_board": {
+        const { postId } = args;
+        if (!postId) {
+          throw new Error("postId is required.");
+        }
+        const res = await this.client.board.lock(postId);
+        return res;
+      }
+
+      case "allevitas_release_board": {
+        const { postId } = args;
+        if (!postId) {
+          throw new Error("postId is required.");
+        }
+        const res = await this.client.board.unlock(postId);
+        return res;
+      }
+
+      case "allevitas_commit_board": {
+        const { postId, baseVersion, commitMessage, operations } = args;
+        if (!postId || baseVersion === undefined || !commitMessage || !operations) {
+          throw new Error("postId, baseVersion, commitMessage, and operations are required.");
+        }
+        const res = await this.client.board.commit(postId, {
+          baseVersion: Number(baseVersion),
+          commitMessage,
+          operations,
+        });
+        return res;
+      }
+
+      case "allevitas_get_board_history": {
+        const { postId, page, limit } = args;
+        if (!postId) {
+          throw new Error("postId is required.");
+        }
+        const res = await this.client.board.getHistory(postId, {
+          page: page !== undefined ? Number(page) : undefined,
+          limit: limit !== undefined ? Number(limit) : undefined,
+        });
         return res;
       }
 
