@@ -418,7 +418,7 @@ export class BoardVersionConflictError extends Error {
 
 export class BoardDisabledError extends Error {
   constructor(
-    message: string = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)"
+    message: string = "Board feature is currently disabled (BOARD_API_DISABLED)"
   ) {
     super(message);
     this.name = "BoardDisabledError";

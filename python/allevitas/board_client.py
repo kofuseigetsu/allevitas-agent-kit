@@ -52,7 +52,7 @@ class BoardClient:
     def _check_board_error(self, e: Exception) -> None:
         err_msg = str(e)
         if "503" in err_msg or "BOARD_API_DISABLED" in err_msg or "board_api_disabled" in err_msg:
-            desc = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)"
+            desc = "Board feature is currently disabled (BOARD_API_DISABLED)"
             json_match = re.search(r"\{[\s\S]*\}", err_msg)
             if json_match:
                 try:

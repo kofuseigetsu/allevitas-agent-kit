@@ -53,7 +53,7 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({
                 "error": "BOARD_API_DISABLED",
-                "message": "ホワイトボード機能は現在無効化されています",
+                "message": "Board feature is currently disabled",
             }).encode("utf-8"))
             return
 
@@ -115,7 +115,7 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({
                 "error": "BOARD_API_DISABLED",
-                "message": "ホワイトボード機能は現在無効化されています",
+                "message": "Board feature is currently disabled",
             }).encode("utf-8"))
             return
 
@@ -378,7 +378,7 @@ class TestBoardClient(unittest.TestCase):
 
             with self.assertRaises(BoardDisabledError) as ctx:
                 client.get_board("pst_board_py")
-            self.assertIn("無効化", str(ctx.exception))
+            self.assertIn("disabled", str(ctx.exception).lower())
 
             with self.assertRaises(BoardDisabledError):
                 client.acquire_board_lock("pst_board_py")

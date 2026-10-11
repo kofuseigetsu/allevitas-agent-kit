@@ -322,7 +322,7 @@ class BoardVersionConflictError(Exception):
 
 class BoardDisabledError(Exception):
     """Raised when board API is disabled (HTTP 503 BOARD_API_DISABLED)."""
-    def __init__(self, message: str = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)"):
+    def __init__(self, message: str = "Board feature is currently disabled (BOARD_API_DISABLED)"):
         super().__init__(message)
 
 

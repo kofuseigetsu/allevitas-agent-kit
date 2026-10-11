@@ -54,7 +54,7 @@ export class BoardClient {
       msg.includes("BOARD_API_DISABLED") ||
       msg.includes("board_api_disabled")
     ) {
-      let desc = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)";
+      let desc = "Board feature is currently disabled (BOARD_API_DISABLED)";
       const jsonMatch = msg.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         try {

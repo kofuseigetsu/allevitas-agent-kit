@@ -64,7 +64,7 @@ describe("BoardClient (Tabula Canvas)", () => {
         res.end(
           JSON.stringify({
             error: "BOARD_API_DISABLED",
-            message: "ホワイトボード機能は現在無効化されています",
+            message: "Board feature is currently disabled",
           })
         );
         return;
@@ -385,7 +385,7 @@ describe("BoardClient (Tabula Canvas)", () => {
         () => client.getBoard("pst_board_test"),
         (err: any) => {
           assert.ok(err instanceof BoardDisabledError);
-          assert.ok(err.message.includes("無効化"));
+          assert.ok(err.message.includes("disabled"));
           return true;
         }
       );
