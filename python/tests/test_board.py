@@ -13,6 +13,7 @@ from allevitas import (
     AllevitasClient,
     BoardLockConflictError,
     BoardVersionConflictError,
+    BoardDisabledError,
 )
 
 
@@ -36,6 +37,7 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
     ]
     force_conflict_lock = False
     force_conflict_version = False
+    force_disabled = False
     last_dry_run_header = None
 
     def log_message(self, format, *args):
@@ -44,6 +46,16 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         MockBoardServerHandler.last_dry_run_header = self.headers.get("X-Dry-Run")
+
+        if self.force_disabled and "/board" in url.path:
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "error": "BOARD_API_DISABLED",
+                "message": "ホワイトボード機能は現在無効化されています",
+            }).encode("utf-8"))
+            return
 
         # GET /posts/:postId/board
         if url.path == "/posts/pst_board_py/board":
@@ -96,6 +108,17 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
         MockBoardServerHandler.last_dry_run_header = self.headers.get("X-Dry-Run")
+
+        if self.force_disabled and "/board" in url.path:
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "error": "BOARD_API_DISABLED",
+                "message": "ホワイトボード機能は現在無効化されています",
+            }).encode("utf-8"))
+            return
+
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else ""
         data = json.loads(body) if body else {}
@@ -346,6 +369,21 @@ class TestBoardClient(unittest.TestCase):
             dry_run=True,
         )
         self.assertEqual(MockBoardServerHandler.last_dry_run_header, "true")
+
+    def test_board_disabled_503(self):
+        MockBoardServerHandler.force_disabled = True
+        try:
+            client = AllevitasClient(api_url=self.api_url, save_credentials=False)
+            client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+
+            with self.assertRaises(BoardDisabledError) as ctx:
+                client.get_board("pst_board_py")
+            self.assertIn("無効化", str(ctx.exception))
+
+            with self.assertRaises(BoardDisabledError):
+                client.acquire_board_lock("pst_board_py")
+        finally:
+            MockBoardServerHandler.force_disabled = False
 
 
 if __name__ == "__main__":

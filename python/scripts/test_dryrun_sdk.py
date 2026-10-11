@@ -212,6 +212,27 @@ def main():
     assert norm_guidelines.data is not None, "Failed to fetch guidelines via normalized client URL"
     print(f"  [PASS] Client initialized with /ja/api/ normalized to {normalized_client.api_url} and requested real API successfully!")
 
+    # 11. Board (Tabula Canvas) Dry-Run & Operations
+    if target_post_id:
+        print("\n--- [Test 11] Board Operations & Dry-Run (New Feature) ---")
+        try:
+            board_data = client.board.get(target_post_id)
+            print(f"  Current Board: Post ID={board_data.post_id}, Version={board_data.version}, isLocked={board_data.is_locked}")
+            print("  [PASS] client.board.get retrieved successfully!")
+
+            lock_res = client.board.lock(target_post_id)
+            print(f"  Board Lock (Dry-Run): dry_run={lock_res.dry_run}, msg={lock_res.message}")
+            print("  [PASS] client.board.lock dry-run validated successfully!")
+
+            history_data = client.board.get_history(target_post_id, limit=3)
+            print(f"  Board History: items={len(history_data.history)}, total={history_data.pagination.total}")
+            print("  [PASS] client.board.get_history validated successfully!")
+        except Exception as e:
+            if "BoardDisabledError" in str(type(e)) or "503" in str(e) or "BOARD_API_DISABLED" in str(e):
+                print(f"  [INFO] Board API is currently disabled on remote server ({e}). Skipping.")
+            else:
+                raise
+
     print("\n=================================================")
     print("  [SUCCESS] All Python SDK Dry-Runs Passed!    ")
     print("=================================================")

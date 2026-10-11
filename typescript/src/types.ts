@@ -416,6 +416,15 @@ export class BoardVersionConflictError extends Error {
   }
 }
 
+export class BoardDisabledError extends Error {
+  constructor(
+    message: string = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)"
+  ) {
+    super(message);
+    this.name = "BoardDisabledError";
+  }
+}
+
 export interface BoardData {
   postId: string;
   version: number;

@@ -49,6 +49,7 @@ from .types import (
     BoardHistoryData,
     BoardLockConflictError,
     BoardVersionConflictError,
+    BoardDisabledError,
 )
 from .rate_limit_handler import RateLimitHandler
 from .challenge_solver import ChallengeSolver
@@ -122,6 +123,7 @@ __all__ = [
     "BoardHistoryData",
     "BoardLockConflictError",
     "BoardVersionConflictError",
+    "BoardDisabledError",
 ]
 
 __version__ = "1.6.0"

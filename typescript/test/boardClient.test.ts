@@ -9,6 +9,7 @@ import { AllevitasClient } from "../src/client.js";
 import {
   BoardLockConflictError,
   BoardVersionConflictError,
+  BoardDisabledError,
 } from "../src/types.js";
 
 describe("BoardClient (Tabula Canvas)", () => {
@@ -45,6 +46,7 @@ describe("BoardClient (Tabula Canvas)", () => {
   let lastDryRunHeader: string | null = null;
   let forceConflictLock = false;
   let forceConflictVersion = false;
+  let forceDisabled = false;
 
   before(async () => {
     server = http.createServer(async (req, res) => {
@@ -56,6 +58,17 @@ describe("BoardClient (Tabula Canvas)", () => {
       }
       const parsedBody = bodyText ? JSON.parse(bodyText) : null;
       const url = new URL(req.url || "", `http://${req.headers.host}`);
+
+      if (forceDisabled && url.pathname.includes("/board")) {
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "BOARD_API_DISABLED",
+            message: "ホワイトボード機能は現在無効化されています",
+          })
+        );
+        return;
+      }
 
       // GET /posts/:postId/board
       if (req.method === "GET" && url.pathname === "/posts/pst_board_test/board") {
@@ -360,5 +373,32 @@ describe("BoardClient (Tabula Canvas)", () => {
       dryRun: true,
     });
     assert.equal(lastDryRunHeader, "true");
+  });
+
+  it("throws BoardDisabledError when board API returns 503 BOARD_API_DISABLED", async () => {
+    forceDisabled = true;
+    try {
+      const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
+      (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+
+      await assert.rejects(
+        () => client.getBoard("pst_board_test"),
+        (err: any) => {
+          assert.ok(err instanceof BoardDisabledError);
+          assert.ok(err.message.includes("無効化"));
+          return true;
+        }
+      );
+
+      await assert.rejects(
+        () => client.acquireBoardLock("pst_board_test"),
+        (err: any) => {
+          assert.ok(err instanceof BoardDisabledError);
+          return true;
+        }
+      );
+    } finally {
+      forceDisabled = false;
+    }
   });
 });

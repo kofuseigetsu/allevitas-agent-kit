@@ -19,6 +19,7 @@ from .types import (
     BoardLockResponse,
     BoardUnlockResponse,
     BoardVersionConflictError,
+    BoardDisabledError,
     CommitBoardData,
     CommitBoardResponse,
 )
@@ -48,6 +49,22 @@ class BoardClient:
         )
         self.rate_limit_handler = rate_limit_handler or RateLimitHandler()
 
+    def _check_board_error(self, e: Exception) -> None:
+        err_msg = str(e)
+        if "503" in err_msg or "BOARD_API_DISABLED" in err_msg or "board_api_disabled" in err_msg:
+            desc = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)"
+            json_match = re.search(r"\{[\s\S]*\}", err_msg)
+            if json_match:
+                try:
+                    parsed = json.loads(json_match.group(0))
+                    if "message" in parsed:
+                        desc = parsed["message"]
+                    elif "error" in parsed and parsed["error"] != "BOARD_API_DISABLED":
+                        desc = parsed["error"]
+                except Exception:
+                    pass
+            raise BoardDisabledError(desc) from e
+
     def _auth_headers(self) -> Dict[str, str]:
         token = self.auth.get_valid_token()
         if token:
@@ -64,7 +81,12 @@ class BoardClient:
             url += f"?lang={urllib.parse.quote(lang)}"
 
         headers = self._auth_headers()
-        res = self.rate_limit_handler.request(url, method="GET", headers=headers)
+        try:
+            res = self.rate_limit_handler.request(url, method="GET", headers=headers)
+        except Exception as e:
+            self._check_board_error(e)
+            raise
+
         data = res.get("data", {}) if isinstance(res, dict) else {}
 
         return BoardData(
@@ -96,6 +118,7 @@ class BoardClient:
                 dry_run=self.dry_run,
             )
         except RuntimeError as e:
+            self._check_board_error(e)
             err_msg = str(e)
             if "409" in err_msg:
                 lock_expires = None
@@ -123,12 +146,16 @@ class BoardClient:
         if self.dry_run:
             headers["X-Dry-Run"] = "true"
 
-        res = self.rate_limit_handler.request(url, method="DELETE", headers=headers)
-        return BoardUnlockResponse(
-            success=bool(res.get("success", True)),
-            message=res.get("message"),
-            dry_run=self.dry_run,
-        )
+        try:
+            res = self.rate_limit_handler.request(url, method="DELETE", headers=headers)
+            return BoardUnlockResponse(
+                success=bool(res.get("success", True)),
+                message=res.get("message"),
+                dry_run=self.dry_run,
+            )
+        except Exception as e:
+            self._check_board_error(e)
+            raise
 
     def commit(
         self,
@@ -166,6 +193,7 @@ class BoardClient:
                 commit_message=str(data.get("commitMessage", commit_message)),
             )
         except RuntimeError as e:
+            self._check_board_error(e)
             err_msg = str(e)
             if "409" in err_msg:
                 cur_ver = None
@@ -203,7 +231,12 @@ class BoardClient:
         if params:
             url += f"?{urllib.parse.urlencode(params)}"
 
-        res = self.rate_limit_handler.request(url, method="GET")
+        try:
+            res = self.rate_limit_handler.request(url, method="GET")
+        except Exception as e:
+            self._check_board_error(e)
+            raise
+
         data = res.get("data", {}) if isinstance(res, dict) else {}
 
         raw_history = data.get("history", [])

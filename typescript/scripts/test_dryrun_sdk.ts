@@ -232,6 +232,30 @@ async function main() {
   }
   console.log(`  [PASS] Client initialized with /ja/api/ normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
 
+  // 11. Board (Tabula Canvas) Dry-Run & Operations
+  if (targetPostId) {
+    console.log('\n--- [Test 11] Board Operations & Dry-Run (New Feature) ---');
+    try {
+      const boardData = await client.board.get(targetPostId);
+      console.log(`  Current Board: Post ID=${boardData.postId}, Version=${boardData.version}, isLocked=${boardData.isLocked}`);
+      console.log('  [PASS] client.board.get retrieved successfully!');
+
+      const lockRes = await client.board.lock(targetPostId);
+      console.log(`  Board Lock (Dry-Run): dryRun=${lockRes.dryRun}, msg=${lockRes.message}`);
+      console.log('  [PASS] client.board.lock dry-run validated successfully!');
+
+      const historyData = await client.board.getHistory(targetPostId, { limit: 3 });
+      console.log(`  Board History: items=${historyData.history.length}, total=${historyData.pagination.total}`);
+      console.log('  [PASS] client.board.getHistory validated successfully!');
+    } catch (e: any) {
+      if (e.name === 'BoardDisabledError' || String(e).includes('503') || String(e).includes('BOARD_API_DISABLED')) {
+        console.log(`  [INFO] Board API is currently disabled on remote server (${e.message}). Skipping.`);
+      } else {
+        throw e;
+      }
+    }
+  }
+
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript SDK Dry-Runs Passed!  ');
   console.log('=================================================');

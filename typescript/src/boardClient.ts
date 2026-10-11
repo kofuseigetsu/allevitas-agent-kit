@@ -16,7 +16,11 @@ import type {
   BoardModifierFn,
   ClientOptions,
 } from "./types.js";
-import { BoardLockConflictError, BoardVersionConflictError } from "./types.js";
+import {
+  BoardLockConflictError,
+  BoardVersionConflictError,
+  BoardDisabledError,
+} from "./types.js";
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { normalizeApiUrl } from "./utils.js";
@@ -43,6 +47,26 @@ export class BoardClient {
     });
   }
 
+  private checkBoardError(err: any): void {
+    const msg = String(err?.message || err || "");
+    if (
+      msg.includes("503") ||
+      msg.includes("BOARD_API_DISABLED") ||
+      msg.includes("board_api_disabled")
+    ) {
+      let desc = "ホワイトボード機能は現在無効化されています (Board feature is currently disabled)";
+      const jsonMatch = msg.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.message) desc = parsed.message;
+          else if (parsed.error && parsed.error !== "BOARD_API_DISABLED") desc = parsed.error;
+        } catch {}
+      }
+      throw new BoardDisabledError(desc);
+    }
+  }
+
   private async getAuthHeaders(): Promise<Record<string, string>> {
     try {
       const token = await this.auth.getValidToken();
@@ -66,16 +90,22 @@ export class BoardClient {
     }
 
     const authHeaders = await this.getAuthHeaders();
-    const res = await this.rateLimitHandler.execute<GetBoardResponse>(() =>
-      fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": this.userAgent,
-          ...authHeaders,
-        },
-      })
-    );
+    let res: GetBoardResponse;
+    try {
+      res = await this.rateLimitHandler.execute<GetBoardResponse>(() =>
+        fetch(url.toString(), {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent": this.userAgent,
+            ...authHeaders,
+          },
+        })
+      );
+    } catch (err: any) {
+      this.checkBoardError(err);
+      throw err;
+    }
 
     if (!res.success || !res.data) {
       throw new Error((res as any).error || "Failed to fetch board data");
@@ -109,6 +139,7 @@ export class BoardClient {
         );
         return res;
       } catch (err: any) {
+        this.checkBoardError(err);
         const msg = String(err?.message || err || "");
         if (msg.includes("409")) {
           let lockExpiresInSeconds: number | undefined;
@@ -145,13 +176,18 @@ export class BoardClient {
         headers["X-Dry-Run"] = "true";
       }
 
-      const res = await this.rateLimitHandler.execute<BoardUnlockResponse>(() =>
-        fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/lock`, {
-          method: "DELETE",
-          headers,
-        })
-      );
-      return res;
+      try {
+        const res = await this.rateLimitHandler.execute<BoardUnlockResponse>(() =>
+          fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/lock`, {
+            method: "DELETE",
+            headers,
+          })
+        );
+        return res;
+      } catch (err: any) {
+        this.checkBoardError(err);
+        throw err;
+      }
     });
   }
 
@@ -191,6 +227,7 @@ export class BoardClient {
 
         return res.data;
       } catch (err: any) {
+        this.checkBoardError(err);
         const msg = String(err?.message || err || "");
         if (msg.includes("409")) {
           let currentVersion: number | undefined;
@@ -228,15 +265,21 @@ export class BoardClient {
       url.searchParams.set("limit", options.limit.toString());
     }
 
-    const res = await this.rateLimitHandler.execute<GetBoardHistoryResponse>(() =>
-      fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": this.userAgent,
-        },
-      })
-    );
+    let res: GetBoardHistoryResponse;
+    try {
+      res = await this.rateLimitHandler.execute<GetBoardHistoryResponse>(() =>
+        fetch(url.toString(), {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent": this.userAgent,
+          },
+        })
+      );
+    } catch (err: any) {
+      this.checkBoardError(err);
+      throw err;
+    }
 
     if (!res.success || !res.data) {
       throw new Error((res as any).error || "Failed to fetch board history");

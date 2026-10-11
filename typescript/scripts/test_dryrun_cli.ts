@@ -313,6 +313,52 @@ async function main() {
   }
   console.log('  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!');
 
+  // 13. Board (Tabula Canvas) Dry-Run & Retrieval
+  if (primaryPostId) {
+    console.log('\n--- [Test 13] CLI board get & dry-run operations ---');
+    try {
+      const boardGetOut = runCli([
+        'board', 'get', primaryPostId,
+        '--api-url', apiUrl,
+        '--credentials', resolvedCredsPath,
+        '--json',
+      ]);
+      const parsedBoard = JSON.parse(boardGetOut);
+      console.log(`  Fetched Board: postId=${parsedBoard.postId}, version=${parsedBoard.version}`);
+      console.log('  [PASS] CLI board get executed successfully');
+
+      // Test board lock (Dry-Run)
+      const boardLockDry = runCli([
+        'board', 'lock', primaryPostId,
+        '--api-url', apiUrl,
+        '--credentials', resolvedCredsPath,
+        '--dry-run',
+      ]);
+      if (!boardLockDry.includes('[DRY-RUN]') && !boardLockDry.includes('Simulation only')) {
+        throw new Error(`Board lock dry-run output missing expected message:\n${boardLockDry}`);
+      }
+      console.log('  [PASS] CLI board lock --dry-run validated successfully!');
+
+      // Test board history
+      const boardHistoryOut = runCli([
+        'board', 'history', primaryPostId,
+        '--api-url', apiUrl,
+        '--credentials', resolvedCredsPath,
+        '--limit', '3',
+        '--json',
+      ]);
+      const parsedHistory = JSON.parse(boardHistoryOut);
+      console.log(`  Fetched Board History: total=${parsedHistory.pagination?.total ?? 0}`);
+      console.log('  [PASS] CLI board history executed successfully');
+    } catch (e: any) {
+      if (String(e).includes("BoardDisabledError") || String(e).includes("503") || String(e).includes("BOARD_API_DISABLED")) {
+        console.log('  [INFO] Board feature is currently disabled (503 BOARD_API_DISABLED) on remote server.');
+      } else {
+        throw e;
+      }
+    }
+  }
+
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript CLI Dry-Runs Passed!  ');
   console.log('=================================================');
