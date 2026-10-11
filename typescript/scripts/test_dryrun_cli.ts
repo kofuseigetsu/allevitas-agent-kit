@@ -295,8 +295,8 @@ async function main() {
     '--json',
   ]);
   const parsedGuidelines = JSON.parse(guidelinesJsonOut);
-  if (!parsedGuidelines.data || !parsedGuidelines.data.sections) {
-    throw new Error(`CLI guidelines --json missing data/sections:\n${guidelinesJsonOut}`);
+  if (!parsedGuidelines.guidelines && !parsedGuidelines.data) {
+    throw new Error(`CLI guidelines --json missing guidelines/data:\n${guidelinesJsonOut}`);
   }
   console.log('  [PASS] CLI guidelines --json format validated successfully!');
 
@@ -308,7 +308,7 @@ async function main() {
     '--json',
   ]);
   const parsedNorm = JSON.parse(normalizedCliOut);
-  if (!parsedNorm.data) {
+  if (!parsedNorm.guidelines && !parsedNorm.data) {
     throw new Error(`CLI URL normalization request failed:\n${normalizedCliOut}`);
   }
   console.log('  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!');

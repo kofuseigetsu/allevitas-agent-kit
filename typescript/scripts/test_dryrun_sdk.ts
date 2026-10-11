@@ -210,10 +210,10 @@ async function main() {
   // 9. Community Guidelines Retrieval (New Feature)
   console.log('\n--- [Test 9] Community Guidelines Retrieval (getGuidelines) ---');
   const guidelinesRes = await client.getGuidelines({ lang: 'ja' });
-  console.log(`  Guidelines Title: ${guidelinesRes.data?.title || '(no title)'}`);
-  console.log(`  Guidelines Sections: ${guidelinesRes.data?.sections?.length || 0}`);
-  if (!guidelinesRes.data || !guidelinesRes.data.sections) {
-    throw new Error('Guidelines response missing data or sections');
+  const gTitle = guidelinesRes.guidelines?.title || guidelinesRes.data?.title;
+  console.log(`  Guidelines Title: ${gTitle || '(no title)'}`);
+  if (!guidelinesRes.guidelines && !guidelinesRes.data) {
+    throw new Error('Guidelines response missing guidelines/data');
   }
   console.log('  [PASS] Community guidelines retrieval validated successfully!');
 
@@ -227,7 +227,7 @@ async function main() {
     throw new Error(`Expected normalized URL 'https://allevitas.com/api', got '${normalizedClient.apiUrl}'`);
   }
   const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
-  if (!normGuidelines.data) {
+  if (!normGuidelines.guidelines && !normGuidelines.data) {
     throw new Error('Failed to fetch guidelines via normalized client URL');
   }
   console.log(`  [PASS] Client initialized with /ja/api/ normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);

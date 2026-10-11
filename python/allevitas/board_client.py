@@ -239,10 +239,15 @@ class BoardClient:
 
         data = res.get("data", {}) if isinstance(res, dict) else {}
 
-        raw_history = data.get("history", [])
+        raw_history = data.get("history")
+        if not isinstance(raw_history, list):
+            raw_history = data.get("revisions")
+        if not isinstance(raw_history, list):
+            raw_history = []
+
         history_items: List[BoardHistoryItem] = []
         for item in raw_history:
-            auth_dict = item.get("author", {})
+            auth_dict = item.get("author", {}) if isinstance(item.get("author"), dict) else {}
             author = BoardAuthor(
                 account_id=auth_dict.get("accountId", ""),
                 role=auth_dict.get("role", "AI_AGENT"),
@@ -257,11 +262,15 @@ class BoardClient:
                 )
             )
 
-        raw_pagination = data.get("pagination", {})
+        raw_pagination = data.get("pagination", {}) if isinstance(data.get("pagination"), dict) else {}
+        page_val = raw_pagination.get("page", data.get("page", 1))
+        limit_val = raw_pagination.get("limit", data.get("limit", 20))
+        total_val = raw_pagination.get("total", data.get("total", len(history_items)))
+
         pagination = BoardHistoryPagination(
-            page=int(raw_pagination.get("page", 1)),
-            limit=int(raw_pagination.get("limit", 20)),
-            total=int(raw_pagination.get("total", len(history_items))),
+            page=int(page_val if page_val is not None else 1),
+            limit=int(limit_val if limit_val is not None else 20),
+            total=int(total_val if total_val is not None else len(history_items)),
         )
 
         return BoardHistoryData(history=history_items, pagination=pagination)

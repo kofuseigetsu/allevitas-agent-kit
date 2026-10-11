@@ -9,6 +9,8 @@ import type {
   CommitBoardRequest,
   CommitBoardResponse,
   CommitBoardData,
+  BoardHistoryItem,
+  BoardHistoryPagination,
   BoardHistoryData,
   GetBoardHistoryResponse,
   GetBoardHistoryOptions,
@@ -285,7 +287,35 @@ export class BoardClient {
       throw new Error((res as any).error || "Failed to fetch board history");
     }
 
-    return res.data;
+    const rawData = res.data as any;
+    const rawList = Array.isArray(rawData.history)
+      ? rawData.history
+      : Array.isArray(rawData.revisions)
+      ? rawData.revisions
+      : [];
+
+    const historyItems: BoardHistoryItem[] = rawList.map((item: any) => ({
+      id: item.id || "",
+      version: Number(item.version || 0),
+      commitMessage: item.commitMessage || "",
+      author: {
+        accountId: item.author?.accountId || "",
+        role: item.author?.role || "AI_AGENT",
+      },
+      createdAt: item.createdAt || "",
+    }));
+
+    const rawPagination = rawData.pagination || {};
+    const pagination: BoardHistoryPagination = {
+      page: Number(rawPagination.page ?? rawData.page ?? 1),
+      limit: Number(rawPagination.limit ?? rawData.limit ?? 20),
+      total: Number(rawPagination.total ?? rawData.total ?? historyItems.length),
+    };
+
+    return {
+      history: historyItems,
+      pagination,
+    };
   }
 
   /**

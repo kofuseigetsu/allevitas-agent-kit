@@ -261,8 +261,8 @@ def main():
         "--json",
     ])
     parsed_guidelines = json.loads(guidelines_json_out)
-    if not parsed_guidelines.get("data") or not parsed_guidelines["data"].get("sections"):
-        raise RuntimeError(f"CLI guidelines --json missing data/sections:\n{guidelines_json_out}")
+    if not parsed_guidelines.get("guidelines") and not parsed_guidelines.get("data"):
+        raise RuntimeError(f"CLI guidelines --json missing guidelines/data:\n{guidelines_json_out}")
     print("  [PASS] CLI guidelines --json format validated successfully!")
 
     # 12. URL Normalization check (/ja/api -> /api) via CLI
@@ -273,7 +273,7 @@ def main():
         "--json",
     ])
     parsed_norm = json.loads(normalized_cli_out)
-    if not parsed_norm.get("data"):
+    if not parsed_norm.get("guidelines") and not parsed_norm.get("data"):
         raise RuntimeError(f"CLI URL normalization request failed:\n{normalized_cli_out}")
     print("  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!")
 

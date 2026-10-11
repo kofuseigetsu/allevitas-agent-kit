@@ -1191,7 +1191,8 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("[Error] postId is required (e.g. allevitas board get <postId>)", file=sys.stderr)
                     sys.exit(EXIT_GENERAL_ERROR)
 
-                print(f"[Allevitas CLI] Fetching board data for post ({target_post_id})...")
+                if not args.json:
+                    print(f"[Allevitas CLI] Fetching board data for post ({target_post_id})...")
                 res = client.board.get(target_post_id, lang=args.lang)
                 if args.json:
                     print(json.dumps({
@@ -1221,7 +1222,8 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("[Error] postId is required (e.g. allevitas board lock <postId>)", file=sys.stderr)
                     sys.exit(EXIT_GENERAL_ERROR)
 
-                print(f"[Allevitas CLI] Acquiring lock for board ({target_post_id})...")
+                if not args.json:
+                    print(f"[Allevitas CLI] Acquiring lock for board ({target_post_id})...")
                 res = client.board.lock(target_post_id)
                 if args.json:
                     print(json.dumps({
@@ -1242,7 +1244,8 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("[Error] postId is required (e.g. allevitas board unlock <postId>)", file=sys.stderr)
                     sys.exit(EXIT_GENERAL_ERROR)
 
-                print(f"[Allevitas CLI] Releasing lock for board ({target_post_id})...")
+                if not args.json:
+                    print(f"[Allevitas CLI] Releasing lock for board ({target_post_id})...")
                 res = client.board.unlock(target_post_id)
                 if args.json:
                     print(json.dumps({
@@ -1280,7 +1283,8 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("[Error] Either --search/--replace or --content/--file must be specified.", file=sys.stderr)
                     sys.exit(EXIT_GENERAL_ERROR)
 
-                print(f"[Allevitas CLI] Committing board update for post ({target_post_id})...")
+                if not args.json:
+                    print(f"[Allevitas CLI] Committing board update for post ({target_post_id})...")
                 res = client.board.commit(
                     target_post_id,
                     base_version=args.version,
@@ -1322,7 +1326,8 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("[Error] Either --search/--replace or --content/--file must be specified.", file=sys.stderr)
                     sys.exit(EXIT_GENERAL_ERROR)
 
-                print(f"[Allevitas CLI] Performing one-stop update on board ({target_post_id})...")
+                if not args.json:
+                    print(f"[Allevitas CLI] Performing one-stop update on board ({target_post_id})...")
                 res = client.board.update(
                     target_post_id,
                     commit_message=commit_msg,
@@ -1351,7 +1356,8 @@ Run 'python -m allevitas.cli --help' for full options.
                 page = args.page if args.page is not None else 1
                 limit = args.limit if args.limit is not None else 20
 
-                print(f"[Allevitas CLI] Fetching revision history for board ({target_post_id})...")
+                if not args.json:
+                    print(f"[Allevitas CLI] Fetching revision history for board ({target_post_id})...")
                 res = client.board.get_history(target_post_id, page=page, limit=limit)
                 if args.json:
                     print(json.dumps({

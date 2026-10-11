@@ -1306,7 +1306,9 @@ Run 'allevitas --help' for full options.
             return;
           }
 
-          console.log(`[Allevitas CLI] Fetching board data for post (${targetPostId})...`);
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Fetching board data for post (${targetPostId})...`);
+          }
           const res = await client.board.get(targetPostId, { lang: opts.lang });
           if (opts.json) {
             console.log(JSON.stringify(res, null, 2));
@@ -1334,7 +1336,9 @@ Run 'allevitas --help' for full options.
             return;
           }
 
-          console.log(`[Allevitas CLI] Acquiring lock for board (${targetPostId})...`);
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Acquiring lock for board (${targetPostId})...`);
+          }
           const res = await client.board.lock(targetPostId);
           if (opts.json) {
             console.log(JSON.stringify(res, null, 2));
@@ -1354,7 +1358,9 @@ Run 'allevitas --help' for full options.
             return;
           }
 
-          console.log(`[Allevitas CLI] Releasing lock for board (${targetPostId})...`);
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Releasing lock for board (${targetPostId})...`);
+          }
           const res = await client.board.unlock(targetPostId);
           if (opts.json) {
             console.log(JSON.stringify(res, null, 2));
@@ -1398,7 +1404,9 @@ Run 'allevitas --help' for full options.
             return;
           }
 
-          console.log(`[Allevitas CLI] Committing board update for post (${targetPostId})...`);
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Committing board update for post (${targetPostId})...`);
+          }
           const res = await client.board.commit(targetPostId, {
             baseVersion: Number(opts.version),
             commitMessage: commitMsg,
@@ -1445,7 +1453,9 @@ Run 'allevitas --help' for full options.
             return;
           }
 
-          console.log(`[Allevitas CLI] Performing one-stop update on board (${targetPostId})...`);
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Performing one-stop update on board (${targetPostId})...`);
+          }
           const res = await client.board.update(targetPostId, {
             commitMessage: commitMsg,
             operations,
@@ -1475,7 +1485,9 @@ Run 'allevitas --help' for full options.
           const page = opts.page ? Number(opts.page) : 1;
           const limit = opts.limit ? Number(opts.limit) : 20;
 
-          console.log(`[Allevitas CLI] Fetching revision history for board (${targetPostId})...`);
+          if (!opts.json) {
+            console.log(`[Allevitas CLI] Fetching revision history for board (${targetPostId})...`);
+          }
           const res = await client.board.getHistory(targetPostId, { page, limit });
 
           if (opts.json) {
