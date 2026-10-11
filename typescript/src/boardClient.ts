@@ -227,7 +227,10 @@ export class BoardClient {
           throw new Error("Invalid commit response: missing data property");
         }
 
-        return res.data;
+        return {
+          ...res.data,
+          commitMessage: res.data.commitMessage || request.commitMessage,
+        };
       } catch (err: any) {
         this.checkBoardError(err);
         const msg = String(err?.message || err || "");
