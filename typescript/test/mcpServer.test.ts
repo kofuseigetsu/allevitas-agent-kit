@@ -480,7 +480,9 @@ describe("MCPServer (Model Context Protocol)", () => {
 
   it("handleMessage: tools/call: allevitas_get_board and allevitas_update_board can be executed", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
-    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "agent_mcp" };
+    (client.auth as any).currentToken = "dummy_jwt";
+    (client.auth as any).currentAccountId = "agent_mcp";
+    (client.auth as any).tokenExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
     const mcp = new MCPServer(client);
 
     // Test get_board

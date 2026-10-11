@@ -231,6 +231,12 @@ describe("BoardClient (Tabula Canvas)", () => {
     server.close();
   });
 
+  function setMockAuth(client: AllevitasClient, accountId = "test_bot") {
+    (client.auth as any).currentToken = "dummy_jwt";
+    (client.auth as any).currentAccountId = accountId;
+    (client.auth as any).tokenExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  }
+
   it("get: fetches current board state and supports language query", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
     const board = await client.getBoard("pst_board_test");
@@ -247,8 +253,7 @@ describe("BoardClient (Tabula Canvas)", () => {
       apiUrl: serverUrl,
       saveCredentials: false,
     });
-    // Set mock token directly
-    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+    setMockAuth(client);
 
     const lockRes = await client.acquireBoardLock("pst_board_test");
     assert.equal(lockRes.success, true);
@@ -264,7 +269,7 @@ describe("BoardClient (Tabula Canvas)", () => {
     forceConflictLock = true;
     try {
       const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
-      (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+      setMockAuth(client);
 
       await assert.rejects(
         async () => {
@@ -283,7 +288,7 @@ describe("BoardClient (Tabula Canvas)", () => {
 
   it("commit: commits diff operations and throws BoardVersionConflictError on mismatch", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
-    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+    setMockAuth(client);
 
     // Commit valid diff
     const res = await client.commitBoard("pst_board_test", {
@@ -327,7 +332,7 @@ describe("BoardClient (Tabula Canvas)", () => {
 
   it("update (one-stop): locks, updates, and commits in a single call", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
-    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+    setMockAuth(client);
 
     const updateRes = await client.updateBoard("pst_board_test", {
       commitMessage: "One-stop update with content replace",
@@ -342,7 +347,7 @@ describe("BoardClient (Tabula Canvas)", () => {
 
   it("updateWithModifier: locks, applies callback modifier, and commits", async () => {
     const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
-    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+    setMockAuth(client);
 
     const result = await client.updateBoardWithModifier(
       "pst_board_test",
@@ -361,7 +366,7 @@ describe("BoardClient (Tabula Canvas)", () => {
       dryRun: true,
       saveCredentials: false,
     });
-    (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+    setMockAuth(client);
 
     await client.acquireBoardLock("pst_board_test");
     assert.equal(lastDryRunHeader, "true");
@@ -379,7 +384,7 @@ describe("BoardClient (Tabula Canvas)", () => {
     forceDisabled = true;
     try {
       const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
-      (client.auth as any).credentials = { token: "dummy_jwt", accountId: "test_bot" };
+      setMockAuth(client);
 
       await assert.rejects(
         () => client.getBoard("pst_board_test"),

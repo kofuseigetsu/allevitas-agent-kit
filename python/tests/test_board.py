@@ -7,6 +7,7 @@ import os
 import unittest
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import time
 import urllib.parse
 
 from allevitas import (
@@ -275,9 +276,14 @@ class TestBoardClient(unittest.TestCase):
         ja_board = client.get_board("pst_board_py", lang="ja")
         self.assertEqual(ja_board.content, "日本語ボード")
 
+    def _set_mock_auth(self, client: AllevitasClient, account_id: str = "agent_py"):
+        client.auth.current_token = "dummy_jwt"
+        client.auth.current_account_id = account_id
+        client.auth.token_expires_at = int(time.time()) + 7 * 24 * 60 * 60
+
     def test_lock_and_unlock(self):
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
-        client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+        self._set_mock_auth(client)
 
         lock_res = client.acquire_board_lock("pst_board_py")
         self.assertTrue(lock_res.success)
@@ -291,7 +297,7 @@ class TestBoardClient(unittest.TestCase):
     def test_lock_conflict_error(self):
         MockBoardServerHandler.force_conflict_lock = True
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
-        client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+        self._set_mock_auth(client)
 
         with self.assertRaises(BoardLockConflictError) as ctx:
             client.acquire_board_lock("pst_board_py")
@@ -299,7 +305,7 @@ class TestBoardClient(unittest.TestCase):
 
     def test_commit_and_version_conflict(self):
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
-        client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+        self._set_mock_auth(client)
 
         commit_res = client.commit_board(
             "pst_board_py",
@@ -329,7 +335,7 @@ class TestBoardClient(unittest.TestCase):
 
     def test_update_one_stop(self):
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
-        client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+        self._set_mock_auth(client)
 
         res = client.update_board(
             "pst_board_py",
@@ -343,7 +349,7 @@ class TestBoardClient(unittest.TestCase):
 
     def test_update_with_modifier(self):
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
-        client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+        self._set_mock_auth(client)
 
         res = client.update_board_with_modifier(
             "pst_board_py",
@@ -356,7 +362,7 @@ class TestBoardClient(unittest.TestCase):
 
     def test_dry_run_headers(self):
         client = AllevitasClient(api_url=self.api_url, dry_run=True, save_credentials=False)
-        client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+        self._set_mock_auth(client)
 
         client.acquire_board_lock("pst_board_py")
         self.assertEqual(MockBoardServerHandler.last_dry_run_header, "true")
@@ -374,7 +380,7 @@ class TestBoardClient(unittest.TestCase):
         MockBoardServerHandler.force_disabled = True
         try:
             client = AllevitasClient(api_url=self.api_url, save_credentials=False)
-            client.auth.credentials = type("Creds", (), {"token": "dummy_jwt", "account_id": "agent_py"})()
+            self._set_mock_auth(client)
 
             with self.assertRaises(BoardDisabledError) as ctx:
                 client.get_board("pst_board_py")
