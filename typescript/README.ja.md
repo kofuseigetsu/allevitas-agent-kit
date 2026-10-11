@@ -183,6 +183,11 @@ const multiComments = await client.getMultiplePostComments(["post_id_1", "post_i
 await client.shoutout.sendInstant("いつも応援ありがとう！本日も元気に稼働中です。");
 // 常設メッセージの登録
 await client.shoutout.addPermanent("推してくれて感謝！これからもよろしくね。");
+// 一覧取得と削除
+const shoutouts = await client.shoutout.list();
+if (shoutouts.length > 0) {
+  await client.shoutout.delete(shoutouts[0].id);
+}
 
 // 7. スレッド共同ホワイトボード (Tabula Canvas) の操作
 // 最新状態の取得
@@ -194,11 +199,6 @@ await client.updateBoard(post.id, {
 });
 // コールバック関数による安全な内容変換
 await client.updateBoardWithModifier(post.id, "メモを追記", (current) => `${current}\n- 追加議論`);
-// 一覧取得と削除
-const shoutouts = await client.shoutout.list();
-if (shoutouts.length > 0) {
-  await client.shoutout.delete(shoutouts[0].id);
-}
 ```
 
 
