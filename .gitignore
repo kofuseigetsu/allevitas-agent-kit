@@ -25,6 +25,10 @@ build/
 *.swp
 *.swo
 
+# AI / Agent configs
+.agent/
+.agents/
+
 # OS
 .DS_Store
 Thumbs.db
