@@ -436,6 +436,7 @@ class AllevitasClient:
         content: Optional[str] = None,
         force_replace_all: bool = False,
         dry_run: Optional[bool] = None,
+        base_version: Optional[int] = None,
     ) -> CommitBoardData:
         """
         High-level one-stop board update (shortcut).
@@ -447,6 +448,7 @@ class AllevitasClient:
             content=content,
             force_replace_all=force_replace_all,
             dry_run=dry_run,
+            base_version=base_version,
         )
 
     def update_board_with_modifier(
@@ -455,6 +457,7 @@ class AllevitasClient:
         commit_message: str,
         modifier: Any,
         dry_run: Optional[bool] = None,
+        force_replace_all: bool = False,
     ) -> CommitBoardData:
         """
         High-level one-stop board update with callback modifier (shortcut).
@@ -464,6 +467,7 @@ class AllevitasClient:
             commit_message=commit_message,
             modifier=modifier,
             dry_run=dry_run,
+            force_replace_all=force_replace_all,
         )
 
 

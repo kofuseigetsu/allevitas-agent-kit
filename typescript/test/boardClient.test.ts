@@ -11,6 +11,7 @@ import {
   BoardVersionConflictError,
   BoardDisabledError,
 } from "../src/types.js";
+import { serverApplyOperations } from "./helpers/boardMockServer.js";
 
 describe("BoardClient (Tabula Canvas)", () => {
   let server: http.Server;
@@ -158,14 +159,14 @@ describe("BoardClient (Tabula Canvas)", () => {
           return;
         }
 
-        // Apply operations
-        let newContent = boardState.content;
-        for (const op of parsedBody.operations || []) {
-          if (op.type === "replace_all" || op.search === "") {
-            newContent = op.replace;
-          } else {
-            newContent = newContent.replace(op.search, op.replace);
-          }
+        // Apply operations with the same rules as the server diff engine
+        let newContent: string;
+        try {
+          newContent = serverApplyOperations(boardState.content, parsedBody.operations || []);
+        } catch (err: any) {
+          res.writeHead(422, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message, message: err.message }));
+          return;
         }
 
         boardState.version += 1;
@@ -374,7 +375,7 @@ describe("BoardClient (Tabula Canvas)", () => {
     await client.commitBoard("pst_board_test", {
       baseVersion: 4,
       commitMessage: "Dry run test",
-      operations: [{ search: "a", replace: "b" }],
+      operations: [{ search: "- Additional note", replace: "- Dry run note" }],
       dryRun: true,
     });
     assert.equal(lastDryRunHeader, "true");

@@ -15,6 +15,8 @@ import type {
   GetBoardHistoryResponse,
   GetBoardHistoryOptions,
   UpdateBoardOptions,
+  UpdateBoardWithModifierOptions,
+  BoardLockOptions,
   BoardModifierFn,
   ClientOptions,
 } from "./types.js";
@@ -26,6 +28,7 @@ import {
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { normalizeApiUrl } from "./utils.js";
+import { applyBoardOperations, buildBoardOperations, normalizeLineEndings } from "./boardDiff.js";
 
 /**
  * Allevitas Board (Tabula Canvas) client
@@ -120,7 +123,7 @@ export class BoardClient {
    * Acquire exclusive editing lock (TTL: 60 seconds)
    * POST /api/posts/:postId/board/lock
    */
-  async lock(postId: string): Promise<BoardLockResponse> {
+  async lock(postId: string, options: BoardLockOptions = {}): Promise<BoardLockResponse> {
     return await this.auth.handle401AndRetry(async (token) => {
       const headers: Record<string, string> = {
         Accept: "application/json",
@@ -128,7 +131,7 @@ export class BoardClient {
         Authorization: `Bearer ${token}`,
         "User-Agent": this.userAgent,
       };
-      if (this.dryRun) {
+      if (options.dryRun ?? this.dryRun) {
         headers["X-Dry-Run"] = "true";
       }
 
@@ -167,14 +170,14 @@ export class BoardClient {
    * Release editing lock
    * DELETE /api/posts/:postId/board/lock
    */
-  async unlock(postId: string): Promise<BoardUnlockResponse> {
+  async unlock(postId: string, options: BoardLockOptions = {}): Promise<BoardUnlockResponse> {
     return await this.auth.handle401AndRetry(async (token) => {
       const headers: Record<string, string> = {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
         "User-Agent": this.userAgent,
       };
-      if (this.dryRun) {
+      if (options.dryRun ?? this.dryRun) {
         headers["X-Dry-Run"] = "true";
       }
 
@@ -223,6 +226,20 @@ export class BoardClient {
           })
         );
 
+        const raw = res as any;
+        if (raw?.dryRun || raw?.status === "dry_run") {
+          // Dry-run responses carry `validatedData` instead of `data` (nothing is persisted)
+          const validated = raw.validatedData || {};
+          return {
+            postId: validated.postId ?? postId,
+            version: Number(validated.newVersion ?? request.baseVersion + 1),
+            content: "",
+            commitMessage: request.commitMessage,
+            changed: true,
+            dryRun: true,
+          };
+        }
+
         if (!res.data) {
           throw new Error("Invalid commit response: missing data property");
         }
@@ -230,6 +247,7 @@ export class BoardClient {
         return {
           ...res.data,
           commitMessage: res.data.commitMessage || request.commitMessage,
+          changed: true,
         };
       } catch (err: any) {
         this.checkBoardError(err);
@@ -324,42 +342,67 @@ export class BoardClient {
   /**
    * High-level one-stop update method
    * Automatically handles: lock acquisition -> fetch board -> build operations -> commit -> auto unlock on failure
+   *
+   * - `content`: full updated content, committed as an automatically generated diff
+   *   (never silently falls back to `replace_all`; throws BoardDiffError instead).
+   * - `operations`: Search/Replace operations committed as-is (exclusive with `content`).
+   * - `forceReplaceAll`: replace the whole board with `content` via `replace_all`.
+   * - `baseVersion`: version `content` was based on; a mismatch throws BoardVersionConflictError.
+   *
+   * Returns `changed: false` without committing when there is nothing to change.
    */
   async update(postId: string, options: UpdateBoardOptions): Promise<CommitBoardData> {
-    await this.lock(postId);
+    const hasOperations = !!options.operations && options.operations.length > 0;
+    const hasContent = options.content !== undefined;
+    if (options.forceReplaceAll && hasOperations) {
+      throw new Error("forceReplaceAll cannot be combined with operations");
+    }
+    if (hasOperations && hasContent) {
+      throw new Error("content and operations are mutually exclusive");
+    }
+    if (options.forceReplaceAll && !hasContent) {
+      throw new Error("content is required when forceReplaceAll is true");
+    }
+    if (!hasOperations && !hasContent) {
+      throw new Error("Either operations or content must be provided to update the board");
+    }
+
+    const isDryRun = options.dryRun ?? this.dryRun;
+    await this.lock(postId, { dryRun: isDryRun });
     let committed = false;
 
     try {
       const board = await this.get(postId);
-
-      let operations: BoardOperation[];
-      if (options.operations && options.operations.length > 0) {
-        operations = options.operations;
-      } else if (options.content !== undefined) {
-        operations = [
-          {
-            search: "",
-            replace: options.content,
-            type: "replace_all",
-          },
-        ];
-      } else {
-        throw new Error("Either operations or content must be provided to update the board");
+      if (options.baseVersion !== undefined && board.version !== options.baseVersion) {
+        throw new BoardVersionConflictError(
+          `Board version conflict: content was based on version ${options.baseVersion}, ` +
+            `but the current version is ${board.version}. Re-fetch the board and retry.`,
+          options.baseVersion,
+          board.version
+        );
       }
 
-      const commitResult = await this.commit(postId, {
-        baseVersion: board.version,
-        commitMessage: options.commitMessage,
-        operations,
-        dryRun: options.dryRun,
-      });
+      const operations = hasOperations
+        ? options.operations!
+        : this.buildContentOperations(board.content, options.content ?? "", !!options.forceReplaceAll);
 
+      if (operations.length === 0) {
+        return this.unchangedResult(board, options.commitMessage, isDryRun);
+      }
+
+      const commitResult = await this.commitWithExpectedContent(
+        postId,
+        board,
+        options.commitMessage,
+        operations,
+        isDryRun
+      );
       committed = true;
       return commitResult;
     } finally {
       if (!committed) {
         try {
-          await this.unlock(postId);
+          await this.unlock(postId, { dryRun: isDryRun });
         } catch {
           // Suppress error during fallback unlock
         }
@@ -370,14 +413,20 @@ export class BoardClient {
   /**
    * High-level one-stop update method with callback modifier function
    * Automatically handles: lock acquisition -> fetch board -> run modifier -> build operations -> commit -> auto unlock on failure
+   * The modifier receives the latest content after the lock is acquired.
+   *
+   * - A returned string is handled like `update({ content })`: committed as an
+   *   automatically generated diff, or via `replace_all` when `forceReplaceAll` is true.
+   * - A returned BoardOperation[] is committed as-is (an empty array is a no-op).
    */
   async updateWithModifier(
     postId: string,
     commitMessage: string,
     modifier: BoardModifierFn,
-    options: { dryRun?: boolean } = {}
+    options: UpdateBoardWithModifierOptions = {}
   ): Promise<CommitBoardData> {
-    await this.lock(postId);
+    const isDryRun = options.dryRun ?? this.dryRun;
+    await this.lock(postId, { dryRun: isDryRun });
     let committed = false;
 
     try {
@@ -386,36 +435,92 @@ export class BoardClient {
 
       let operations: BoardOperation[];
       if (Array.isArray(modResult)) {
+        if (options.forceReplaceAll) {
+          throw new Error("forceReplaceAll cannot be combined with an operations array");
+        }
         operations = modResult;
       } else if (typeof modResult === "string") {
-        operations = [
-          {
-            search: "",
-            replace: modResult,
-            type: "replace_all",
-          },
-        ];
+        operations = this.buildContentOperations(board.content, modResult, !!options.forceReplaceAll);
       } else {
         throw new Error("Modifier function must return either updated content string or BoardOperation[]");
       }
 
-      const commitResult = await this.commit(postId, {
-        baseVersion: board.version,
+      if (operations.length === 0) {
+        return this.unchangedResult(board, commitMessage, isDryRun);
+      }
+
+      const commitResult = await this.commitWithExpectedContent(
+        postId,
+        board,
         commitMessage,
         operations,
-        dryRun: options.dryRun,
-      });
-
+        isDryRun
+      );
       committed = true;
       return commitResult;
     } finally {
       if (!committed) {
         try {
-          await this.unlock(postId);
+          await this.unlock(postId, { dryRun: isDryRun });
         } catch {
           // Suppress error during fallback unlock
         }
       }
     }
+  }
+
+  /**
+   * Turn full updated content into operations ([] means nothing to change)
+   */
+  private buildContentOperations(
+    currentContent: string,
+    content: string,
+    forceReplaceAll: boolean
+  ): BoardOperation[] {
+    const current = normalizeLineEndings(currentContent);
+    const next = normalizeLineEndings(content);
+    if (current === next) return [];
+    if (forceReplaceAll || current === "") {
+      return [{ search: "", replace: next, type: "replace_all" }];
+    }
+    if (next === "") {
+      throw new Error("Clearing a non-empty board requires forceReplaceAll: true (content is empty)");
+    }
+    return buildBoardOperations(current, next);
+  }
+
+  private unchangedResult(board: BoardData, commitMessage: string, dryRun: boolean): CommitBoardData {
+    return {
+      postId: board.postId,
+      version: board.version,
+      content: board.content,
+      commitMessage,
+      changed: false,
+      dryRun,
+    };
+  }
+
+  private async commitWithExpectedContent(
+    postId: string,
+    board: BoardData,
+    commitMessage: string,
+    operations: BoardOperation[],
+    dryRun: boolean
+  ): Promise<CommitBoardData> {
+    const result = await this.commit(postId, {
+      baseVersion: board.version,
+      commitMessage,
+      operations,
+      dryRun,
+    });
+    if (result.dryRun) {
+      // The server does not return content for dry runs; fill in the expected result
+      try {
+        result.content = applyBoardOperations(board.content, operations);
+      } catch {
+        result.content = "";
+      }
+    }
+    return result;
   }
 }

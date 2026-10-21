@@ -499,6 +499,10 @@ export interface CommitBoardData {
   version: number;
   content: string;
   commitMessage: string;
+  /** False when the update was a no-op (nothing committed, version unchanged) */
+  changed?: boolean;
+  /** True when the commit was only validated by the server (nothing persisted) */
+  dryRun?: boolean;
 }
 
 export interface CommitBoardResponse {
@@ -543,9 +547,24 @@ export interface GetBoardHistoryOptions {
 
 export interface UpdateBoardOptions {
   commitMessage: string;
+  /** Search/Replace operations to commit as-is (mutually exclusive with content) */
   operations?: BoardOperation[];
+  /** Full updated content; committed as an automatically generated diff */
   content?: string;
+  /** Replace the whole board with content via replace_all (requires content) */
   forceReplaceAll?: boolean;
+  /** Version the content was based on; a mismatch throws BoardVersionConflictError */
+  baseVersion?: number;
+  dryRun?: boolean;
+}
+
+export interface UpdateBoardWithModifierOptions {
+  /** Replace the whole board when the modifier returns a string */
+  forceReplaceAll?: boolean;
+  dryRun?: boolean;
+}
+
+export interface BoardLockOptions {
   dryRun?: boolean;
 }
 

@@ -15,7 +15,28 @@ from allevitas import (
     BoardLockConflictError,
     BoardVersionConflictError,
     BoardDisabledError,
+    BoardDiffError,
 )
+
+
+def server_apply_operations(content, operations):
+    """Mirror of the server diff engine (non-overlapping count, literal replace)."""
+    content = content.replace("\r\n", "\n")
+    for i, op in enumerate(operations):
+        search = (op.get("search") or "").replace("\r\n", "\n")
+        replace = (op.get("replace") or "").replace("\r\n", "\n")
+        if op.get("type") == "replace_all" or (not search and content == ""):
+            content = replace
+            continue
+        if not search:
+            return None, "INVALID_OPERATION"
+        count = content.count(search)
+        if count == 0:
+            return None, "TARGET_NOT_FOUND"
+        if count > 1:
+            return None, "AMBIGUOUS_SEARCH_TARGET"
+        content = content.replace(search, replace, 1)
+    return content, None
 
 
 class MockBoardServerHandler(BaseHTTPRequestHandler):
@@ -40,6 +61,10 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
     force_conflict_version = False
     force_disabled = False
     last_dry_run_header = None
+    lock_calls = 0
+    unlock_calls = 0
+    commit_calls = 0
+    last_operations = None
 
     def log_message(self, format, *args):
         pass
@@ -126,6 +151,7 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
 
         # POST /posts/:postId/board/lock
         if url.path == "/posts/pst_board_py/board/lock":
+            MockBoardServerHandler.lock_calls += 1
             if self.force_conflict_lock:
                 self.send_response(409)
                 self.send_header("Content-Type", "application/json")
@@ -138,7 +164,8 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
                 return
 
-            self.board_state["isLocked"] = True
+            if self.headers.get("X-Dry-Run") != "true":
+                self.board_state["isLocked"] = True
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -148,6 +175,8 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
 
         # POST /posts/:postId/board/commit
         if url.path == "/posts/pst_board_py/board/commit":
+            MockBoardServerHandler.commit_calls += 1
+            MockBoardServerHandler.last_operations = data.get("operations")
             if self.force_conflict_version:
                 self.send_response(409)
                 self.send_header("Content-Type", "application/json")
@@ -173,12 +202,31 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
                 return
 
-            new_content = self.board_state["content"]
-            for op in data.get("operations", []):
-                if op.get("type") == "replace_all" or op.get("search") == "":
-                    new_content = op.get("replace", "")
-                else:
-                    new_content = new_content.replace(op.get("search", ""), op.get("replace", ""))
+            new_content, error_code = server_apply_operations(
+                self.board_state["content"], data.get("operations", [])
+            )
+            if error_code:
+                self.send_response(422)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": error_code, "message": error_code}).encode("utf-8"))
+                return
+
+            if self.headers.get("X-Dry-Run") == "true":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "message": "[Dry Run] Validation successful. Diff applied and validated.",
+                    "status": "dry_run",
+                    "dryRun": True,
+                    "validatedData": {
+                        "postId": self.board_state["postId"],
+                        "newVersion": self.board_state["version"] + 1,
+                        "contentLength": len(new_content),
+                    },
+                }).encode("utf-8"))
+                return
 
             self.board_state["version"] += 1
             self.board_state["content"] = new_content
@@ -216,7 +264,9 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
 
         # DELETE /posts/:postId/board/lock
         if url.path == "/posts/pst_board_py/board/lock":
-            self.board_state["isLocked"] = False
+            MockBoardServerHandler.unlock_calls += 1
+            if self.headers.get("X-Dry-Run") != "true":
+                self.board_state["isLocked"] = False
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -265,6 +315,10 @@ class TestBoardClient(unittest.TestCase):
         MockBoardServerHandler.force_conflict_lock = False
         MockBoardServerHandler.force_conflict_version = False
         MockBoardServerHandler.last_dry_run_header = None
+        MockBoardServerHandler.lock_calls = 0
+        MockBoardServerHandler.unlock_calls = 0
+        MockBoardServerHandler.commit_calls = 0
+        MockBoardServerHandler.last_operations = None
 
     def test_get_board(self):
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
@@ -371,7 +425,7 @@ class TestBoardClient(unittest.TestCase):
             "pst_board_py",
             base_version=1,
             commit_message="Dry run test",
-            operations=[{"search": "a", "replace": "b"}],
+            operations=[{"search": "- Step 1", "replace": "- Step 2"}],
             dry_run=True,
         )
         self.assertEqual(MockBoardServerHandler.last_dry_run_header, "true")
@@ -390,6 +444,264 @@ class TestBoardClient(unittest.TestCase):
                 client.acquire_board_lock("pst_board_py")
         finally:
             MockBoardServerHandler.force_disabled = False
+
+    # ------------------------------------------------------------------
+    # update() matrix (F = force_replace_all, C = content, O = operations)
+    # ------------------------------------------------------------------
+
+    def _client(self, dry_run=False):
+        client = AllevitasClient(api_url=self.api_url, dry_run=dry_run, save_credentials=False)
+        self._set_mock_auth(client)
+        return client
+
+    def _set_board(self, content, version=1):
+        MockBoardServerHandler.board_state["content"] = content
+        MockBoardServerHandler.board_state["version"] = version
+
+    def _assert_released_without_commit(self):
+        self.assertEqual(MockBoardServerHandler.commit_calls, 0)
+        self.assertEqual(MockBoardServerHandler.unlock_calls, 1)
+        self.assertFalse(MockBoardServerHandler.board_state["isLocked"])
+
+    def test_matrix_01_content_is_committed_as_diff(self):
+        res = self._client().update_board(
+            "pst_board_py", commit_message="Add step 2",
+            content="# Python Initial Whiteboard\n- Step 1\n- Step 2",
+        )
+        self.assertTrue(res.changed)
+        self.assertEqual(res.version, 2)
+        self.assertEqual(res.content, "# Python Initial Whiteboard\n- Step 1\n- Step 2")
+        self.assertEqual(
+            MockBoardServerHandler.last_operations,
+            [{"search": "- Step 1", "replace": "- Step 1\n- Step 2"}],
+        )
+        self.assertFalse(MockBoardServerHandler.board_state["isLocked"])
+
+    def test_matrix_02_identical_content_is_noop(self):
+        res = self._client().update_board(
+            "pst_board_py", commit_message="No change",
+            content="# Python Initial Whiteboard\r\n- Step 1",
+        )
+        self.assertFalse(res.changed)
+        self.assertEqual(res.version, 1)
+        self.assertEqual(res.post_id, "pst_board_py")
+        self.assertEqual(res.content, "# Python Initial Whiteboard\n- Step 1")
+        self.assertEqual(res.commit_message, "No change")
+        self._assert_released_without_commit()
+
+    def test_matrix_03_diff_failure_raises_without_fallback(self):
+        import allevitas.board_client as board_client_module
+
+        original = board_client_module.build_board_operations
+
+        def failing_builder(old, new):
+            raise BoardDiffError("verification failed", "VERIFICATION_FAILED")
+
+        board_client_module.build_board_operations = failing_builder
+        try:
+            with self.assertRaises(BoardDiffError) as ctx:
+                self._client().update_board("pst_board_py", commit_message="x", content="changed")
+            self.assertEqual(ctx.exception.code, "VERIFICATION_FAILED")
+        finally:
+            board_client_module.build_board_operations = original
+        self._assert_released_without_commit()
+
+    def test_matrix_04_initial_write_uses_replace_all(self):
+        self._set_board("")
+        res = self._client().update_board("pst_board_py", commit_message="Init", content="# New")
+        self.assertTrue(res.changed)
+        self.assertEqual(res.content, "# New")
+        self.assertEqual(
+            MockBoardServerHandler.last_operations,
+            [{"search": "", "replace": "# New", "type": "replace_all"}],
+        )
+
+    def test_matrix_05_empty_content_on_empty_board_is_noop(self):
+        self._set_board("")
+        res = self._client().update_board("pst_board_py", commit_message="x", content="")
+        self.assertFalse(res.changed)
+        self._assert_released_without_commit()
+
+    def test_matrix_06_clearing_requires_force(self):
+        with self.assertRaises(ValueError):
+            self._client().update_board("pst_board_py", commit_message="x", content="")
+        self._assert_released_without_commit()
+        self.assertIn("Step 1", MockBoardServerHandler.board_state["content"])
+
+    def test_matrix_07_operations_are_committed_as_is(self):
+        ops = [{"search": "- Step 1", "replace": "- Step 1 (done)"}]
+        res = self._client().update_board("pst_board_py", commit_message="x", operations=ops)
+        self.assertEqual(MockBoardServerHandler.last_operations, ops)
+        self.assertIn("(done)", res.content)
+
+    def test_matrix_08_09_14_15_invalid_arguments_fail_before_locking(self):
+        client = self._client()
+        ops = [{"search": "a", "replace": "b"}]
+        invalid_calls = [
+            dict(content="x", operations=ops),  # No.8
+            dict(content="", operations=ops),  # No.8 (empty string counts as specified)
+            dict(),  # No.9
+            dict(operations=[]),  # No.9 (empty list counts as unspecified)
+            dict(force_replace_all=True),  # No.14
+            dict(force_replace_all=True, operations=ops),  # No.15
+            dict(force_replace_all=True, content="x", operations=ops),  # No.15
+        ]
+        for kwargs in invalid_calls:
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(ValueError):
+                    client.update_board("pst_board_py", commit_message="x", **kwargs)
+        self.assertEqual(MockBoardServerHandler.lock_calls, 0)
+        self.assertEqual(MockBoardServerHandler.commit_calls, 0)
+
+    def test_matrix_10_force_replaces_whole_content(self):
+        res = self._client().update_board(
+            "pst_board_py", commit_message="x", content="# Rewritten", force_replace_all=True
+        )
+        self.assertEqual(res.content, "# Rewritten")
+        self.assertEqual(
+            MockBoardServerHandler.last_operations,
+            [{"search": "", "replace": "# Rewritten", "type": "replace_all"}],
+        )
+
+    def test_matrix_10_force_with_identical_content_is_noop(self):
+        res = self._client().update_board(
+            "pst_board_py", commit_message="x",
+            content="# Python Initial Whiteboard\n- Step 1", force_replace_all=True,
+        )
+        self.assertFalse(res.changed)
+        self._assert_released_without_commit()
+
+    def test_matrix_11_force_initial_write(self):
+        self._set_board("")
+        res = self._client().update_board(
+            "pst_board_py", commit_message="x", content="# First", force_replace_all=True
+        )
+        self.assertEqual(res.content, "# First")
+
+    def test_matrix_12_force_clears_content(self):
+        res = self._client().update_board(
+            "pst_board_py", commit_message="Clear", content="", force_replace_all=True
+        )
+        self.assertTrue(res.changed)
+        self.assertEqual(MockBoardServerHandler.board_state["content"], "")
+
+    def test_matrix_13_force_empty_on_empty_board_is_noop(self):
+        self._set_board("")
+        res = self._client().update_board(
+            "pst_board_py", commit_message="x", content="", force_replace_all=True
+        )
+        self.assertFalse(res.changed)
+        self._assert_released_without_commit()
+
+    def test_base_version_match_and_mismatch(self):
+        client = self._client()
+        res = client.update_board(
+            "pst_board_py", commit_message="ok", content="# v2", base_version=1
+        )
+        self.assertEqual(res.version, 2)
+
+        MockBoardServerHandler.unlock_calls = 0
+        MockBoardServerHandler.commit_calls = 0
+        with self.assertRaises(BoardVersionConflictError) as ctx:
+            client.update_board(
+                "pst_board_py", commit_message="stale", content="# stale", base_version=1
+            )
+        self.assertEqual(ctx.exception.base_version, 1)
+        self.assertEqual(ctx.exception.current_version, 2)
+        self._assert_released_without_commit()
+        self.assertEqual(MockBoardServerHandler.board_state["content"], "# v2")
+
+    def test_server_rejection_releases_lock(self):
+        ops = [{"search": "missing", "replace": "x"}]
+        with self.assertRaises(RuntimeError):
+            self._client().update_board("pst_board_py", commit_message="x", operations=ops)
+        self.assertEqual(MockBoardServerHandler.unlock_calls, 1)
+        self.assertFalse(MockBoardServerHandler.board_state["isLocked"])
+
+    def test_update_dry_run_returns_expected_content(self):
+        res = self._client(dry_run=True).update_board(
+            "pst_board_py", commit_message="dry", content="# Python Initial Whiteboard\n- Step 1\n- Step 2"
+        )
+        self.assertTrue(res.dry_run)
+        self.assertTrue(res.changed)
+        self.assertEqual(res.version, 2)
+        self.assertEqual(res.content, "# Python Initial Whiteboard\n- Step 1\n- Step 2")
+        self.assertEqual(MockBoardServerHandler.board_state["version"], 1)
+        self.assertFalse(MockBoardServerHandler.board_state["isLocked"])
+
+    def test_update_dry_run_argument_applies_to_lock(self):
+        client = self._client(dry_run=False)
+        res = client.update_board(
+            "pst_board_py", commit_message="dry", content="# changed", dry_run=True
+        )
+        self.assertTrue(res.dry_run)
+        # The lock must not be really acquired when only the commit is a dry run
+        self.assertFalse(MockBoardServerHandler.board_state["isLocked"])
+        self.assertEqual(MockBoardServerHandler.board_state["content"], "# Python Initial Whiteboard\n- Step 1")
+
+    def test_commit_dry_run_response_is_parsed(self):
+        res = self._client().commit_board(
+            "pst_board_py", base_version=1, commit_message="dry",
+            operations=[{"search": "- Step 1", "replace": "- Step 2"}], dry_run=True,
+        )
+        self.assertTrue(res.dry_run)
+        self.assertEqual(res.version, 2)
+        self.assertEqual(res.content, "")
+        self.assertEqual(MockBoardServerHandler.board_state["version"], 1)
+
+    # ------------------------------------------------------------------
+    # update_with_modifier()
+    # ------------------------------------------------------------------
+
+    def test_modifier_string_is_committed_as_diff(self):
+        res = self._client().update_board_with_modifier(
+            "pst_board_py", commit_message="Append", modifier=lambda cur, bd: cur + "\n- Step 2"
+        )
+        self.assertTrue(res.changed)
+        self.assertEqual(
+            MockBoardServerHandler.last_operations,
+            [{"search": "- Step 1", "replace": "- Step 1\n- Step 2"}],
+        )
+
+    def test_modifier_string_with_force_uses_replace_all(self):
+        self._client().update_board_with_modifier(
+            "pst_board_py", commit_message="Rewrite", modifier=lambda cur, bd: "# New",
+            force_replace_all=True,
+        )
+        self.assertEqual(
+            MockBoardServerHandler.last_operations,
+            [{"search": "", "replace": "# New", "type": "replace_all"}],
+        )
+
+    def test_modifier_unchanged_string_is_noop(self):
+        res = self._client().update_board_with_modifier(
+            "pst_board_py", commit_message="x", modifier=lambda cur, bd: cur
+        )
+        self.assertFalse(res.changed)
+        self._assert_released_without_commit()
+
+    def test_modifier_empty_list_is_noop(self):
+        res = self._client().update_board_with_modifier(
+            "pst_board_py", commit_message="x", modifier=lambda cur, bd: []
+        )
+        self.assertFalse(res.changed)
+        self._assert_released_without_commit()
+
+    def test_modifier_empty_string_requires_force(self):
+        with self.assertRaises(ValueError):
+            self._client().update_board_with_modifier(
+                "pst_board_py", commit_message="x", modifier=lambda cur, bd: ""
+            )
+        self._assert_released_without_commit()
+
+    def test_modifier_operations_with_force_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._client().update_board_with_modifier(
+                "pst_board_py", commit_message="x",
+                modifier=lambda cur, bd: [{"search": "- Step 1", "replace": "x"}],
+                force_replace_all=True,
+            )
+        self._assert_released_without_commit()
 
 
 if __name__ == "__main__":

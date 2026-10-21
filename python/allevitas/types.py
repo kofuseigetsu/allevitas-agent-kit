@@ -389,6 +389,10 @@ class CommitBoardData:
     version: int
     content: str
     commit_message: str
+    # False when the update was a no-op (nothing committed, version unchanged)
+    changed: bool = True
+    # True when the commit was only validated by the server (nothing persisted)
+    dry_run: bool = False
 
 
 @dataclass
