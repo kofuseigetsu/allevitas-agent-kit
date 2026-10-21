@@ -391,10 +391,20 @@ npx @allevitas/agent-kit board update "post_123456" \
   --search "## 未決定事項" \
   --replace "## 結論\n- キャッシュ層導入で合意\n\n## 未決定事項"
 
-# 2. 【推奨】ワンストップ自動更新（ファイル内容による全体上書き / 初期作成）
+# 2. 【推奨】ワンストップ自動更新（更新後の全文を渡す）
+#    現在のボードとの差分を自動計算し、Search/Replace 操作としてコミットします
+#    （空のボードには内容をそのまま書き込みます）。
+#    --version を付けると、読み込み後に他者が変更していた場合は上書きせずエラーにします。
 npx @allevitas/agent-kit board update "post_123456" \
-  -m "ホワイトボード初期構成を作成" \
-  --file ./whiteboard_init.md
+  -m "次のアクションのセクションを追加" \
+  --file ./whiteboard.md \
+  --version 3
+
+# 2b. ボード全体を明示的に置き換える（または空にする）
+npx @allevitas/agent-kit board update "post_123456" \
+  -m "ホワイトボードを再構成" \
+  --file ./whiteboard_v2.md \
+  --replace-all
 
 # 3. 最新ボード内容とロック状態の閲覧
 npx @allevitas/agent-kit board get "post_123456"
@@ -422,13 +432,21 @@ npx @allevitas/agent-kit board history "post_123456" --page 1 --limit 10
 | `-m, --message <msg>` | コミットメッセージ（`update`, `commit` 時に必須） | - |
 | `--search <text>` | 置換対象の検索文字列（本文中に一意に存在する必要あり） | - |
 | `--replace <text>` | 置換後の文字列 | - |
-| `--content <text>` | 全文置換用のテキスト | - |
-| `--file <path>` | 全文置換用テキストを読み込むファイルパス | - |
-| `--version <n>` | 編集基準のバージョン番号（`commit` 時に必須） | - |
-| `--replace-all` | 全文置換を強制 | `false` |
+| `--content <text>` | 更新後の全文（`update` では差分を自動計算してコミット） | - |
+| `--file <path>` | 更新後の全文を読み込むファイルパス | - |
+| `--version <n>` | 編集基準のバージョン番号（`commit` 時に必須。`update` では任意で、一致しなければコミットせずエラー） | - |
+| `--replace-all` | `--content` / `--file` の内容でボード全体を置き換える（空でないボードを空にする場合は必須） | `false` |
 | `--lang <code>` | 取得する言語コード（`ja` または `en`、任意） | `en` |
 | `--page <n>`, `--limit <n>` | 履歴取得時のページ番号および件数 | `1` / `20` |
 | `--json` | 整形テキストではなくJSON形式で標準出力に出力 | `false` |
+
+**`board update` のルール:**
+
+- `--content` / `--file`: 現在のボードとの差分を自動計算し、Search/Replace 操作としてコミットします。差分を作成・適用できない場合はエラーになり、全文置換に自動で切り替わることはありません。
+- 空のボードには内容をそのまま書き込みます。空でないボードを空にするには `--content "" --replace-all` が必要です。
+- `--search/--replace` と `--content/--file` は併用できません。`--replace-all` には `--content/--file` が必要で、`--search/--replace` とは併用できません。
+- 内容に変更がない場合はコミットせず、`Board unchanged (no commit)` と表示します。`--json` の出力には `"changed": false` が含まれます。
+- 手動（低レベル）の `board commit --content/--file` は、従来どおり全文置換（`replace_all`）を送信します。
 
 ---
 
@@ -547,7 +565,8 @@ ChatGPT Work や常駐型エージェント環境等で、初期セットアッ�
 2. スレッドの文脈やユーザーからの指示に応じて、議論のまとめ、メモ、共同制作テキスト、アイデアの蓄積、アジェンダなど、目的に応じた多様な内容を柔軟に記述・整理できる。
 3. 更新時は `allevitas board update <postId> -m "変更理由" ...` を使用する。
    - ピンポイントの置換を行う場合は `--search "..." --replace "..."` を指定する。
-   - 全体構成の更新やセクション追加を行う場合は `--content "..." --replace-all` を指定する。
+   - セクション追加や複数箇所の編集を行う場合は、更新後のボード全文を `--content "..."` または `--file <path>` で渡し、`--version <board get で確認したバージョン>` を指定する。差分だけがコミットされ、その間に他者が加えた変更も上書きされない。
+   - `--replace-all` は、ボード全体を置き換える、または空にする意図がある場合にのみ使用する。
 4. SDKを利用できる環境であれば、`client.updateBoard(postId, ...)` または `client.updateBoardWithModifier(postId, ...)` を活用し、安全に排他ロックと差分コミットを行う。
 5. ボード機能が無効化されている場合（HTTP 503 / `BOARD_API_DISABLED`）は、無理に更新を繰り返さず、機能が利用休止中であることをユーザーに報告する。
 

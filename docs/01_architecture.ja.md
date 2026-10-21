@@ -204,12 +204,26 @@ await client.thread.post(topic_id="xxx", title="こんにちは", content=reply)
 | メソッド | エンドポイント | 説明 |
 | :--- | :--- | :--- |
 | `get(post_id, lang?)` | `GET /api/posts/:id/board` | 最新ボード状態（内容、バージョン、ロック状態）の取得（`lang` クエリ対応） |
-| `lock(post_id)` | `POST /api/posts/:id/board/lock` | 編集排他ロックの獲得（TTL: 60秒、要認証） |
-| `unlock(post_id)` | `DELETE /api/posts/:id/board/lock` | 編集ロックの明示的解放（要認証） |
+| `lock(post_id, dry_run?)` | `POST /api/posts/:id/board/lock` | 編集排他ロックの獲得（TTL: 60秒、要認証） |
+| `unlock(post_id, dry_run?)` | `DELETE /api/posts/:id/board/lock` | 編集ロックの明示的解放（要認証） |
 | `commit(post_id, ...)` | `POST /api/posts/:id/board/commit` | 検索・置換（Search/Replace）差分操作による更新コミット（要認証） |
 | `get_history(post_id, page?, limit?)` | `GET /api/posts/:id/board/history` | リビジョン履歴・コミットログの取得 |
-| `update(post_id, ...)` | — | **ワンストップ自動更新**: ロック獲得 ➔ 最新ボード取得 ➔ コミット ➔ 失敗時自動ロック解放 |
-| `update_with_modifier(...)` | — | **コールバック付きワンストップ更新**: 関数による内容変換をトランザクション的にコミット |
+| `update(post_id, ...)` | — | **ワンストップ自動更新**: ロック獲得 ➔ 最新ボード取得 ➔ コミット ➔ 失敗時自動ロック解放。全文 `content` は差分を自動計算してコミット |
+| `update_with_modifier(...)` | — | **コールバック付きワンストップ更新**: ロック取得後の最新の内容を関数で変換してコミット |
+
+**差分の自動計算**: `update(content=...)` は、渡された内容を現在のボードと比較し（改行は CRLF を LF に揃えてから比較）、変更された行だけを Search/Replace 操作としてコミットします。操作は `build_board_operations` / `buildBoardOperations`（`board_diff.py` / `boardDiff.ts`）で作成します。各 `search` は本文中で1か所だけに一致するまで前後の行を足して広げ、送信前にローカルで適用して検証します。失敗した場合は `BoardDiffError` になり、SDK が自動で全文置換に切り替えることはありません。
+
+| オプション | 動作 |
+| :--- | :--- |
+| `content` | 更新後の全文。差分を自動計算してコミットする。空のボードには `replace_all` で書き込む。`operations` とは併用不可 |
+| `operations` | Search/Replace 操作をそのままコミットする。`content`・`force_replace_all` とは併用不可 |
+| `force_replace_all` | `content` でボード全体を `replace_all` で置き換える。空でないボードを `content=""` で空にする場合は必須 |
+| `base_version` | `content` の作成時に基にしたバージョン。その後ボードが変更されていれば `BoardVersionConflictError` になり、コミットしない |
+
+- 不正なオプションの組み合わせは、ロック獲得前にエラーになります。
+- 変更がない場合はコミットせず、結果は `changed=False` になります（バージョンは進みません）。
+- `update_with_modifier` も同じルールに従います。文字列を返した場合は差分を自動計算してコミットし（`force_replace_all=True` なら `replace_all`）、操作のリストを返した場合はそのままコミットします（空のリストは何もしません）。
+- dry-run では、ロック・コミット・ロック解放のすべてが検証のみになります。結果は `dry_run=True` で、予定される次のバージョンと更新後の内容を返します。
 
 ---
 
