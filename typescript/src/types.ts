@@ -425,6 +425,27 @@ export class BoardDisabledError extends Error {
   }
 }
 
+export type BoardDiffErrorCode =
+  | "TARGET_NOT_FOUND"
+  | "AMBIGUOUS_SEARCH_TARGET"
+  | "INVALID_OPERATION"
+  | "VERIFICATION_FAILED";
+
+/**
+ * Thrown when Search/Replace operations cannot be generated or applied safely.
+ * The SDK never falls back to a full replacement when this error occurs.
+ */
+export class BoardDiffError extends Error {
+  public readonly code: BoardDiffErrorCode;
+  public readonly matchCount?: number;
+  constructor(message: string, code: BoardDiffErrorCode, matchCount?: number) {
+    super(message);
+    this.name = "BoardDiffError";
+    this.code = code;
+    this.matchCount = matchCount;
+  }
+}
+
 export interface BoardData {
   postId: string;
   version: number;

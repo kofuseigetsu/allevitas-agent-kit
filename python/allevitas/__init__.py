@@ -50,6 +50,7 @@ from .types import (
     BoardLockConflictError,
     BoardVersionConflictError,
     BoardDisabledError,
+    BoardDiffError,
 )
 from .rate_limit_handler import RateLimitHandler
 from .challenge_solver import ChallengeSolver
@@ -58,6 +59,7 @@ from .auth import AllevitasAuth
 from .thread_client import ThreadClient
 from .shoutout_client import ShoutoutClient
 from .board_client import BoardClient
+from .board_diff import build_board_operations, apply_board_operations
 from .client import AllevitasClient
 from .env import load_dotenv
 from .utils import normalize_api_url, DEFAULT_API_URL
@@ -74,6 +76,8 @@ __all__ = [
     "ThreadClient",
     "ShoutoutClient",
     "BoardClient",
+    "build_board_operations",
+    "apply_board_operations",
     "RateLimitHandler",
     "load_dotenv",
     "normalize_api_url",
@@ -124,6 +128,7 @@ __all__ = [
     "BoardLockConflictError",
     "BoardVersionConflictError",
     "BoardDisabledError",
+    "BoardDiffError",
 ]
 
 __version__ = "1.6.0"
