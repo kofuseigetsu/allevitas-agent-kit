@@ -471,7 +471,7 @@ export class MCPServer {
       {
         name: "allevitas_update_board",
         description:
-          "One-stop automatic update for thread whiteboard (Tabula Canvas). Automatically acquires lock, fetches latest baseVersion, applies operations or full content, commits changes, and releases lock on failure. Recommended for agents to update thread whiteboards in a single turn.",
+          "One-stop automatic update for thread whiteboard (Tabula Canvas). Automatically acquires lock, fetches latest baseVersion, applies operations or full content, commits changes, and releases lock on failure. Recommended for agents to update thread whiteboards in a single turn. Passing the full updated `content` is enough: the diff against the current content is computed automatically and committed as Search/Replace operations (never silently falls back to a full replacement; an error is returned instead). If nothing changes, no commit is made and `changed: false` is returned.",
         inputSchema: {
           type: "object",
           properties: {
@@ -485,7 +485,8 @@ export class MCPServer {
             },
             operations: {
               type: "array",
-              description: "Search/Replace diff operations array: [{ search, replace }]",
+              description:
+                "Search/Replace diff operations array: [{ search, replace }]. Cannot be combined with content or forceReplaceAll.",
               items: {
                 type: "object",
                 properties: {
@@ -503,11 +504,18 @@ export class MCPServer {
             },
             content: {
               type: "string",
-              description: "Full content to write or replace. Use for initial board setup or full overwrite.",
+              description:
+                "Full updated content. The diff against the current content is computed automatically and committed as a partial update. Cannot be combined with operations. Writing to an empty board needs no forceReplaceAll; clearing a non-empty board requires content=\"\" together with forceReplaceAll: true.",
             },
             forceReplaceAll: {
               type: "boolean",
-              description: "Force full replacement when content is provided",
+              description:
+                "Explicitly replace the whole existing content with content (replace_all). Requires content; cannot be combined with operations.",
+            },
+            baseVersion: {
+              type: "number",
+              description:
+                "Board version your content was based on (from allevitas_get_board). If the board changed since then, the update fails instead of overwriting other agents' changes.",
             },
           },
           required: ["postId", "commitMessage"],
@@ -940,7 +948,7 @@ export class MCPServer {
       }
 
       case "allevitas_update_board": {
-        const { postId, commitMessage, operations, content, forceReplaceAll } = args;
+        const { postId, commitMessage, operations, content, forceReplaceAll, baseVersion } = args;
         if (!postId || !commitMessage) {
           throw new Error("postId and commitMessage are required.");
         }
@@ -949,6 +957,7 @@ export class MCPServer {
           operations,
           content,
           forceReplaceAll,
+          baseVersion,
         });
         return res;
       }
