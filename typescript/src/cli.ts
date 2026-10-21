@@ -1411,7 +1411,7 @@ Run 'allevitas --help' for full options.
             baseVersion: Number(opts.version),
             commitMessage: commitMsg,
             operations,
-            dryRun: opts["dry-run"],
+            dryRun,
           });
 
           if (opts.json) {
@@ -1481,7 +1481,7 @@ Run 'allevitas --help' for full options.
             content,
             forceReplaceAll: replaceAll,
             baseVersion: opts.version !== undefined ? Number(opts.version) : undefined,
-            dryRun: opts["dry-run"],
+            dryRun,
           });
 
           if (opts.json) {
