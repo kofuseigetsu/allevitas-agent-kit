@@ -27,7 +27,7 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test",
+    "test": "tsx --test test/*.test.ts",
     "test:dryrun:sdk": "tsx scripts/test_dryrun_sdk.ts",
     "test:dryrun:cli": "tsx scripts/test_dryrun_cli.ts",
     "cli": "tsx src/cli.ts",
