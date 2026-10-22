@@ -326,6 +326,19 @@ class BoardDisabledError(Exception):
         super().__init__(message)
 
 
+class BoardDiffError(Exception):
+    """
+    Raised when Search/Replace operations cannot be generated or applied safely.
+    The SDK never falls back to a full replacement when this error occurs.
+
+    code: TARGET_NOT_FOUND | AMBIGUOUS_SEARCH_TARGET | INVALID_OPERATION | VERIFICATION_FAILED
+    """
+    def __init__(self, message: str, code: str, match_count: Optional[int] = None):
+        super().__init__(message)
+        self.code = code
+        self.match_count = match_count
+
+
 @dataclass
 class BoardData:
     post_id: str
@@ -376,6 +389,10 @@ class CommitBoardData:
     version: int
     content: str
     commit_message: str
+    # False when the update was a no-op (nothing committed, version unchanged)
+    changed: bool = True
+    # True when the commit was only validated by the server (nothing persisted)
+    dry_run: bool = False
 
 
 @dataclass

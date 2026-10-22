@@ -183,10 +183,10 @@ board Options:
   -m, --message <msg>         Commit message
   --search <text>             Target string to search and replace
   --replace <text>            Replacement string
-  --content <text>            Full content to replace or set
-  --file <path>               Read content from file to replace or set
-  --version <num>             Base version for commit
-  --replace-all               Force full replacement when content/file is provided
+  --content <text>            Full updated content (update: committed as an automatic diff)
+  --file <path>               Read full updated content from file
+  --version <num>             Base version (required for commit; optional for update)
+  --replace-all               Replace the whole board with content/file (also needed to clear it)
   --lang <code>               Language locale for board (ja, en)
   --page <n>, --limit <n>     Pagination options for history
   --json                      Output in JSON format
@@ -1297,11 +1297,14 @@ Run 'python -m allevitas.cli --help' for full options.
                         "postId": res.post_id,
                         "version": res.version,
                         "commitMessage": res.commit_message,
+                        "dryRun": res.dry_run,
                     }, ensure_ascii=False, indent=2))
                 else:
                     print(f"\n📝 Board update committed successfully!")
                     print(f"Version:         {res.version}")
                     print(f"Commit Message:  {res.commit_message}")
+                    if res.dry_run:
+                        print("[DRY-RUN] Validation only (nothing was persisted)")
                 sys.exit(EXIT_SUCCESS)
 
             elif action == "update":
@@ -1313,18 +1316,33 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("[Error] -m, --message is required for update.", file=sys.stderr)
                     sys.exit(EXIT_GENERAL_ERROR)
 
+                has_search = args.search is not None or args.replace is not None
+                has_content = bool(args.file) or args.content is not None
+                if has_search and (args.search is None or args.replace is None):
+                    print("[Error] --search and --replace must be specified together.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                if has_search and has_content:
+                    print("[Error] --search/--replace cannot be combined with --content/--file.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                if args.replace_all and has_search:
+                    print("[Error] --replace-all cannot be combined with --search/--replace.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                if args.replace_all and not has_content:
+                    print("[Error] --replace-all requires --content or --file.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+                if not has_search and not has_content:
+                    print("[Error] Either --search/--replace or --content/--file must be specified.", file=sys.stderr)
+                    sys.exit(EXIT_GENERAL_ERROR)
+
                 operations = None
                 content = None
-                if args.search is not None and args.replace is not None:
+                if has_search:
                     operations = [{"search": args.search, "replace": args.replace}]
                 elif args.file:
                     with open(args.file, "r", encoding="utf-8") as f:
                         content = f.read()
-                elif args.content is not None:
-                    content = args.content
                 else:
-                    print("[Error] Either --search/--replace or --content/--file must be specified.", file=sys.stderr)
-                    sys.exit(EXIT_GENERAL_ERROR)
+                    content = args.content
 
                 if not args.json:
                     print(f"[Allevitas CLI] Performing one-stop update on board ({target_post_id})...")
@@ -1335,17 +1353,25 @@ Run 'python -m allevitas.cli --help' for full options.
                     content=content,
                     force_replace_all=args.replace_all,
                     dry_run=dry_run,
+                    base_version=args.version,
                 )
                 if args.json:
                     print(json.dumps({
                         "postId": res.post_id,
                         "version": res.version,
                         "commitMessage": res.commit_message,
+                        "changed": res.changed,
+                        "dryRun": res.dry_run,
                     }, ensure_ascii=False, indent=2))
+                elif not res.changed:
+                    print(f"\nBoard unchanged (no commit)")
+                    print(f"Version:         {res.version}")
                 else:
                     print(f"\n🎉 Board updated successfully!")
                     print(f"Version:         {res.version}")
                     print(f"Commit Message:  {res.commit_message}")
+                    if res.dry_run:
+                        print("[DRY-RUN] Validation only (nothing was persisted)")
                 sys.exit(EXIT_SUCCESS)
 
             elif action == "history":

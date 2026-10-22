@@ -24,6 +24,7 @@ from .types import (
     CommitBoardResponse,
 )
 from .auth import AllevitasAuth
+from .board_diff import apply_board_operations, build_board_operations, normalize_line_endings
 from .rate_limit_handler import RateLimitHandler
 from .utils import normalize_api_url
 
@@ -99,14 +100,15 @@ class BoardClient:
             updated_at=str(data.get("updatedAt", "")),
         )
 
-    def lock(self, post_id: str) -> BoardLockResponse:
+    def lock(self, post_id: str, dry_run: Optional[bool] = None) -> BoardLockResponse:
         """
         Acquire exclusive editing lock for 60 seconds (POST /api/posts/:postId/board/lock).
         """
         encoded_post_id = urllib.parse.quote(post_id, safe="")
         url = f"{self.api_url}/posts/{encoded_post_id}/board/lock"
         headers = self._auth_headers()
-        if self.dry_run:
+        is_dry_run = self.dry_run if dry_run is None else dry_run
+        if is_dry_run:
             headers["X-Dry-Run"] = "true"
 
         try:
@@ -115,7 +117,7 @@ class BoardClient:
                 success=bool(res.get("success", True)),
                 message=res.get("message"),
                 expires_in_seconds=res.get("expiresInSeconds", 60),
-                dry_run=self.dry_run,
+                dry_run=is_dry_run,
             )
         except RuntimeError as e:
             self._check_board_error(e)
@@ -136,14 +138,15 @@ class BoardClient:
                 raise BoardLockConflictError(error_text, lock_expires) from e
             raise
 
-    def unlock(self, post_id: str) -> BoardUnlockResponse:
+    def unlock(self, post_id: str, dry_run: Optional[bool] = None) -> BoardUnlockResponse:
         """
         Release editing lock (DELETE /api/posts/:postId/board/lock).
         """
         encoded_post_id = urllib.parse.quote(post_id, safe="")
         url = f"{self.api_url}/posts/{encoded_post_id}/board/lock"
         headers = self._auth_headers()
-        if self.dry_run:
+        is_dry_run = self.dry_run if dry_run is None else dry_run
+        if is_dry_run:
             headers["X-Dry-Run"] = "true"
 
         try:
@@ -151,7 +154,7 @@ class BoardClient:
             return BoardUnlockResponse(
                 success=bool(res.get("success", True)),
                 message=res.get("message"),
-                dry_run=self.dry_run,
+                dry_run=is_dry_run,
             )
         except Exception as e:
             self._check_board_error(e)
@@ -185,7 +188,18 @@ class BoardClient:
             res = self.rate_limit_handler.request(
                 url, method="POST", headers=headers, json_data=payload
             )
-            data = res.get("data", {}) if isinstance(res, dict) else {}
+            res = res if isinstance(res, dict) else {}
+            if res.get("dryRun") or res.get("status") == "dry_run":
+                # Dry-run responses carry `validatedData` instead of `data` (nothing is persisted)
+                validated = res.get("validatedData") or {}
+                return CommitBoardData(
+                    post_id=validated.get("postId", post_id),
+                    version=int(validated.get("newVersion", base_version + 1)),
+                    content="",
+                    commit_message=commit_message,
+                    dry_run=True,
+                )
+            data = res.get("data") or {}
             return CommitBoardData(
                 post_id=data.get("postId", post_id),
                 version=int(data.get("version", base_version + 1)),
@@ -283,37 +297,61 @@ class BoardClient:
         content: Optional[str] = None,
         force_replace_all: bool = False,
         dry_run: Optional[bool] = None,
+        base_version: Optional[int] = None,
     ) -> CommitBoardData:
         """
         High-level one-stop update method.
         Automatically manages: acquire lock -> get board -> commit -> release lock on failure.
+
+        - `content`: full updated content, committed as an automatically generated diff
+          (never silently falls back to `replace_all`; raises BoardDiffError instead).
+        - `operations`: Search/Replace operations committed as-is (exclusive with `content`).
+        - `force_replace_all`: replace the whole board with `content` via `replace_all`.
+        - `base_version`: version `content` was based on; a mismatch raises BoardVersionConflictError.
+
+        Returns `changed=False` without committing when there is nothing to change.
         """
-        self.lock(post_id)
+        has_operations = bool(operations)
+        if force_replace_all and has_operations:
+            raise ValueError("force_replace_all cannot be combined with operations")
+        if has_operations and content is not None:
+            raise ValueError("content and operations are mutually exclusive")
+        if force_replace_all and content is None:
+            raise ValueError("content is required when force_replace_all is True")
+        if not has_operations and content is None:
+            raise ValueError("Either operations or content must be provided to update the board")
+
+        is_dry_run = self.dry_run if dry_run is None else dry_run
+        self.lock(post_id, dry_run=is_dry_run)
         committed = False
 
         try:
             board = self.get(post_id)
+            if base_version is not None and board.version != base_version:
+                raise BoardVersionConflictError(
+                    f"Board version conflict: content was based on version {base_version}, "
+                    f"but the current version is {board.version}. Re-fetch the board and retry.",
+                    base_version,
+                    board.version,
+                )
 
-            if operations and len(operations) > 0:
-                ops = operations
-            elif content is not None:
-                ops = [{"search": "", "replace": content, "type": "replace_all"}]
+            if has_operations:
+                ops = list(operations or [])
             else:
-                raise ValueError("Either operations or content must be provided to update the board")
+                ops = self._build_content_operations(board.content, content or "", force_replace_all)
 
-            res = self.commit(
-                post_id=post_id,
-                base_version=board.version,
-                commit_message=commit_message,
-                operations=ops,
-                dry_run=dry_run,
+            if not ops:
+                return self._unchanged_result(board, commit_message, is_dry_run)
+
+            res = self._commit_with_expected_content(
+                post_id, board, commit_message, ops, is_dry_run
             )
             committed = True
             return res
         finally:
             if not committed:
                 try:
-                    self.unlock(post_id)
+                    self.unlock(post_id, dry_run=is_dry_run)
                 except Exception:
                     pass
 
@@ -323,11 +361,18 @@ class BoardClient:
         commit_message: str,
         modifier: Callable[[str, BoardData], Union[str, List[Dict[str, Any]]]],
         dry_run: Optional[bool] = None,
+        force_replace_all: bool = False,
     ) -> CommitBoardData:
         """
         High-level one-stop update method with callback modifier function.
+        The modifier receives the latest content after the lock is acquired.
+
+        - A returned string is handled like `update(content=...)`: committed as an
+          automatically generated diff, or via `replace_all` when `force_replace_all` is True.
+        - A returned operations list is committed as-is (an empty list is a no-op).
         """
-        self.lock(post_id)
+        is_dry_run = self.dry_run if dry_run is None else dry_run
+        self.lock(post_id, dry_run=is_dry_run)
         committed = False
 
         try:
@@ -335,24 +380,76 @@ class BoardClient:
             mod_result = modifier(board.content, board)
 
             if isinstance(mod_result, list):
+                if force_replace_all:
+                    raise ValueError("force_replace_all cannot be combined with an operations list")
                 ops = mod_result
             elif isinstance(mod_result, str):
-                ops = [{"search": "", "replace": mod_result, "type": "replace_all"}]
+                ops = self._build_content_operations(board.content, mod_result, force_replace_all)
             else:
                 raise ValueError("Modifier function must return either updated content string or operations list")
 
-            res = self.commit(
-                post_id=post_id,
-                base_version=board.version,
-                commit_message=commit_message,
-                operations=ops,
-                dry_run=dry_run,
+            if not ops:
+                return self._unchanged_result(board, commit_message, is_dry_run)
+
+            res = self._commit_with_expected_content(
+                post_id, board, commit_message, ops, is_dry_run
             )
             committed = True
             return res
         finally:
             if not committed:
                 try:
-                    self.unlock(post_id)
+                    self.unlock(post_id, dry_run=is_dry_run)
                 except Exception:
                     pass
+
+    def _build_content_operations(
+        self, current_content: str, content: str, force_replace_all: bool
+    ) -> List[Dict[str, Any]]:
+        """Turn full updated content into operations ([] means nothing to change)."""
+        current = normalize_line_endings(current_content)
+        new = normalize_line_endings(content)
+        if current == new:
+            return []
+        if force_replace_all or current == "":
+            return [{"search": "", "replace": new, "type": "replace_all"}]
+        if new == "":
+            raise ValueError(
+                "Clearing a non-empty board requires force_replace_all=True (content is empty)"
+            )
+        return build_board_operations(current, new)
+
+    def _unchanged_result(
+        self, board: BoardData, commit_message: str, dry_run: bool
+    ) -> CommitBoardData:
+        return CommitBoardData(
+            post_id=board.post_id,
+            version=board.version,
+            content=board.content,
+            commit_message=commit_message,
+            changed=False,
+            dry_run=dry_run,
+        )
+
+    def _commit_with_expected_content(
+        self,
+        post_id: str,
+        board: BoardData,
+        commit_message: str,
+        operations: List[Dict[str, Any]],
+        dry_run: bool,
+    ) -> CommitBoardData:
+        res = self.commit(
+            post_id=post_id,
+            base_version=board.version,
+            commit_message=commit_message,
+            operations=operations,
+            dry_run=dry_run,
+        )
+        if res.dry_run:
+            # The server does not return content for dry runs; fill in the expected result
+            try:
+                res.content = apply_board_operations(board.content, operations)
+            except Exception:
+                res.content = ""
+        return res

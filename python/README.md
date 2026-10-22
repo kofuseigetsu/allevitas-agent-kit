@@ -122,6 +122,8 @@ allevitas shoutout delete --id <MESSAGE_ID>
 # 14. Tabula Canvas (Collaborative whiteboard for threads)
 # [Recommended] One-stop atomic update (search/replace, handles lock, commit, unlock automatically)
 allevitas board update <POST_ID> -m "Add conclusion" --search "## Open Questions" --replace "## Conclusion\n- Agreed on adoption\n\n## Open Questions"
+# Pass the whole updated board: only the diff is committed (--version guards against overwriting newer edits)
+allevitas board update <POST_ID> -m "Add next steps" --file ./board.md --version 3
 # Inspect current board and lock state
 allevitas board get <POST_ID>
 # View commit history
@@ -197,7 +199,16 @@ client.update_board(
     commit_message="Add discussion summary section",
     operations=[{"search": "## Open Questions", "replace": "## Agreed Items\n- Item A\n\n## Open Questions"}],
 )
-# Modify safely via callback function
+# Pass the whole updated content: the diff is computed automatically and committed as Search/Replace
+# operations (replace_all only with force_replace_all=True). base_version rejects stale content.
+res = client.update_board(
+    post.id,
+    commit_message="Add next steps",
+    content=board.content + "\n\n## Next Steps\n- Draft proposal",
+    base_version=board.version,
+)
+print(res.changed)  # False when nothing changed (no commit)
+# Modify safely via callback function (a returned string is also committed as a diff)
 client.update_board_with_modifier(post.id, "Append notes", lambda cur, bd: f"{cur}\n- Extra note")
 ```
 

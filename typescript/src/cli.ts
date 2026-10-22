@@ -114,10 +114,10 @@ board Options:
   -m, --message <msg>         Commit message
   --search <text>             Target string to search and replace
   --replace <text>            Replacement string
-  --content <text>            Full content to replace or set
-  --file <path>               Read content from file to replace or set
-  --version <num>             Base version for commit
-  --replace-all               Force full replacement when content/file is provided
+  --content <text>            Full updated content (update: committed as an automatic diff)
+  --file <path>               Read full updated content from file
+  --version <num>             Base version (required for commit; optional for update)
+  --replace-all               Replace the whole board with content/file (also needed to clear it)
   --lang <code>               Language locale for board (ja, en)
   --page <n>, --limit <n>     Pagination options for history
 
@@ -1411,7 +1411,7 @@ Run 'allevitas --help' for full options.
             baseVersion: Number(opts.version),
             commitMessage: commitMsg,
             operations,
-            dryRun: opts["dry-run"],
+            dryRun,
           });
 
           if (opts.json) {
@@ -1420,6 +1420,9 @@ Run 'allevitas --help' for full options.
             console.log(`\n📝 Board update committed successfully!`);
             console.log(`Version:         ${res.version}`);
             console.log(`Commit Message:  ${res.commitMessage}`);
+            if (res.dryRun) {
+              console.log("[DRY-RUN] Validation only (nothing was persisted)");
+            }
           }
           process.exitCode = EXIT_SUCCESS;
           return;
@@ -1438,19 +1441,35 @@ Run 'allevitas --help' for full options.
             return;
           }
 
+          const hasSearch = opts.search !== undefined || opts.replace !== undefined;
+          const hasContent = !!opts.file || opts.content !== undefined;
+          const replaceAll = !!(opts["replace-all"] || opts["force-replace-all"]);
+          let validationError: string | undefined;
+          if (hasSearch && (opts.search === undefined || opts.replace === undefined)) {
+            validationError = "--search and --replace must be specified together.";
+          } else if (hasSearch && hasContent) {
+            validationError = "--search/--replace cannot be combined with --content/--file.";
+          } else if (replaceAll && hasSearch) {
+            validationError = "--replace-all cannot be combined with --search/--replace.";
+          } else if (replaceAll && !hasContent) {
+            validationError = "--replace-all requires --content or --file.";
+          } else if (!hasSearch && !hasContent) {
+            validationError = "Either --search/--replace or --content/--file must be specified.";
+          }
+          if (validationError) {
+            console.error(`[Error] ${validationError}`);
+            process.exitCode = EXIT_GENERAL_ERROR;
+            return;
+          }
+
           let operations: any[] | undefined;
           let content: string | undefined;
-
-          if (opts.search !== undefined && opts.replace !== undefined) {
+          if (hasSearch) {
             operations = [{ search: opts.search, replace: opts.replace }];
           } else if (opts.file) {
             content = fs.readFileSync(opts.file, "utf-8");
-          } else if (opts.content !== undefined) {
-            content = opts.content;
           } else {
-            console.error("[Error] Either --search/--replace or --content/--file must be specified.");
-            process.exitCode = EXIT_GENERAL_ERROR;
-            return;
+            content = opts.content;
           }
 
           if (!opts.json) {
@@ -1460,16 +1479,23 @@ Run 'allevitas --help' for full options.
             commitMessage: commitMsg,
             operations,
             content,
-            forceReplaceAll: opts["replace-all"] || opts["force-replace-all"],
-            dryRun: opts["dry-run"],
+            forceReplaceAll: replaceAll,
+            baseVersion: opts.version !== undefined ? Number(opts.version) : undefined,
+            dryRun,
           });
 
           if (opts.json) {
             console.log(JSON.stringify(res, null, 2));
+          } else if (res.changed === false) {
+            console.log(`\nBoard unchanged (no commit)`);
+            console.log(`Version:         ${res.version}`);
           } else {
             console.log(`\n🎉 Board updated successfully!`);
             console.log(`Version:         ${res.version}`);
             console.log(`Commit Message:  ${res.commitMessage}`);
+            if (res.dryRun) {
+              console.log("[DRY-RUN] Validation only (nothing was persisted)");
+            }
           }
           process.exitCode = EXIT_SUCCESS;
           return;

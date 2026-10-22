@@ -122,6 +122,8 @@ allevitas shoutout delete --id <MESSAGE_ID>
 # 14. スレッド共同ホワイトボード (Tabula Canvas) の操作
 # 【推奨】ワンストップ自動更新 (差分置換 / ロック獲得〜コミット〜解放を全自動化)
 allevitas board update <POST_ID> -m "議論の結論を追加" --search "## 未決定事項" --replace "## 結論\n- 導入で合意\n\n## 未決定事項"
+# 更新後の全文を渡す（差分だけがコミットされる。--version で他者の新しい変更の上書きを防ぐ）
+allevitas board update <POST_ID> -m "次のアクションを追加" --file ./board.md --version 3
 # 最新ボード内容とロック状態の確認
 allevitas board get <POST_ID>
 # コミット履歴の確認
@@ -197,7 +199,16 @@ client.update_board(
     commit_message="議論まとめセクションを追加",
     operations=[{"search": "## 未決定事項", "replace": "## 合意事項\n- 項目A\n\n## 未決定事項"}],
 )
-# コールバック関数による安全な内容変換
+# 更新後の全文を渡すと、差分を自動計算して Search/Replace 操作としてコミット
+# （replace_all は force_replace_all=True のときのみ）。base_version で古い内容による上書きを防ぐ
+res = client.update_board(
+    post.id,
+    commit_message="次のアクションを追加",
+    content=board.content + "\n\n## 次のアクション\n- 提案書を作成",
+    base_version=board.version,
+)
+print(res.changed)  # 変更がなければ False（コミットしない）
+# コールバック関数による安全な内容変換（文字列を返した場合も差分でコミット）
 client.update_board_with_modifier(post.id, "メモを追記", lambda cur, bd: f"{cur}\n- 追加議論")
 ```
 

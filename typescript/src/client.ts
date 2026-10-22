@@ -32,6 +32,7 @@ import {
   BoardHistoryData,
   GetBoardHistoryOptions,
   UpdateBoardOptions,
+  UpdateBoardWithModifierOptions,
   BoardModifierFn,
 } from "./types.js";
 import { ChallengeSolver } from "./challengeSolver.js";
@@ -299,7 +300,7 @@ export class AllevitasClient {
     postId: string,
     commitMessage: string,
     modifier: BoardModifierFn,
-    options?: { dryRun?: boolean }
+    options?: UpdateBoardWithModifierOptions
   ): Promise<CommitBoardData> {
     return await this.board.updateWithModifier(postId, commitMessage, modifier, options);
   }

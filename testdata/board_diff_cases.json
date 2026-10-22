@@ -1,0 +1,184 @@
+[
+  {
+    "name": "append line without trailing newline",
+    "old": "# Plan\n- Step 1",
+    "new": "# Plan\n- Step 1\n- Step 2",
+    "operations": [
+      {
+        "search": "- Step 1",
+        "replace": "- Step 1\n- Step 2"
+      }
+    ]
+  },
+  {
+    "name": "append section with trailing newline",
+    "old": "# Plan\n\n## Done\n- A\n",
+    "new": "# Plan\n\n## Done\n- A\n\n## Next\n- B\n",
+    "operations": [
+      {
+        "search": "- A\n",
+        "replace": "- A\n\n## Next\n- B\n"
+      }
+    ]
+  },
+  {
+    "name": "insert at beginning",
+    "old": "line 2\nline 3\n",
+    "new": "line 1\nline 2\nline 3\n",
+    "operations": [
+      {
+        "search": "line 2\n",
+        "replace": "line 1\nline 2\n"
+      }
+    ]
+  },
+  {
+    "name": "insert in the middle",
+    "old": "# T\n- a\n- c\n",
+    "new": "# T\n- a\n- b\n- c\n",
+    "operations": [
+      {
+        "search": "- a\n- c\n",
+        "replace": "- a\n- b\n- c\n"
+      }
+    ]
+  },
+  {
+    "name": "delete a line",
+    "old": "a\nb\nc",
+    "new": "a\nc",
+    "operations": [
+      {
+        "search": "b\n",
+        "replace": ""
+      }
+    ]
+  },
+  {
+    "name": "modify a single line",
+    "old": "# Title\nstatus: draft\nbody\n",
+    "new": "# Title\nstatus: final\nbody\n",
+    "operations": [
+      {
+        "search": "status: draft\n",
+        "replace": "status: final\n"
+      }
+    ]
+  },
+  {
+    "name": "multiple separate changes",
+    "old": "l1\n\nl2\n\nl3\n",
+    "new": "l1\n\nl2 changed\n\nl3\nl4\n",
+    "operations": [
+      {
+        "search": "l2\n",
+        "replace": "l2 changed\n"
+      },
+      {
+        "search": "l3\n",
+        "replace": "l3\nl4\n"
+      }
+    ]
+  },
+  {
+    "name": "duplicate lines need surrounding context",
+    "old": "## A\n- todo\n## B\n- todo\n",
+    "new": "## A\n- todo\n## B\n- done\n",
+    "operations": [
+      {
+        "search": "## B\n- todo\n",
+        "replace": "## B\n- done\n"
+      }
+    ]
+  },
+  {
+    "name": "all lines identical expand to whole content",
+    "old": "x\nx\nx\n",
+    "new": "x\nx\ny\nx\n",
+    "operations": [
+      {
+        "search": "x\nx\nx\n",
+        "replace": "x\nx\ny\nx\n"
+      }
+    ]
+  },
+  {
+    "name": "line contained in another line",
+    "old": "ab\nb\n",
+    "new": "ab\nc\n",
+    "operations": [
+      {
+        "search": "ab\nb\n",
+        "replace": "ab\nc\n"
+      }
+    ]
+  },
+  {
+    "name": "identical content",
+    "old": "same\ncontent\n",
+    "new": "same\ncontent\n",
+    "operations": []
+  },
+  {
+    "name": "CRLF-only difference",
+    "old": "a\r\nb\r\n",
+    "new": "a\nb\n",
+    "operations": []
+  },
+  {
+    "name": "CRLF input normalized",
+    "old": "a\nb\n",
+    "new": "a\r\nb\r\nc\r\n",
+    "operations": [
+      {
+        "search": "b\n",
+        "replace": "b\nc\n"
+      }
+    ]
+  },
+  {
+    "name": "empty old content",
+    "old": "",
+    "new": "# New board\n",
+    "operations": [
+      {
+        "search": "",
+        "replace": "# New board\n",
+        "type": "replace_all"
+      }
+    ]
+  },
+  {
+    "name": "clear all content",
+    "old": "only line",
+    "new": "",
+    "operations": [
+      {
+        "search": "only line",
+        "replace": ""
+      }
+    ]
+  },
+  {
+    "name": "dollar signs are literal",
+    "old": "price: $$x$$\n",
+    "new": "price: $$y$$ and $& $' $`\n",
+    "operations": [
+      {
+        "search": "price: $$x$$\n",
+        "replace": "price: $$y$$ and $& $' $`\n"
+      }
+    ]
+  },
+  {
+    "name": "multibyte text",
+    "old": "# 計画\n- 手順1\n",
+    "new": "# 計画\n- 手順1\n- 手順2\n",
+    "operations": [
+      {
+        "search": "- 手順1\n",
+        "replace": "- 手順1\n- 手順2\n"
+      }
+    ]
+  }
+]

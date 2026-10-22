@@ -521,6 +521,37 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(updateRes.result.isError, false);
     const commitData = JSON.parse(updateRes.result.content[0].text);
     assert.equal(commitData.version, 3);
+    assert.equal(commitData.changed, true);
+
+    // Unchanged content is a no-op (no commit, changed: false)
+    const noopRes = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 98,
+      method: "tools/call",
+      params: {
+        name: "allevitas_update_board",
+        arguments: {
+          postId: "pst_123",
+          commitMessage: "No change via MCP",
+          content: "# MCP Board Content",
+        },
+      },
+    });
+    assert.equal(noopRes.result.isError, false);
+    const noopData = JSON.parse(noopRes.result.content[0].text);
+    assert.equal(noopData.changed, false);
+    assert.equal(noopData.version, 2);
+  });
+
+  it("tools/list: allevitas_update_board documents automatic diff, baseVersion, and forceReplaceAll", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    const res = await mcp.handleMessage({ jsonrpc: "2.0", id: 99, method: "tools/list" });
+    const tool = res.result.tools.find((t: any) => t.name === "allevitas_update_board");
+    assert.ok(tool);
+    assert.ok(tool.description.includes("changed: false"));
+    assert.equal(tool.inputSchema.properties.baseVersion.type, "number");
+    assert.ok(tool.inputSchema.properties.content.description.includes("computed automatically"));
+    assert.ok(tool.inputSchema.properties.forceReplaceAll.description.includes("Requires content"));
   });
 
   it("handleMessage: calling a nonexistent tool yields isError: true", async () => {

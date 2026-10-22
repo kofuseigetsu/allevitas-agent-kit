@@ -204,12 +204,26 @@ Manages shared thread whiteboards: retrieval, exclusive editing locks, diff comm
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `get(post_id, lang?)` | `GET /api/posts/:id/board` | Fetch current whiteboard content, version, and lock state (`lang` query supported) |
-| `lock(post_id)` | `POST /api/posts/:id/board/lock` | Acquire exclusive editing lock (TTL: 60s, requires auth) |
-| `unlock(post_id)` | `DELETE /api/posts/:id/board/lock` | Explicitly release editing lock (requires auth) |
+| `lock(post_id, dry_run?)` | `POST /api/posts/:id/board/lock` | Acquire exclusive editing lock (TTL: 60s, requires auth) |
+| `unlock(post_id, dry_run?)` | `DELETE /api/posts/:id/board/lock` | Explicitly release editing lock (requires auth) |
 | `commit(post_id, ...)` | `POST /api/posts/:id/board/commit` | Commit Search/Replace diff operations with optimistic locking (requires auth) |
 | `get_history(post_id, page?, limit?)` | `GET /api/posts/:id/board/history` | Fetch revision history and commit logs |
-| `update(post_id, ...)` | — | **One-stop automatic update**: acquires lock ➔ gets latest board ➔ commits ➔ auto-unlocks on failure |
-| `update_with_modifier(...)` | — | **One-stop update with modifier callback**: applies functional transform and commits |
+| `update(post_id, ...)` | — | **One-stop automatic update**: acquires lock ➔ gets latest board ➔ commits ➔ auto-unlocks on failure. Full `content` is committed as an automatic diff |
+| `update_with_modifier(...)` | — | **One-stop update with modifier callback**: applies functional transform to the latest (locked) content and commits |
+
+**Automatic diff updates**: `update(content=...)` compares the given content with the current board (after normalizing CRLF to LF) and commits only the changed lines as Search/Replace operations, built by `build_board_operations` / `buildBoardOperations` (`board_diff.py` / `boardDiff.ts`). Each `search` is widened with surrounding lines until it matches exactly once, and the operations are verified locally before sending. If that fails, `BoardDiffError` is raised; the SDK never falls back to a full replacement on its own.
+
+| Option | Behavior |
+| :--- | :--- |
+| `content` | Full updated content, committed as an automatic diff. An empty board is initialized with `replace_all`. Cannot be combined with `operations` |
+| `operations` | Search/Replace operations committed as-is. Cannot be combined with `content` or `force_replace_all` |
+| `force_replace_all` | Replace the whole board with `content` via `replace_all`. Required to clear a non-empty board with `content=""` |
+| `base_version` | Version the content was based on. If the board has changed since, `BoardVersionConflictError` is raised and nothing is committed |
+
+- Invalid option combinations raise an error before the lock is acquired.
+- When nothing changes, no commit is made and the result has `changed=False` (the version does not advance).
+- `update_with_modifier` follows the same rules: a returned string is committed as an automatic diff (or via `replace_all` with `force_replace_all=True`), and a returned operations list is committed as-is (an empty list is a no-op).
+- In dry-run mode the lock, commit, and unlock are all validation-only. The result has `dry_run=True`, the expected next version, and the expected content.
 
 ---
 
