@@ -1,6 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { AllevitasClient } from '../src/index.js';
+import {
+  AllevitasClient,
+  BoardVersionConflictError,
+  buildBoardOperations,
+  normalizeApiUrl,
+  normalizeLineEndings,
+} from '../src/index.js';
+
+/**
+ * Return the /ja/api/ variant of apiUrl, or null when it does not end with /api.
+ */
+function localizedApiUrl(apiUrl: string): string | null {
+  const base = apiUrl.replace(/\/+$/, '');
+  return base.endsWith('/api') ? `${base.slice(0, -'/api'.length)}/ja/api/` : null;
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -219,18 +233,25 @@ async function main() {
 
   // 10. URL Normalization check (/ja/api -> /api)
   console.log('\n--- [Test 10] URL Normalization Verification (/ja/api -> /api) ---');
-  const normalizedClient = new AllevitasClient({
-    apiUrl: 'https://allevitas.com/ja/api/',
-    dryRun: true,
-  });
-  if (normalizedClient.apiUrl !== 'https://allevitas.com/api') {
-    throw new Error(`Expected normalized URL 'https://allevitas.com/api', got '${normalizedClient.apiUrl}'`);
+  // Derive the localized URL from --api-url so the check never leaves the target environment
+  const localizedUrl = localizedApiUrl(apiUrl);
+  if (localizedUrl === null) {
+    console.log(`  [INFO] ${apiUrl} does not end with /api. Skipping URL normalization check.`);
+  } else {
+    const expectedUrl = normalizeApiUrl(apiUrl);
+    const normalizedClient = new AllevitasClient({
+      apiUrl: localizedUrl,
+      dryRun: true,
+    });
+    if (normalizedClient.apiUrl !== expectedUrl) {
+      throw new Error(`Expected normalized URL '${expectedUrl}', got '${normalizedClient.apiUrl}'`);
+    }
+    const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
+    if (!normGuidelines.guidelines && !normGuidelines.data) {
+      throw new Error('Failed to fetch guidelines via normalized client URL');
+    }
+    console.log(`  [PASS] Client initialized with ${localizedUrl} normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
   }
-  const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
-  if (!normGuidelines.guidelines && !normGuidelines.data) {
-    throw new Error('Failed to fetch guidelines via normalized client URL');
-  }
-  console.log(`  [PASS] Client initialized with /ja/api/ normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
 
   // 11. Board (Tabula Canvas) Dry-Run & Operations
   if (targetPostId) {
@@ -240,8 +261,11 @@ async function main() {
       console.log(`  Current Board: Post ID=${boardData.postId}, Version=${boardData.version}, isLocked=${boardData.isLocked}`);
       console.log('  [PASS] client.board.get retrieved successfully!');
 
-      const lockRes = await client.board.lock(targetPostId);
+      const lockRes = await client.board.lock(targetPostId, { dryRun: true });
       console.log(`  Board Lock (Dry-Run): dryRun=${lockRes.dryRun}, msg=${lockRes.message}`);
+      if (lockRes.dryRun !== true) {
+        throw new Error(`Expected a dry-run lock response, got ${JSON.stringify(lockRes)}`);
+      }
       console.log('  [PASS] client.board.lock dry-run validated successfully!');
 
       const historyData = await client.board.getHistory(targetPostId, { limit: 3 });
@@ -256,9 +280,104 @@ async function main() {
     }
   }
 
+  // 12. Board update with automatic diff (Dry-Run)
+  if (targetPostId) {
+    console.log('\n--- [Test 12] Board update with automatic diff (Dry-Run) ---');
+    try {
+      await runBoardUpdateDryRunTests(client, targetPostId);
+    } catch (e: any) {
+      if (e.name === 'BoardDisabledError' || String(e).includes('503') || String(e).includes('BOARD_API_DISABLED')) {
+        console.log(`  [INFO] Board API is currently disabled on remote server (${e.message}). Skipping.`);
+      } else {
+        throw e;
+      }
+    }
+  }
+
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript SDK Dry-Runs Passed!  ');
   console.log('=================================================');
+}
+
+/**
+ * Return the first post ID whose board has content (read-only), or the fallback.
+ */
+async function findBoardWithContent(client: AllevitasClient, fallbackPostId: string, maxPosts = 10): Promise<string> {
+  const { posts } = await client.thread.getPosts({ limit: maxPosts });
+  for (const post of posts) {
+    if ((await client.board.get(post.id)).content) return post.id;
+  }
+  return fallbackPostId;
+}
+
+async function runBoardUpdateDryRunTests(client: AllevitasClient, fallbackPostId: string): Promise<void> {
+  const postId = await findBoardWithContent(client, fallbackPostId);
+  const board = await client.board.get(postId);
+  const current = normalizeLineEndings(board.content);
+  console.log(`  Target Board: Post ID=${postId}, Version=${board.version}, length=${current.length}`);
+
+  // 12.1 Full content is committed as an automatic diff (replace_all only for an empty board)
+  const separator = current === '' || current.endsWith('\n') ? '' : '\n';
+  const newContent = `${current}${separator}- TypeScript SDK dry-run line\n`;
+  const operations = buildBoardOperations(current, newContent);
+  const usesReplaceAll = operations.some((op) => op.type === 'replace_all');
+  if (usesReplaceAll !== (current === '')) {
+    throw new Error(`Unexpected operations: ${JSON.stringify(operations)}`);
+  }
+  let res = await client.board.update(postId, {
+    commitMessage: 'TypeScript SDK dry-run board update',
+    content: newContent,
+    baseVersion: board.version,
+    dryRun: true,
+  });
+  console.log(`  Result: dryRun=${res.dryRun}, changed=${res.changed}, version=${res.version}, operations=${operations.length}`);
+  if (res.dryRun !== true || res.changed !== true || res.content !== newContent) {
+    throw new Error(`Expected a dry-run diff update, got ${JSON.stringify(res)}`);
+  }
+  if (current && res.version !== board.version + 1) {
+    throw new Error(`Expected version ${board.version + 1}, got ${res.version}`);
+  }
+  console.log(`  [PASS] Server validated the ${usesReplaceAll ? 'replace_all' : 'Search/Replace diff'} update!`);
+
+  // 12.2 Unchanged content is a no-op
+  res = await client.board.update(postId, { commitMessage: 'No change', content: board.content, dryRun: true });
+  if (res.changed !== false || res.version !== board.version) {
+    throw new Error(`Expected a no-op, got ${JSON.stringify(res)}`);
+  }
+  console.log('  [PASS] Unchanged content returned changed=false without committing!');
+
+  // 12.3 Stale baseVersion is rejected before committing
+  try {
+    await client.board.update(postId, {
+      commitMessage: 'Stale',
+      content: newContent,
+      baseVersion: board.version - 1,
+      dryRun: true,
+    });
+    throw new Error('Expected BoardVersionConflictError for a stale baseVersion');
+  } catch (e: any) {
+    if (!(e instanceof BoardVersionConflictError)) throw e;
+    console.log(`  [PASS] Stale baseVersion rejected: ${e.message}`);
+  }
+
+  // 12.4 Clearing a non-empty board requires forceReplaceAll
+  if (current) {
+    let rejected = false;
+    try {
+      await client.board.update(postId, { commitMessage: 'Clear', content: '', dryRun: true });
+    } catch (e: any) {
+      rejected = true;
+      console.log(`  [PASS] Clearing without forceReplaceAll rejected: ${e.message}`);
+    }
+    if (!rejected) throw new Error('Expected clearing without forceReplaceAll to fail');
+  }
+
+  // 12.5 Nothing was persisted
+  const after = await client.board.get(postId);
+  if (after.version !== board.version || after.content !== board.content) {
+    throw new Error('Board changed during dry-run');
+  }
+  console.log('  [PASS] Board content and version are unchanged after dry-run!');
 }
 
 main().catch((err) => {

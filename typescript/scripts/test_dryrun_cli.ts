@@ -6,6 +6,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Return the /ja/api/ variant of apiUrl, or null when it does not end with /api.
+ */
+function localizedApiUrl(apiUrl: string): string | null {
+  const base = apiUrl.replace(/\/+$/, '');
+  return base.endsWith('/api') ? `${base.slice(0, -'/api'.length)}/ja/api/` : null;
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let credentialsPath = './.credentials.json';
@@ -29,7 +37,18 @@ function parseArgs() {
   return { credentialsPath, apiUrl };
 }
 
-function runCli(cliArgs: string[]): string {
+/**
+ * Run the CLI and return the exit code and output without throwing.
+ */
+function runCliResult(cliArgs: string[]): { code: number; stdout: string; stderr: string } {
+  try {
+    return { code: 0, stdout: runCli(cliArgs, { quiet: true }), stderr: '' };
+  } catch (err: any) {
+    return { code: err.status ?? 1, stdout: String(err.stdout ?? ''), stderr: String(err.stderr ?? '') };
+  }
+}
+
+function runCli(cliArgs: string[], options: { quiet?: boolean } = {}): string {
   const typescriptDir = path.resolve(__dirname, '..');
   const distCli = path.resolve(typescriptDir, 'dist', 'cli.js');
   const srcCli = path.resolve(typescriptDir, 'src', 'cli.ts');
@@ -54,9 +73,11 @@ function runCli(cliArgs: string[]): string {
     });
     return output;
   } catch (err: any) {
-    console.error(`Command failed: ${cmd} ${args.join(' ')}`);
-    if (err.stdout) console.error(`STDOUT:\n${err.stdout}`);
-    if (err.stderr) console.error(`STDERR:\n${err.stderr}`);
+    if (!options.quiet) {
+      console.error(`Command failed: ${cmd} ${args.join(' ')}`);
+      if (err.stdout) console.error(`STDOUT:\n${err.stdout}`);
+      if (err.stderr) console.error(`STDERR:\n${err.stderr}`);
+    }
     throw err;
   }
 }
@@ -302,16 +323,22 @@ async function main() {
 
   // 12. URL Normalization check (/ja/api -> /api) via CLI
   console.log('\n--- [Test 12] CLI URL Normalization (/ja/api -> /api) ---');
-  const normalizedCliOut = runCli([
-    'guidelines',
-    '--api-url', 'https://allevitas.com/ja/api/',
-    '--json',
-  ]);
-  const parsedNorm = JSON.parse(normalizedCliOut);
-  if (!parsedNorm.guidelines && !parsedNorm.data) {
-    throw new Error(`CLI URL normalization request failed:\n${normalizedCliOut}`);
+  // Derive the localized URL from --api-url so the check never leaves the target environment
+  const localizedUrl = localizedApiUrl(apiUrl);
+  if (localizedUrl === null) {
+    console.log(`  [INFO] ${apiUrl} does not end with /api. Skipping URL normalization check.`);
+  } else {
+    const normalizedCliOut = runCli([
+      'guidelines',
+      '--api-url', localizedUrl,
+      '--json',
+    ]);
+    const parsedNorm = JSON.parse(normalizedCliOut);
+    if (!parsedNorm.guidelines && !parsedNorm.data) {
+      throw new Error(`CLI URL normalization request failed:\n${normalizedCliOut}`);
+    }
+    console.log(`  [PASS] CLI with ${localizedUrl} normalized to /api and retrieved real API data successfully!`);
   }
-  console.log('  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!');
 
   // 13. Board (Tabula Canvas) Dry-Run & Retrieval
   if (primaryPostId) {
@@ -359,9 +386,93 @@ async function main() {
     }
   }
 
+  // 14. Board update with automatic diff (Dry-Run)
+  if (primaryPostId) {
+    console.log('\n--- [Test 14] CLI board update with automatic diff (Dry-Run) ---');
+    try {
+      runBoardUpdateDryRunTests(apiUrl, resolvedCredsPath, primaryPostId);
+    } catch (e: any) {
+      if (String(e).includes("BoardDisabledError") || String(e).includes("503") || String(e).includes("BOARD_API_DISABLED")) {
+        console.log('  [INFO] Board feature is currently disabled (503 BOARD_API_DISABLED) on remote server.');
+      } else {
+        throw e;
+      }
+    }
+  }
+
   console.log('\n=================================================');
   console.log('  [SUCCESS] All TypeScript CLI Dry-Runs Passed!  ');
   console.log('=================================================');
+}
+
+function getBoardJson(apiUrl: string, credsPath: string, postId: string): any {
+  return JSON.parse(runCli(['board', 'get', postId, '--api-url', apiUrl, '--credentials', credsPath, '--json']));
+}
+
+/**
+ * Return the first post ID whose board has content (read-only), or the fallback.
+ */
+function findBoardWithContent(apiUrl: string, credsPath: string, fallbackPostId: string, maxPosts = 10): string {
+  const postsOut = runCli(['list-posts', '--api-url', apiUrl, '--credentials', credsPath, '--limit', String(maxPosts)]);
+  const uuidPattern = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+  const postIds = [...new Set(postsOut.match(uuidPattern) || [])];
+  for (const postId of postIds) {
+    const res = runCliResult(['board', 'get', postId, '--api-url', apiUrl, '--credentials', credsPath, '--json']);
+    if (res.code !== 0) continue; // Not a post ID (e.g. a topic ID in the listing)
+    if (JSON.parse(res.stdout).content) return postId;
+  }
+  return fallbackPostId;
+}
+
+function runBoardUpdateDryRunTests(apiUrl: string, credsPath: string, fallbackPostId: string): void {
+  const postId = findBoardWithContent(apiUrl, credsPath, fallbackPostId);
+  const board = getBoardJson(apiUrl, credsPath, postId);
+  const current = String(board.content || '').replace(/\r\n/g, '\n');
+  const version = Number(board.version || 0);
+  console.log(`  Target Board: postId=${postId}, version=${version}, length=${current.length}`);
+
+  const baseArgs = ['board', 'update', postId, '--api-url', apiUrl, '--credentials', credsPath, '--dry-run'];
+
+  // 14.1 Full content is committed as an automatic diff
+  const separator = current === '' || current.endsWith('\n') ? '' : '\n';
+  const newContent = `${current}${separator}- TypeScript CLI dry-run line\n`;
+  const out = runCli([...baseArgs, '-m', 'TypeScript CLI dry-run board update', '--content', newContent, '--version', String(version), '--json']);
+  const data = JSON.parse(out.slice(out.indexOf('{')));
+  if (data.changed !== true || data.dryRun !== true) {
+    throw new Error(`Expected changed/dryRun=true, got:\n${out}`);
+  }
+  console.log(`  Result: changed=${data.changed}, dryRun=${data.dryRun}, version=${data.version}`);
+  console.log('  [PASS] CLI board update --content --dry-run validated by the server!');
+
+  // 14.2 Unchanged content is a no-op
+  const noopOut = runCli([...baseArgs, '-m', 'No change', '--content', current]);
+  if (!noopOut.includes('Board unchanged (no commit)')) {
+    throw new Error(`Expected no-op message, got:\n${noopOut}`);
+  }
+  console.log("  [PASS] CLI reported 'Board unchanged (no commit)' for unchanged content!");
+
+  // 14.3 Stale --version is rejected
+  const stale = runCliResult([...baseArgs, '-m', 'Stale', '--content', newContent, '--version', String(version - 1)]);
+  if (stale.code === 0 || !stale.stderr.toLowerCase().includes('version')) {
+    throw new Error(`Expected a version conflict error, got code ${stale.code}:\n${stale.stdout}\n${stale.stderr}`);
+  }
+  console.log('  [PASS] CLI rejected a stale --version!');
+
+  // 14.4 Clearing a non-empty board requires --replace-all
+  if (current) {
+    const clear = runCliResult([...baseArgs, '-m', 'Clear', '--content', '']);
+    if (clear.code === 0) {
+      throw new Error(`Expected clearing without --replace-all to fail:\n${clear.stdout}`);
+    }
+    console.log('  [PASS] CLI rejected clearing the board without --replace-all!');
+  }
+
+  // 14.5 Nothing was persisted
+  const after = getBoardJson(apiUrl, credsPath, postId);
+  if (Number(after.version || 0) !== version || String(after.content || '') !== String(board.content || '')) {
+    throw new Error('Board changed during dry-run');
+  }
+  console.log('  [PASS] Board content and version are unchanged after dry-run!');
 }
 
 main().catch((err) => {
