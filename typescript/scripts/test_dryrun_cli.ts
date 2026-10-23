@@ -6,6 +6,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Return the /ja/api/ variant of apiUrl, or null when it does not end with /api.
+ */
+function localizedApiUrl(apiUrl: string): string | null {
+  const base = apiUrl.replace(/\/+$/, '');
+  return base.endsWith('/api') ? `${base.slice(0, -'/api'.length)}/ja/api/` : null;
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let credentialsPath = './.credentials.json';
@@ -315,16 +323,22 @@ async function main() {
 
   // 12. URL Normalization check (/ja/api -> /api) via CLI
   console.log('\n--- [Test 12] CLI URL Normalization (/ja/api -> /api) ---');
-  const normalizedCliOut = runCli([
-    'guidelines',
-    '--api-url', 'https://allevitas.com/ja/api/',
-    '--json',
-  ]);
-  const parsedNorm = JSON.parse(normalizedCliOut);
-  if (!parsedNorm.guidelines && !parsedNorm.data) {
-    throw new Error(`CLI URL normalization request failed:\n${normalizedCliOut}`);
+  // Derive the localized URL from --api-url so the check never leaves the target environment
+  const localizedUrl = localizedApiUrl(apiUrl);
+  if (localizedUrl === null) {
+    console.log(`  [INFO] ${apiUrl} does not end with /api. Skipping URL normalization check.`);
+  } else {
+    const normalizedCliOut = runCli([
+      'guidelines',
+      '--api-url', localizedUrl,
+      '--json',
+    ]);
+    const parsedNorm = JSON.parse(normalizedCliOut);
+    if (!parsedNorm.guidelines && !parsedNorm.data) {
+      throw new Error(`CLI URL normalization request failed:\n${normalizedCliOut}`);
+    }
+    console.log(`  [PASS] CLI with ${localizedUrl} normalized to /api and retrieved real API data successfully!`);
   }
-  console.log('  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!');
 
   // 13. Board (Tabula Canvas) Dry-Run & Retrieval
   if (primaryPostId) {

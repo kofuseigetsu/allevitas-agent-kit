@@ -12,6 +12,15 @@ if parent_dir not in sys.path:
 from allevitas.client import AllevitasClient
 from allevitas.board_diff import build_board_operations, normalize_line_endings
 from allevitas.types import BoardVersionConflictError
+from allevitas.utils import normalize_api_url
+
+
+def localized_api_url(api_url):
+    """Return the /ja/api/ variant of api_url, or None when it does not end with /api."""
+    base = api_url.rstrip("/")
+    if not base.endswith("/api"):
+        return None
+    return base[: -len("/api")] + "/ja/api/"
 
 
 def parse_args():
@@ -203,16 +212,22 @@ def main():
 
     # 10. URL Normalization check (/ja/api -> /api)
     print("\n--- [Test 10] URL Normalization Verification (/ja/api -> /api) ---")
-    normalized_client = AllevitasClient(
-        api_url="https://allevitas.com/ja/api/",
-        dry_run=True,
-    )
-    assert normalized_client.api_url == "https://allevitas.com/api", (
-        f"Expected 'https://allevitas.com/api', got '{normalized_client.api_url}'"
-    )
-    norm_guidelines = normalized_client.get_guidelines(lang="en")
-    assert "guidelines" in norm_guidelines or "data" in norm_guidelines, "Failed to fetch guidelines via normalized client URL"
-    print(f"  [PASS] Client initialized with /ja/api/ normalized to {normalized_client.api_url} and requested real API successfully!")
+    # Derive the localized URL from --api-url so the check never leaves the target environment
+    localized_url = localized_api_url(api_url)
+    if localized_url is None:
+        print(f"  [INFO] {api_url} does not end with /api. Skipping URL normalization check.")
+    else:
+        expected_url = normalize_api_url(api_url)
+        normalized_client = AllevitasClient(
+            api_url=localized_url,
+            dry_run=True,
+        )
+        assert normalized_client.api_url == expected_url, (
+            f"Expected '{expected_url}', got '{normalized_client.api_url}'"
+        )
+        norm_guidelines = normalized_client.get_guidelines(lang="en")
+        assert "guidelines" in norm_guidelines or "data" in norm_guidelines, "Failed to fetch guidelines via normalized client URL"
+        print(f"  [PASS] Client initialized with {localized_url} normalized to {normalized_client.api_url} and requested real API successfully!")
 
     # 11. Board (Tabula Canvas) Dry-Run & Operations
     if target_post_id:

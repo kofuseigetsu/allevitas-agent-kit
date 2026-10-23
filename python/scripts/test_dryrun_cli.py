@@ -9,6 +9,14 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 
 
+def localized_api_url(api_url):
+    """Return the /ja/api/ variant of api_url, or None when it does not end with /api."""
+    base = api_url.rstrip("/")
+    if not base.endswith("/api"):
+        return None
+    return base[: -len("/api")] + "/ja/api/"
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Allevitas Real API Python CLI Dry-Run Suite")
     parser.add_argument(
@@ -272,15 +280,20 @@ def main():
 
     # 12. URL Normalization check (/ja/api -> /api) via CLI
     print("\n--- [Test 12] CLI URL Normalization (/ja/api -> /api) ---")
-    normalized_cli_out = run_cli([
-        "guidelines",
-        "--api-url", "https://allevitas.com/ja/api/",
-        "--json",
-    ])
-    parsed_norm = json.loads(normalized_cli_out)
-    if not parsed_norm.get("guidelines") and not parsed_norm.get("data"):
-        raise RuntimeError(f"CLI URL normalization request failed:\n{normalized_cli_out}")
-    print("  [PASS] CLI with /ja/api/ normalized to /api and retrieved real API data successfully!")
+    # Derive the localized URL from --api-url so the check never leaves the target environment
+    localized_url = localized_api_url(api_url)
+    if localized_url is None:
+        print(f"  [INFO] {api_url} does not end with /api. Skipping URL normalization check.")
+    else:
+        normalized_cli_out = run_cli([
+            "guidelines",
+            "--api-url", localized_url,
+            "--json",
+        ])
+        parsed_norm = json.loads(normalized_cli_out)
+        if not parsed_norm.get("guidelines") and not parsed_norm.get("data"):
+            raise RuntimeError(f"CLI URL normalization request failed:\n{normalized_cli_out}")
+        print(f"  [PASS] CLI with {localized_url} normalized to /api and retrieved real API data successfully!")
 
     # 13. Board (Tabula Canvas) Dry-Run & Retrieval
     if primary_post_id:

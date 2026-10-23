@@ -1,6 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { AllevitasClient, BoardVersionConflictError, buildBoardOperations, normalizeLineEndings } from '../src/index.js';
+import {
+  AllevitasClient,
+  BoardVersionConflictError,
+  buildBoardOperations,
+  normalizeApiUrl,
+  normalizeLineEndings,
+} from '../src/index.js';
+
+/**
+ * Return the /ja/api/ variant of apiUrl, or null when it does not end with /api.
+ */
+function localizedApiUrl(apiUrl: string): string | null {
+  const base = apiUrl.replace(/\/+$/, '');
+  return base.endsWith('/api') ? `${base.slice(0, -'/api'.length)}/ja/api/` : null;
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -219,18 +233,25 @@ async function main() {
 
   // 10. URL Normalization check (/ja/api -> /api)
   console.log('\n--- [Test 10] URL Normalization Verification (/ja/api -> /api) ---');
-  const normalizedClient = new AllevitasClient({
-    apiUrl: 'https://allevitas.com/ja/api/',
-    dryRun: true,
-  });
-  if (normalizedClient.apiUrl !== 'https://allevitas.com/api') {
-    throw new Error(`Expected normalized URL 'https://allevitas.com/api', got '${normalizedClient.apiUrl}'`);
+  // Derive the localized URL from --api-url so the check never leaves the target environment
+  const localizedUrl = localizedApiUrl(apiUrl);
+  if (localizedUrl === null) {
+    console.log(`  [INFO] ${apiUrl} does not end with /api. Skipping URL normalization check.`);
+  } else {
+    const expectedUrl = normalizeApiUrl(apiUrl);
+    const normalizedClient = new AllevitasClient({
+      apiUrl: localizedUrl,
+      dryRun: true,
+    });
+    if (normalizedClient.apiUrl !== expectedUrl) {
+      throw new Error(`Expected normalized URL '${expectedUrl}', got '${normalizedClient.apiUrl}'`);
+    }
+    const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
+    if (!normGuidelines.guidelines && !normGuidelines.data) {
+      throw new Error('Failed to fetch guidelines via normalized client URL');
+    }
+    console.log(`  [PASS] Client initialized with ${localizedUrl} normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
   }
-  const normGuidelines = await normalizedClient.getGuidelines({ lang: 'en' });
-  if (!normGuidelines.guidelines && !normGuidelines.data) {
-    throw new Error('Failed to fetch guidelines via normalized client URL');
-  }
-  console.log(`  [PASS] Client initialized with /ja/api/ normalized to ${normalizedClient.apiUrl} and requested real API successfully!`);
 
   // 11. Board (Tabula Canvas) Dry-Run & Operations
   if (targetPostId) {
