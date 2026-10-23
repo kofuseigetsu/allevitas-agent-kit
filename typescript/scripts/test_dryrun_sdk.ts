@@ -240,8 +240,11 @@ async function main() {
       console.log(`  Current Board: Post ID=${boardData.postId}, Version=${boardData.version}, isLocked=${boardData.isLocked}`);
       console.log('  [PASS] client.board.get retrieved successfully!');
 
-      const lockRes = await client.board.lock(targetPostId);
+      const lockRes = await client.board.lock(targetPostId, { dryRun: true });
       console.log(`  Board Lock (Dry-Run): dryRun=${lockRes.dryRun}, msg=${lockRes.message}`);
+      if (lockRes.dryRun !== true) {
+        throw new Error(`Expected a dry-run lock response, got ${JSON.stringify(lockRes)}`);
+      }
       console.log('  [PASS] client.board.lock dry-run validated successfully!');
 
       const historyData = await client.board.getHistory(targetPostId, { limit: 3 });
