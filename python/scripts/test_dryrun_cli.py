@@ -24,9 +24,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_cli(cli_args, cwd=parent_dir):
+def run_cli_result(cli_args, cwd=parent_dir):
     cmd = [sys.executable, "-m", "allevitas.cli"] + cli_args
-    res = subprocess.run(
+    return subprocess.run(
         cmd,
         cwd=cwd,
         capture_output=True,
@@ -34,6 +34,11 @@ def run_cli(cli_args, cwd=parent_dir):
         encoding="utf-8",
         errors="replace",
     )
+
+
+def run_cli(cli_args, cwd=parent_dir):
+    cmd = [sys.executable, "-m", "allevitas.cli"] + cli_args
+    res = run_cli_result(cli_args, cwd=cwd)
     if res.returncode != 0:
         print(f"Command failed: {' '.join(cmd)}", file=sys.stderr)
         print(f"STDOUT:\n{res.stdout}", file=sys.stderr)
@@ -318,9 +323,102 @@ def main():
             else:
                 raise
 
+    # 14. Board update with automatic diff (Dry-Run)
+    if primary_post_id:
+        print("\n--- [Test 14] CLI board update with automatic diff (Dry-Run) ---")
+        try:
+            run_board_update_dry_run_tests(api_url, credentials_path, primary_post_id)
+        except Exception as e:
+            if "BoardDisabledError" in str(e) or "503" in str(e) or "BOARD_API_DISABLED" in str(e):
+                print(f"  [INFO] Board feature is currently disabled (503 BOARD_API_DISABLED) on remote server.")
+            else:
+                raise
+
     print("\n=================================================")
     print("  [SUCCESS] All Python CLI Dry-Runs Passed!    ")
     print("=================================================")
+
+
+def get_board_json(api_url, credentials_path, post_id):
+    return json.loads(run_cli([
+        "board", "get", post_id,
+        "--api-url", api_url,
+        "--credentials", credentials_path,
+        "--json",
+    ]))
+
+
+def find_board_with_content(api_url, credentials_path, fallback_post_id, max_posts=10):
+    """Return the first post ID whose board has content (read-only), or the fallback."""
+    posts_out = run_cli([
+        "list-posts",
+        "--api-url", api_url,
+        "--credentials", credentials_path,
+        "--limit", str(max_posts),
+    ])
+    uuid_pattern = r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    for post_id in dict.fromkeys(re.findall(uuid_pattern, posts_out, re.IGNORECASE)):
+        res = run_cli_result([
+            "board", "get", post_id,
+            "--api-url", api_url,
+            "--credentials", credentials_path,
+            "--json",
+        ])
+        if res.returncode != 0:
+            continue  # Not a post ID (e.g. a topic ID in the listing)
+        if json.loads(res.stdout).get("content"):
+            return post_id
+    return fallback_post_id
+
+
+def run_board_update_dry_run_tests(api_url, credentials_path, fallback_post_id):
+    post_id = find_board_with_content(api_url, credentials_path, fallback_post_id)
+    board = get_board_json(api_url, credentials_path, post_id)
+    current = (board.get("content") or "").replace("\r\n", "\n")
+    version = int(board.get("version", 0))
+    print(f"  Target Board: postId={post_id}, version={version}, length={len(current)}")
+
+    base_args = [
+        "board", "update", post_id,
+        "--api-url", api_url,
+        "--credentials", credentials_path,
+        "--dry-run",
+    ]
+
+    # 14.1 Full content is committed as an automatic diff
+    separator = "" if current == "" or current.endswith("\n") else "\n"
+    new_content = f"{current}{separator}- Python CLI dry-run line\n"
+    out = run_cli(base_args + ["-m", "Python CLI dry-run board update", "--content", new_content, "--version", str(version), "--json"])
+    data = json.loads(out[out.index("{"):])
+    if data.get("changed") is not True or data.get("dryRun") is not True:
+        raise RuntimeError(f"Expected changed/dryRun=true, got:\n{out}")
+    print(f"  Result: changed={data.get('changed')}, dryRun={data.get('dryRun')}, version={data.get('version')}")
+    print("  [PASS] CLI board update --content --dry-run validated by the server!")
+
+    # 14.2 Unchanged content is a no-op
+    out = run_cli(base_args + ["-m", "No change", "--content", current])
+    if "Board unchanged (no commit)" not in out:
+        raise RuntimeError(f"Expected no-op message, got:\n{out}")
+    print("  [PASS] CLI reported 'Board unchanged (no commit)' for unchanged content!")
+
+    # 14.3 Stale --version is rejected
+    res = run_cli_result(base_args + ["-m", "Stale", "--content", new_content, "--version", str(version - 1)])
+    if res.returncode == 0 or "version" not in res.stderr.lower():
+        raise RuntimeError(f"Expected a version conflict error, got code {res.returncode}:\n{res.stdout}\n{res.stderr}")
+    print("  [PASS] CLI rejected a stale --version!")
+
+    # 14.4 Clearing a non-empty board requires --replace-all
+    if current:
+        res = run_cli_result(base_args + ["-m", "Clear", "--content", ""])
+        if res.returncode == 0:
+            raise RuntimeError(f"Expected clearing without --replace-all to fail:\n{res.stdout}")
+        print("  [PASS] CLI rejected clearing the board without --replace-all!")
+
+    # 14.5 Nothing was persisted
+    after = get_board_json(api_url, credentials_path, post_id)
+    if int(after.get("version", 0)) != version or (after.get("content") or "") != (board.get("content") or ""):
+        raise RuntimeError("Board changed during dry-run")
+    print("  [PASS] Board content and version are unchanged after dry-run!")
 
 
 if __name__ == "__main__":

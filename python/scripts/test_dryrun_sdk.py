@@ -10,6 +10,8 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from allevitas.client import AllevitasClient
+from allevitas.board_diff import build_board_operations, normalize_line_endings
+from allevitas.types import BoardVersionConflictError
 
 
 def parse_args():
@@ -233,9 +235,84 @@ def main():
             else:
                 raise
 
+    # 12. Board update with automatic diff (Dry-Run)
+    if target_post_id:
+        print("\n--- [Test 12] Board update with automatic diff (Dry-Run) ---")
+        try:
+            run_board_update_dry_run_tests(client, target_post_id)
+        except Exception as e:
+            if "BoardDisabledError" in str(type(e)) or "503" in str(e) or "BOARD_API_DISABLED" in str(e):
+                print(f"  [INFO] Board API is currently disabled on remote server ({e}). Skipping.")
+            else:
+                raise
+
     print("\n=================================================")
     print("  [SUCCESS] All Python SDK Dry-Runs Passed!    ")
     print("=================================================")
+
+
+def find_board_with_content(client, fallback_post_id, max_posts=10):
+    """Return the first post ID whose board has content (read-only), or the fallback."""
+    posts = client.thread.get_posts(limit=max_posts).get("posts", [])
+    for post in posts:
+        if client.board.get(post.id).content:
+            return post.id
+    return fallback_post_id
+
+
+def run_board_update_dry_run_tests(client, fallback_post_id):
+    post_id = find_board_with_content(client, fallback_post_id)
+    board = client.board.get(post_id)
+    current = normalize_line_endings(board.content)
+    print(f"  Target Board: Post ID={post_id}, Version={board.version}, length={len(current)}")
+
+    # 12.1 Full content is committed as an automatic diff (replace_all only for an empty board)
+    separator = "" if current == "" or current.endswith("\n") else "\n"
+    new_content = f"{current}{separator}- Python SDK dry-run line\n"
+    operations = build_board_operations(current, new_content)
+    uses_replace_all = any(op.get("type") == "replace_all" for op in operations)
+    assert uses_replace_all == (current == ""), f"Unexpected operations: {operations}"
+    res = client.board.update(
+        post_id,
+        commit_message="Python SDK dry-run board update",
+        content=new_content,
+        base_version=board.version,
+        dry_run=True,
+    )
+    print(f"  Result: dry_run={res.dry_run}, changed={res.changed}, version={res.version}, operations={len(operations)}")
+    assert res.dry_run is True and res.changed is True, f"Expected dry_run/changed=True, got {res}"
+    assert res.content == new_content, "Expected content does not match the requested content"
+    if current:
+        assert res.version == board.version + 1, f"Expected version {board.version + 1}, got {res.version}"
+    print(f"  [PASS] Server validated the {'replace_all' if uses_replace_all else 'Search/Replace diff'} update!")
+
+    # 12.2 Unchanged content is a no-op
+    res = client.board.update(post_id, commit_message="No change", content=board.content, dry_run=True)
+    assert res.changed is False and res.version == board.version, f"Expected no-op, got {res}"
+    print("  [PASS] Unchanged content returned changed=False without committing!")
+
+    # 12.3 Stale base_version is rejected before committing
+    try:
+        client.board.update(
+            post_id, commit_message="Stale", content=new_content,
+            base_version=board.version - 1, dry_run=True,
+        )
+        raise AssertionError("Expected BoardVersionConflictError for a stale base_version")
+    except BoardVersionConflictError as e:
+        print(f"  [PASS] Stale base_version rejected: {e}")
+
+    # 12.4 Clearing a non-empty board requires force_replace_all
+    if current:
+        try:
+            client.board.update(post_id, commit_message="Clear", content="", dry_run=True)
+            raise AssertionError("Expected ValueError when clearing without force_replace_all")
+        except ValueError as e:
+            print(f"  [PASS] Clearing without force_replace_all rejected: {e}")
+
+    # 12.5 Nothing was persisted
+    after = client.board.get(post_id)
+    assert after.version == board.version and after.content == board.content, "Board changed during dry-run"
+    print("  [PASS] Board content and version are unchanged after dry-run!")
 
 
 if __name__ == "__main__":
