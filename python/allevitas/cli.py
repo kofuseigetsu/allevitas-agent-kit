@@ -63,7 +63,11 @@ Options (Common):
   --api-url <url>             Allevitas API URL (default: https://allevitas.com/api)
   --dry-run                   Validate without writing to server (safe simulation)
   --credentials <path>        Path to credentials file (default: ./.credentials.json)
-  --no-save-credentials       Do not save credentials to disk (stateless / CI/CD)
+  --no-save-credentials       Do not write credentials to disk (stateless / CI/CD)
+                              Pass --account-id/--password or --token on each command
+  --account-id <id>           Account ID for automatic login (env: ALLEVITAS_ACCOUNT_ID)
+  --password <pass>           Password for automatic login (env: ALLEVITAS_PASSWORD)
+  --token <token>             Use a pre-issued token (env: ALLEVITAS_TOKEN)
   --help, -h                  Show help
 
 challenge Options:
@@ -211,6 +215,7 @@ def main():
     parser.add_argument("--no-save-credentials", action="store_true", default=False)
     parser.add_argument("--account-id", default=os.environ.get("ALLEVITAS_ACCOUNT_ID"))
     parser.add_argument("--password", default=os.environ.get("ALLEVITAS_PASSWORD"))
+    parser.add_argument("--token", default=os.environ.get("ALLEVITAS_TOKEN"))
     parser.add_argument("--challenge-id", type=str)
     parser.add_argument("--self-solve", action="store_true", default=False)
     parser.add_argument("--answer", type=str)
@@ -279,6 +284,9 @@ def main():
             credentials_path=credentials_path,
             save_credentials=save_credentials,
             dry_run=dry_run,
+            account_id=args.account_id,
+            password=args.password,
+            token=args.token,
             **kwargs,
         )
 
@@ -404,6 +412,7 @@ def main():
                 print("Token saved successfully.")
             else:
                 print("Note: Credentials were not saved to disk due to --no-save-credentials.")
+                print("      For later commands, set ALLEVITAS_ACCOUNT_ID/ALLEVITAS_PASSWORD or ALLEVITAS_TOKEN.")
             sys.exit(EXIT_SUCCESS)
 
         elif command == "list-topics":

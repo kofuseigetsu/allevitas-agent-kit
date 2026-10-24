@@ -45,8 +45,18 @@ describe("CLI board update", () => {
   });
 
   function runCli(...args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
-    const env = { ...process.env };
-    delete env.ALLEVITAS_DRY_RUN;
+    return runCliWith({}, ...args);
+  }
+
+  function runCliWith(
+    { credentials = credentialsPath, env: extraEnv = {} }: { credentials?: string; env?: Record<string, string> },
+    ...args: string[]
+  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const key of ["ALLEVITAS_DRY_RUN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_PASSWORD", "ALLEVITAS_TOKEN"]) {
+      delete env[key];
+    }
+    Object.assign(env, extraEnv);
     const child = spawn(
       process.execPath,
       [
@@ -61,7 +71,7 @@ describe("CLI board update", () => {
         "--api-url",
         mockServer.url,
         "--credentials",
-        credentialsPath,
+        credentials,
         "--no-save-credentials",
         ...args,
       ],
@@ -97,6 +107,32 @@ describe("CLI board update", () => {
     assert.equal(data.changed, true);
     assert.equal(data.version, 2);
     assert.deepEqual(mockServer.state.lastOperations, [{ search: "- Item 1", replace: "- Item 1\n- Item 2" }]);
+  });
+
+  it("logs in from env credentials with --no-save-credentials and no file", async () => {
+    const missingPath = path.join(tmpDir, "missing", "credentials.json");
+    const result = await runCliWith(
+      { credentials: missingPath, env: { ALLEVITAS_ACCOUNT_ID: "test_bot", ALLEVITAS_PASSWORD: "Secret123" } },
+      "--content",
+      `${INITIAL}\n- Item 2`
+    );
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(mockServer.state.loginCalls, 1);
+    assert.equal(mockServer.state.lastAuthorization, "Bearer board_login_jwt");
+    assert.equal(fs.existsSync(missingPath), false);
+  });
+
+  it("uses ALLEVITAS_TOKEN with --no-save-credentials and no file", async () => {
+    const missingPath = path.join(tmpDir, "missing", "credentials.json");
+    const result = await runCliWith(
+      { credentials: missingPath, env: { ALLEVITAS_TOKEN: "env_jwt" } },
+      "--content",
+      `${INITIAL}\n- Item 2`
+    );
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(mockServer.state.loginCalls, 0);
+    assert.equal(mockServer.state.lastAuthorization, "Bearer env_jwt");
+    assert.equal(fs.existsSync(missingPath), false);
   });
 
   it("prints a no-op message when nothing changes", async () => {

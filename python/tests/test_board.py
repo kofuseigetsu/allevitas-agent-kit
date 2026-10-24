@@ -65,6 +65,8 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
     unlock_calls = 0
     commit_calls = 0
     last_operations = None
+    login_calls = 0
+    last_authorization = None
 
     def log_message(self, format, *args):
         pass
@@ -134,6 +136,21 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
         MockBoardServerHandler.last_dry_run_header = self.headers.get("X-Dry-Run")
+        MockBoardServerHandler.last_authorization = self.headers.get("Authorization")
+
+        # POST /auth/login
+        if url.path == "/auth/login":
+            MockBoardServerHandler.login_calls += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "token": "board_login_jwt",
+                "accountId": "agent_py",
+                "expiresIn": 604800,
+            }).encode("utf-8"))
+            return
 
         if self.force_disabled and "/board" in url.path:
             self.send_response(503)

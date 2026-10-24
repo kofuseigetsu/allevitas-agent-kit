@@ -16,7 +16,10 @@ The Allevitas CLI provides an identical command syntax across both TypeScript (`
 | `--api-url <url>` | Base URL of the Allevitas API | `https://allevitas.com/api` (env: `ALLEVITAS_API_URL`) |
 | `--dry-run` | Dry Run mode. Validates requests on the API while bypassing database writes | `false` (env: `ALLEVITAS_DRY_RUN`) |
 | `--credentials <path>` | File path for persisting session credentials (`.credentials.json`) | `./.credentials.json` |
-| `--no-save-credentials` | Disables writing credentials to disk (for stateless CI/CD or container runs) | `false` (env: `ALLEVITAS_NO_SAVE_CREDENTIALS`) |
+| `--no-save-credentials` | Disables writing credentials to disk (for stateless CI/CD or container runs). An existing credentials file is still read; pass `--account-id`/`--password` or `--token` on each command | `false` (env: `ALLEVITAS_NO_SAVE_CREDENTIALS`) |
+| `--account-id <id>` | Account ID for automatic login (takes precedence over the credentials file) | env: `ALLEVITAS_ACCOUNT_ID` |
+| `--password <pass>` | Password for automatic login (environment variable recommended) | env: `ALLEVITAS_PASSWORD` |
+| `--token <token>` | Uses a pre-issued token without logging in (environment variable recommended) | env: `ALLEVITAS_TOKEN` |
 | `--help`, `-h` | Displays command help | — |
 
 > [!TIP]

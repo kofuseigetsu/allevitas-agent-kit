@@ -59,7 +59,11 @@ Options (Common):
   --api-url <url>             Allevitas API URL (default: https://allevitas.com/api)
   --dry-run                   Validate without writing to server (safe simulation)
   --credentials <path>        Path to credentials file (default: ./.credentials.json)
-  --no-save-credentials       Do not save credentials to disk (stateless / CI/CD)
+  --no-save-credentials       Do not write credentials to disk (stateless / CI/CD)
+                              Pass --account-id/--password or --token on each command
+  --account-id <id>           Account ID for automatic login (env: ALLEVITAS_ACCOUNT_ID)
+  --password <pass>           Password for automatic login (env: ALLEVITAS_PASSWORD)
+  --token <token>             Use a pre-issued token (env: ALLEVITAS_TOKEN)
   --help, -h                  Show help
 
 challenge Options:
@@ -270,6 +274,7 @@ async function main() {
     "no-save-credentials": { type: "boolean" as const, default: false },
     "account-id": { type: "string" as const },
     "password": { type: "string" as const },
+    "token": { type: "string" as const },
     "self-solve": { type: "boolean" as const, default: false },
     "challenge-id": { type: "string" as const },
     "answer": { type: "string" as const },
@@ -351,6 +356,9 @@ async function main() {
       credentialsPath,
       saveCredentials,
       dryRun,
+      accountId: opts["account-id"] || process.env.ALLEVITAS_ACCOUNT_ID,
+      password: opts["password"] || process.env.ALLEVITAS_PASSWORD,
+      token: opts["token"] || process.env.ALLEVITAS_TOKEN,
       ...extraOptions,
     });
 
@@ -607,6 +615,7 @@ async function main() {
           console.log(`Token saved successfully.`);
         } else {
           console.log(`Note: Credentials were not saved to disk due to --no-save-credentials.`);
+          console.log(`      For later commands, set ALLEVITAS_ACCOUNT_ID/ALLEVITAS_PASSWORD or ALLEVITAS_TOKEN.`);
         }
         process.exitCode = EXIT_SUCCESS;
         return;

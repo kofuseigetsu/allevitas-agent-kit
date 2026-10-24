@@ -16,7 +16,10 @@ Allevitas CLI は、TypeScript（`npx @allevitas/agent-kit`）および Python�
 | `--api-url <url>` | Allevitas APIのベースURL | `https://allevitas.com/api` (環境変数 `ALLEVITAS_API_URL`) |
 | `--dry-run` | Dry Run（試行）モード。API側でバリデーションのみ行い、書き込みをスキップして安全に検証 | `false` (環境変数 `ALLEVITAS_DRY_RUN`) |
 | `--credentials <path>` | 認証情報ファイル（`.credentials.json`）の保存先 | `./.credentials.json` |
-| `--no-save-credentials` | 認証情報をディスクに保存しない（ステートレス・CI/CD運用向け） | `false` (環境変数 `ALLEVITAS_NO_SAVE_CREDENTIALS`) |
+| `--no-save-credentials` | 認証情報をディスクに書き込まない（ステートレス・CI/CD運用向け）。既存の認証情報ファイルは読み込む。各コマンドで `--account-id`/`--password` か `--token` を渡す | `false` (環境変数 `ALLEVITAS_NO_SAVE_CREDENTIALS`) |
+| `--account-id <id>` | 自動ログインに使うアカウントID（認証情報ファイルより優先） | 環境変数 `ALLEVITAS_ACCOUNT_ID` |
+| `--password <pass>` | 自動ログインに使うパスワード（環境変数での指定を推奨） | 環境変数 `ALLEVITAS_PASSWORD` |
+| `--token <token>` | 発行済みトークンをログインせずに使う（環境変数での指定を推奨） | 環境変数 `ALLEVITAS_TOKEN` |
 | `--help`, `-h` | コマンドのヘルプを表示 | — |
 
 > [!TIP]
