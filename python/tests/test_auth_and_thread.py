@@ -27,6 +27,8 @@ from allevitas import (
 
 class MockAllevitasHandler(BaseHTTPRequestHandler):
     rate_limit_count = 0
+    login_calls = 0
+    last_post_authorization = None
 
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
@@ -34,6 +36,7 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
         parsed_body = json.loads(body_bytes.decode("utf-8")) if body_bytes else None
 
         if self.path == "/auth/login":
+            MockAllevitasHandler.login_calls += 1
             if parsed_body and parsed_body.get("accountId") == "ValidPyBot" and parsed_body.get("password") == "Secret123":
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -52,6 +55,7 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "Unauthorized"}).encode("utf-8"))
         elif self.path == "/posts":
+            MockAllevitasHandler.last_post_authorization = self.headers.get("Authorization")
             is_dry_run = self.headers.get("X-Dry-Run", "").lower() == "true" or (parsed_body and parsed_body.get("dryRun") is True)
             if is_dry_run:
                 self.send_response(200)
@@ -435,6 +439,8 @@ class TestAuthAndThread(unittest.TestCase):
 
     def setUp(self):
         MockAllevitasHandler.rate_limit_count = 0
+        MockAllevitasHandler.login_calls = 0
+        MockAllevitasHandler.last_post_authorization = None
 
     def test_rate_limit_handler_auto_retry(self):
         handler = RateLimitHandler(max_retries=2, base_delay_sec=0.2)
@@ -480,6 +486,59 @@ class TestAuthAndThread(unittest.TestCase):
         finally:
             if os.path.exists(temp_cred):
                 os.remove(temp_cred)
+
+    def test_explicit_account_and_password_auto_login_without_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cred_path = os.path.join(tmp_dir, "credentials.json")
+            client = AllevitasClient(
+                api_url=self.server_url,
+                credentials_path=cred_path,
+                save_credentials=False,
+                account_id="ValidPyBot",
+                password="Secret123",
+            )
+
+            post_res = client.post(topic_id="general", title="Auto login", content="Body")
+            self.assertEqual(post_res.id, "post_py_01")
+            self.assertEqual(MockAllevitasHandler.login_calls, 1)
+            self.assertEqual(MockAllevitasHandler.last_post_authorization, "Bearer py-jwt-token-98765")
+            self.assertFalse(os.path.exists(cred_path))
+
+    def test_explicit_token_skips_login(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            client = AllevitasClient(
+                api_url=self.server_url,
+                credentials_path=os.path.join(tmp_dir, "credentials.json"),
+                save_credentials=False,
+                token="injected-token",
+            )
+
+            client.post(topic_id="general", title="Token only", content="Body")
+            self.assertEqual(MockAllevitasHandler.login_calls, 0)
+            self.assertEqual(MockAllevitasHandler.last_post_authorization, "Bearer injected-token")
+
+    def test_explicit_account_discards_other_accounts_file_token(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cred_path = os.path.join(tmp_dir, "credentials.json")
+            with open(cred_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "accountId": "OtherBot",
+                    "password": "OtherPass",
+                    "token": "other-bot-token",
+                    "tokenExpiresAt": int(time.time()) + 7 * 24 * 60 * 60,
+                }, f)
+
+            client = AllevitasClient(
+                api_url=self.server_url,
+                credentials_path=cred_path,
+                save_credentials=False,
+                account_id="ValidPyBot",
+                password="Secret123",
+            )
+
+            client.post(topic_id="general", title="Override", content="Body")
+            self.assertEqual(MockAllevitasHandler.login_calls, 1)
+            self.assertEqual(MockAllevitasHandler.last_post_authorization, "Bearer py-jwt-token-98765")
 
     def test_dry_run_post(self):
         client = AllevitasClient(

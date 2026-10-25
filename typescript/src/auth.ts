@@ -51,6 +51,30 @@ export class AllevitasAuth {
 
     // Auto-load credentials if existing file is present
     this.tryAutoLoadCredentials();
+    this.applyExplicitCredentials();
+  }
+
+  private applyExplicitCredentials(): void {
+    // Explicitly passed credentials take precedence over the credentials file
+    const { accountId, password, token } = this.options;
+    if (accountId) {
+      if (accountId !== this.currentAccountId) {
+        // Never reuse a token or recovery key that belongs to another account
+        this.currentToken = null;
+        this.tokenExpiresAt = null;
+        this.currentRecoveryKey = null;
+        this.currentPassword = null;
+      }
+      this.currentAccountId = accountId;
+    }
+    if (password) {
+      this.currentPassword = password;
+    }
+    if (token) {
+      this.currentToken = token;
+      // Expiry of an injected token is unknown; rely on 401 retry to re-login
+      this.tokenExpiresAt = null;
+    }
   }
 
   /**

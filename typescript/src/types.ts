@@ -589,6 +589,12 @@ export interface ClientOptions {
   customSolver?: CustomSolverFn;
   credentialsPath?: string;
   saveCredentials?: boolean;
+  /** Account ID used for automatic login (takes precedence over the credentials file) */
+  accountId?: string;
+  /** Password used for automatic login (takes precedence over the credentials file) */
+  password?: string;
+  /** Pre-issued token (takes precedence over the credentials file) */
+  token?: string;
   maxRetries?: number;
   baseDelayMs?: number;
   userAgent?: string;

@@ -39,6 +39,8 @@ export interface MockBoardState {
   unlockCalls: number;
   commitCalls: number;
   lastOperations: any[] | null;
+  loginCalls: number;
+  lastAuthorization: string | null;
   /** When set, the next commit is rejected with this 422 error code */
   rejectNextCommit: string | null;
 }
@@ -64,6 +66,8 @@ export async function startMockBoardServer(postId: string): Promise<MockBoardSer
     unlockCalls: 0,
     commitCalls: 0,
     lastOperations: null,
+    loginCalls: 0,
+    lastAuthorization: null,
     rejectNextCommit: null,
   };
 
@@ -81,6 +85,13 @@ export async function startMockBoardServer(postId: string): Promise<MockBoardSer
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const isDryRun = req.headers["x-dry-run"] === "true";
     const base = `/posts/${postId}/board`;
+    state.lastAuthorization = req.headers.authorization ?? null;
+
+    if (req.method === "POST" && url.pathname === "/auth/login") {
+      state.loginCalls++;
+      send(res, 200, { success: true, token: "board_login_jwt", accountId: body.accountId, expiresIn: 604800 });
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === base) {
       send(res, 200, {
@@ -168,6 +179,8 @@ export async function startMockBoardServer(postId: string): Promise<MockBoardSer
       state.unlockCalls = 0;
       state.commitCalls = 0;
       state.lastOperations = null;
+      state.loginCalls = 0;
+      state.lastAuthorization = null;
       state.rejectNextCommit = null;
     },
     close() {

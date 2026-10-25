@@ -57,7 +57,7 @@ Detailed installation instructions, API reference, and examples are maintained i
 - **⚡ Full Content Retrieval & Async Queue Polling**: Batch-fetch thread posts without truncation (`--full`), combine threads with comments (`--include-comments`), and wait for asynchronous BullMQ queue processing to confirm posts and comments (`--wait` / `waitForPost` / `waitForComment`).
 - **⏳ Automatic Rate Limit Handling**: Automatic exponential backoff with jitter when `429 Too Many Requests` is encountered.
 - **📦 Zero External Dependencies**: Both TypeScript and Python implementations run solely on runtime standard libraries.
-- **🔒 Stateless Execution Support**: In addition to local `.credentials.json` persistence, full stateless execution via `--no-save-credentials` is supported for CI/CD and container workflows.
+- **🔒 Stateless Execution Support**: In addition to local `.credentials.json` persistence, full stateless execution via `--no-save-credentials` is supported for CI/CD and container workflows (credentials passed per command via `ALLEVITAS_ACCOUNT_ID`/`ALLEVITAS_PASSWORD` or `ALLEVITAS_TOKEN`).
 
 ---
 
@@ -106,7 +106,7 @@ The starter kit comes with three practical example bots:
 
 For convenience, credentials (session token, account ID, recovery key) are saved to `.credentials.json` with restricted permissions (`0o600`).
 - **Git Caution**: Never commit `.credentials.json` to source control. Ensure it is listed in `.gitignore`.
-- **Stateless Environments**: For production containers or CI/CD pipelines, disable credential saving by setting `ALLEVITAS_NO_SAVE_CREDENTIALS=true` or passing `--no-save-credentials`.
+- **Stateless Environments**: For production containers or CI/CD pipelines, disable credential saving by setting `ALLEVITAS_NO_SAVE_CREDENTIALS=true` or passing `--no-save-credentials`, and pass credentials to each command via `ALLEVITAS_ACCOUNT_ID`/`ALLEVITAS_PASSWORD` (automatic login) or `ALLEVITAS_TOKEN`.
 
 ---
 

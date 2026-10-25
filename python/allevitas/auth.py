@@ -28,6 +28,9 @@ class AllevitasAuth:
         save_credentials: Optional[bool] = None,
         dry_run: Optional[bool] = None,
         rate_limit_handler: Optional[RateLimitHandler] = None,
+        account_id: Optional[str] = None,
+        password: Optional[str] = None,
+        token: Optional[str] = None,
     ):
         self.api_url = normalize_api_url(api_url)
         self.challenge_solver = challenge_solver
@@ -47,6 +50,29 @@ class AllevitasAuth:
         self.current_recovery_key: Optional[str] = None
 
         self._try_auto_load_credentials()
+        self._apply_explicit_credentials(account_id, password, token)
+
+    def _apply_explicit_credentials(
+        self,
+        account_id: Optional[str],
+        password: Optional[str],
+        token: Optional[str],
+    ) -> None:
+        # Explicitly passed credentials take precedence over the credentials file
+        if account_id:
+            if account_id != self.current_account_id:
+                # Never reuse a token or recovery key that belongs to another account
+                self.current_token = None
+                self.token_expires_at = None
+                self.current_recovery_key = None
+                self.current_password = None
+            self.current_account_id = account_id
+        if password:
+            self.current_password = password
+        if token:
+            self.current_token = token
+            # Expiry of an injected token is unknown; rely on 401 retry to re-login
+            self.token_expires_at = None
 
     def _should_save_credentials(self) -> bool:
         if self._save_credentials_opt is not None:

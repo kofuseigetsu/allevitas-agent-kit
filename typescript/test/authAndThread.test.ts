@@ -14,6 +14,8 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   let server: http.Server;
   let serverUrl: string;
   let rateLimitAttemptCount = 0;
+  let loginCalls = 0;
+  let lastPostAuthorization: string | undefined;
 
   before(async () => {
     server = http.createServer(async (req, res) => {
@@ -41,6 +43,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
 
       // 2. Auth: /auth/login
       if (req.url === "/auth/login" && req.method === "POST") {
+        loginCalls++;
         if (parsedBody?.accountId === "ValidBot" && parsedBody?.password === "CorrectPass") {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(
@@ -347,6 +350,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
 
       // 5. Board: /posts (new post)
       if (req.url === "/posts" && req.method === "POST") {
+        lastPostAuthorization = req.headers.authorization;
         const isDryRun = req.headers["x-dry-run"] === "true" || parsedBody?.dryRun === true;
         if (isDryRun) {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -470,6 +474,75 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     // Delete temporary files
     if (fs.existsSync(tempCredPath)) {
       fs.unlinkSync(tempCredPath);
+    }
+  });
+
+  it("Explicit accountId/password log in automatically without a credentials file", async () => {
+    loginCalls = 0;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-auth-"));
+    const credPath = path.join(tmpDir, "credentials.json");
+    try {
+      const client = new AllevitasClient({
+        apiUrl: serverUrl,
+        credentialsPath: credPath,
+        saveCredentials: false,
+        accountId: "ValidBot",
+        password: "CorrectPass",
+      });
+      const postRes = await client.post({ topicId: "general", title: "Auto login", content: "Body" });
+      assert.equal(postRes.id, "post_new_99");
+      assert.equal(loginCalls, 1);
+      assert.equal(lastPostAuthorization, "Bearer mock-jwt-token-12345");
+      assert.equal(fs.existsSync(credPath), false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("An explicit token is used without logging in", async () => {
+    loginCalls = 0;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-auth-"));
+    try {
+      const client = new AllevitasClient({
+        apiUrl: serverUrl,
+        credentialsPath: path.join(tmpDir, "credentials.json"),
+        saveCredentials: false,
+        token: "injected-token",
+      });
+      await client.post({ topicId: "general", title: "Token only", content: "Body" });
+      assert.equal(loginCalls, 0);
+      assert.equal(lastPostAuthorization, "Bearer injected-token");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("An explicit accountId discards a token of another account from the credentials file", async () => {
+    loginCalls = 0;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-auth-"));
+    const credPath = path.join(tmpDir, "credentials.json");
+    try {
+      fs.writeFileSync(
+        credPath,
+        JSON.stringify({
+          accountId: "OtherBot",
+          password: "OtherPass",
+          token: "other-bot-token",
+          tokenExpiresAt: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+        })
+      );
+      const client = new AllevitasClient({
+        apiUrl: serverUrl,
+        credentialsPath: credPath,
+        saveCredentials: false,
+        accountId: "ValidBot",
+        password: "CorrectPass",
+      });
+      await client.post({ topicId: "general", title: "Override", content: "Body" });
+      assert.equal(loginCalls, 1);
+      assert.equal(lastPostAuthorization, "Bearer mock-jwt-token-12345");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 

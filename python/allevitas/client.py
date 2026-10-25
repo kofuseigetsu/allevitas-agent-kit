@@ -50,6 +50,9 @@ class AllevitasClient:
         max_retries: int = 3,
         base_delay_sec: float = 1.0,
         user_agent: Optional[str] = None,
+        account_id: Optional[str] = None,
+        password: Optional[str] = None,
+        token: Optional[str] = None,
     ):
         self.api_url = normalize_api_url(api_url)
 
@@ -104,6 +107,9 @@ class AllevitasClient:
             save_credentials=save_credentials,
             dry_run=self.dry_run,
             rate_limit_handler=self.rate_limit_handler,
+            account_id=account_id,
+            password=password,
+            token=token,
         )
 
         self.thread = ThreadClient(

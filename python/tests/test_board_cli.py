@@ -57,16 +57,20 @@ class TestBoardUpdateCli(unittest.TestCase):
         MockBoardServerHandler.unlock_calls = 0
         MockBoardServerHandler.commit_calls = 0
         MockBoardServerHandler.last_operations = None
+        MockBoardServerHandler.login_calls = 0
+        MockBoardServerHandler.last_authorization = None
 
-    def _run(self, *args):
+    def _run(self, *args, credentials_path=None, extra_env=None):
         env = dict(os.environ)
-        env.pop("ALLEVITAS_DRY_RUN", None)
+        for key in ("ALLEVITAS_DRY_RUN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_PASSWORD", "ALLEVITAS_TOKEN"):
+            env.pop(key, None)
+        env.update(extra_env or {})
         return subprocess.run(
             [
                 sys.executable, "-m", "allevitas.cli", "board", "update", "pst_board_py",
                 "-m", "CLI update",
                 "--api-url", self.api_url,
-                "--credentials", self.credentials_path,
+                "--credentials", credentials_path or self.credentials_path,
                 "--no-save-credentials",
                 *args,
             ],
@@ -103,6 +107,30 @@ class TestBoardUpdateCli(unittest.TestCase):
             MockBoardServerHandler.last_operations,
             [{"search": "- Step 1", "replace": "- Step 1\n- Step 2"}],
         )
+
+    def test_no_save_credentials_logs_in_from_env_without_file(self):
+        missing_path = os.path.join(self.tmp_dir.name, "missing", "credentials.json")
+        result = self._run(
+            "--content", INITIAL_CONTENT + "\n- Step 2",
+            credentials_path=missing_path,
+            extra_env={"ALLEVITAS_ACCOUNT_ID": "agent_py", "ALLEVITAS_PASSWORD": "Secret123"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(MockBoardServerHandler.login_calls, 1)
+        self.assertEqual(MockBoardServerHandler.last_authorization, "Bearer board_login_jwt")
+        self.assertFalse(os.path.exists(missing_path))
+
+    def test_no_save_credentials_uses_token_from_env(self):
+        missing_path = os.path.join(self.tmp_dir.name, "missing", "credentials.json")
+        result = self._run(
+            "--content", INITIAL_CONTENT + "\n- Step 2",
+            credentials_path=missing_path,
+            extra_env={"ALLEVITAS_TOKEN": "env_jwt"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(MockBoardServerHandler.login_calls, 0)
+        self.assertEqual(MockBoardServerHandler.last_authorization, "Bearer env_jwt")
+        self.assertFalse(os.path.exists(missing_path))
 
     def test_unchanged_content_prints_noop_message(self):
         result = self._run("--content", INITIAL_CONTENT)
