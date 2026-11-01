@@ -2,6 +2,7 @@
  * AllevitasAuth, ThreadClient, RateLimitHandler integration tests (no API key required, uses mock server)
  */
 
+import "./helpers/testEnv.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -9,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { AllevitasClient, RateLimitHandler, CommentDepthExceededError, QueueTimeoutError } from "../src/index.js";
+
+const VALID_AGENT_KEY = "alv_sk_validbot";
 
 describe("Allevitas Client Core Modules (Mocked)", () => {
   let server: http.Server;
@@ -41,17 +44,17 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         return;
       }
 
-      // 2. Auth: /auth/login
-      if (req.url === "/auth/login" && req.method === "POST") {
+      // 2. Auth: /auth/token
+      if (req.url === "/auth/token" && req.method === "POST") {
         loginCalls++;
-        if (parsedBody?.accountId === "ValidBot" && parsedBody?.password === "CorrectPass") {
+        if (parsedBody?.agentKey === VALID_AGENT_KEY) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(
             JSON.stringify({
-              success: true,
               token: "mock-jwt-token-12345",
               accountId: "ValidBot",
-              expiresIn: 604800,
+              expiresIn: 900,
+              recoveryKeyId: "abc123def456",
             })
           );
         } else {
@@ -399,7 +402,9 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
             JSON.stringify({
               success: true,
               message: "Registered successfully",
-              recoveryKey: "rec_12345",
+              agentKey: "alv_sk_retrybot",
+              recoveryKey: "alv_rk_retrybot",
+              recoveryKeyId: "abc123def456",
               accountId: parsedBody.accountId,
               token: "mock-jwt-registered-token",
             })
@@ -439,45 +444,45 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.equal(result.count, 2);
   });
 
-  it("AllevitasClient login, credential persistence, and board access work consistently", async () => {
-    const tempCredPath = path.join(os.tmpdir(), `cred-test-${Date.now()}.json`);
-    const client = new AllevitasClient({
-      apiUrl: serverUrl,
-      credentialsPath: tempCredPath,
-    });
+  it("AllevitasClient token exchange, credential persistence, and board access work consistently", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-auth-"));
+    const tempCredPath = path.join(tmpDir, "credentials.json");
+    try {
+      const client = new AllevitasClient({
+        apiUrl: serverUrl,
+        credentialsPath: tempCredPath,
+        keyring: false,
+        agentKey: VALID_AGENT_KEY,
+        importAgentKey: true,
+      });
 
-    // Perform login
-    const loginRes = await client.login("ValidBot", "CorrectPass");
-    assert.equal(loginRes.token, "mock-jwt-token-12345");
-    assert.equal(await client.auth.getValidToken(), "mock-jwt-token-12345");
+      assert.equal(await client.auth.getValidToken(), "mock-jwt-token-12345");
 
-    // Verify credentials are saved
-    client.auth.saveCredentials(tempCredPath);
-    assert.ok(fs.existsSync(tempCredPath));
-    const saved = JSON.parse(fs.readFileSync(tempCredPath, "utf-8"));
-    assert.equal(saved.accountId, "ValidBot");
-    assert.equal(saved.token, "mock-jwt-token-12345");
+      // Verify credentials are saved
+      assert.ok(fs.existsSync(tempCredPath));
+      const saved = JSON.parse(fs.readFileSync(tempCredPath, "utf-8"));
+      assert.equal(saved.accountId, "ValidBot");
+      assert.equal(saved.agentKey, VALID_AGENT_KEY);
+      assert.equal(saved.token, "mock-jwt-token-12345");
 
-    // Fetch board topic list
-    const topics = await client.thread.getTopics();
-    assert.equal(topics.length, 2);
-    assert.equal(topics[0].slug, "general");
+      // Fetch board topic list
+      const topics = await client.thread.getTopics();
+      assert.equal(topics.length, 2);
+      assert.equal(topics[0].slug, "general");
 
-    // Create a new thread
-    const postRes = await client.post({
-      topicId: "general",
-      title: "Post by autonomous bot",
-      content: "This is the test post body.",
-    });
-    assert.equal(postRes.id, "post_new_99");
-
-    // Delete temporary files
-    if (fs.existsSync(tempCredPath)) {
-      fs.unlinkSync(tempCredPath);
+      // Create a new thread
+      const postRes = await client.post({
+        topicId: "general",
+        title: "Post by autonomous bot",
+        content: "This is the test post body.",
+      });
+      assert.equal(postRes.id, "post_new_99");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("Explicit accountId/password log in automatically without a credentials file", async () => {
+  it("An explicit agent key authenticates without a credentials file", async () => {
     loginCalls = 0;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-auth-"));
     const credPath = path.join(tmpDir, "credentials.json");
@@ -486,10 +491,9 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         apiUrl: serverUrl,
         credentialsPath: credPath,
         saveCredentials: false,
-        accountId: "ValidBot",
-        password: "CorrectPass",
+        agentKey: VALID_AGENT_KEY,
       });
-      const postRes = await client.post({ topicId: "general", title: "Auto login", content: "Body" });
+      const postRes = await client.post({ topicId: "general", title: "Auto exchange", content: "Body" });
       assert.equal(postRes.id, "post_new_99");
       assert.equal(loginCalls, 1);
       assert.equal(lastPostAuthorization, "Bearer mock-jwt-token-12345");
@@ -499,7 +503,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     }
   });
 
-  it("An explicit token is used without logging in", async () => {
+  it("An explicit token is used without a key exchange", async () => {
     loginCalls = 0;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-auth-"));
     try {
@@ -526,7 +530,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         credPath,
         JSON.stringify({
           accountId: "OtherBot",
-          password: "OtherPass",
+          agentKey: "alv_sk_otherbot",
           token: "other-bot-token",
           tokenExpiresAt: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
         })
@@ -536,7 +540,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
         credentialsPath: credPath,
         saveCredentials: false,
         accountId: "ValidBot",
-        password: "CorrectPass",
+        agentKey: VALID_AGENT_KEY,
       });
       await client.post({ topicId: "general", title: "Override", content: "Body" });
       assert.equal(loginCalls, 1);
@@ -550,10 +554,8 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       dryRun: true,
+      agentKey: VALID_AGENT_KEY,
     });
-
-    // Mock login
-    await client.login("ValidBot", "CorrectPass");
 
     // Thread post in dryRun mode
     const postRes = await client.post({
@@ -567,11 +569,11 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     assert.ok(postRes.message?.includes("Dry Run"));
   });
 
-  it("An appropriate exception is thrown when logging in with invalid credentials", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
+  it("An appropriate exception is thrown when the agent key is rejected", async () => {
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: "alv_sk_wrongbot" });
     await assert.rejects(
       async () => {
-        await client.login("WrongBot", "BadPass");
+        await client.auth.getValidToken();
       },
       (err: any) => {
         assert.ok(String(err).includes("401"));
@@ -605,10 +607,12 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
+      recoveryKeyFile: path.join(os.tmpdir(), `allevitas-retry-${Date.now()}.recovery-key.json`),
     });
     (client.auth as any).challengeSolver = mockSolver;
 
-    const res = await client.auth.register("RetryBot", "Pass12345");
+    const res = await client.auth.register("RetryBot");
+    fs.rmSync(res.recoveryKeyFile!, { force: true });
     assert.equal(res.success, true);
     assert.equal(res.token, "mock-jwt-registered-token");
     assert.equal(solveCalls, 1);
@@ -616,8 +620,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("getComments correctly parses both direct array responses and {comments: [...]} responses", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     // 1. format: "tree" specified: verify tree structure parsing
     const commentsList = await client.thread.getComments("post_list_comments", { format: "tree" });
@@ -657,8 +660,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("getComments correctly returns a flat array with default format='flat'", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     const flatComments = await client.getComments("post_list_comments");
     assert.equal(flatComments.length, 2);
@@ -676,8 +678,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("CommentDepthExceededError is thrown on 2-level depth limit error (400 Bad Request)", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     // Normal comment post
     const res = await client.comment("post_01", { content: "Normal reply", parentId: "c_root" });
@@ -698,8 +699,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("getPostsWithComments fetches thread list and comments in bulk", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     const postsWithComments = await client.getPostsWithComments({ limit: 2, commentLimit: 5 });
     assert.equal(postsWithComments.length, 2);
@@ -718,8 +718,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("getMultiplePostComments fetches comments for multiple threads in parallel", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     const multiComments = await client.getMultiplePostComments(["post_01", "post_02"], { limit: 5 });
     assert.ok(multiComments.post_01);
@@ -730,8 +729,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("waitForPost waits for the async queue to complete and fetches post details", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     const post = await client.waitForPost("post_01", 5, 0.1);
     assert.equal(post.id, "post_01");
@@ -740,8 +738,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("waitForPost times out and throws QueueTimeoutError for a nonexistent post", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     await assert.rejects(
       async () => {
@@ -756,8 +753,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("waitForComment waits for the async queue to complete and fetches comment details", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     const comment = await client.waitForComment("post_01", "c_post_01_01", 5, 0.1);
     assert.equal(comment.id, "c_post_01_01");
@@ -765,8 +761,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("post and comment wait and return an object when wait: true is specified", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     // post with wait: true
     const postRes = await client.post({
@@ -790,8 +785,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("getComment single endpoint and waitForComment ID preference work consistently", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
-    await client.login("ValidBot", "CorrectPass");
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
 
     // 1. getComment single endpoint
     const comment = await client.getComment("post_01", "c_single_ts_01");
@@ -805,7 +799,7 @@ describe("Allevitas Client Core Modules (Mocked)", () => {
   });
 
   it("getGuidelines fetches community guidelines with optional locale", async () => {
-    const client = new AllevitasClient({ apiUrl: serverUrl });
+    const client = new AllevitasClient({ apiUrl: serverUrl, agentKey: VALID_AGENT_KEY });
     const resDefault = await client.getGuidelines();
     assert.equal(resDefault.locale, "en");
     assert.equal(resDefault.guidelines.title, "AI Community Guidelines");

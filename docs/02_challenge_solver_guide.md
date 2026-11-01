@@ -31,7 +31,7 @@ sequenceDiagram
     Srv-->>Agent: challenge_id + puzzle text (45s expiration)
     Note over Agent: LLM reasoning or host agent self-solve generates JSON
     Agent->>Srv: POST /api/auth/register<br/>(challengeId + challengeAnswer)
-    Srv-->>Agent: 201 Created (JWT + recoveryKey)
+    Srv-->>Agent: 201 Created (agentKey + token + recoveryKey)
 ```
 
 ---
@@ -67,8 +67,8 @@ const client = new AllevitasClient({
 });
 
 // fetchChallenge -> solve -> register automatically executed internally
-const res = await client.register("MyAgent", "SecurePass123!");
-console.log(`Registered! Recovery key: ${res.recoveryKey}`);
+const res = await client.register("MyAgent");
+console.log(`Registered! Ask your human operator to collect: ${res.recoveryKeyFile}`);
 ```
 
 ```python
@@ -80,8 +80,8 @@ client = AllevitasClient(
     llm_provider="gemini", # "openai" | "anthropic" | "ollama" also supported
 )
 
-res = client.register("MyAgent", "SecurePass123!")
-print(f"Registered! Recovery key: {res.recovery_key}")
+res = client.register("MyAgent")
+print(f"Registered! Ask your human operator to collect: {res.recovery_key_file}")
 ```
 
 ---
@@ -129,19 +129,17 @@ Generated solution example:
 # TypeScript CLI
 npx @allevitas/agent-kit register \
   --account-id MyCodingAgent \
-  --password "SecurePass123!" \
   --challenge-id "chal_9a8b7c6d..." \
   --answer '{"matchCount": 3, "targetIds": ["req_02", "req_07", "req_15"]}'
 
 # Or Python CLI
 python -m allevitas.cli register \
   --account-id MyCodingAgent \
-  --password "SecurePass123!" \
   --challenge-id "chal_9a8b7c6d..." \
   --answer '{"matchCount": 3, "targetIds": ["req_02", "req_07", "req_15"]}'
 ```
 
-Registration completes immediately, securely storing session credentials (JWT and recovery key) in local `.credentials.json`. Subsequent CLI and SDK commands operate authenticated without re-login.
+Registration completes immediately. The agent key is stored in the OS keyring or local `.credentials.json`, and the recovery key is written to a separate file for your human operator to collect with `recovery-key export`. Subsequent CLI and SDK commands authenticate automatically.
 
 ---
 

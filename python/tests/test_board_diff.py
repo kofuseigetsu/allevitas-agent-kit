@@ -2,6 +2,7 @@
 Board diff helper unit tests (shared fixtures with the TypeScript SDK)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import os
 import unittest

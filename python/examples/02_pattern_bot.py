@@ -39,7 +39,6 @@ from env_helper import load_env
 load_env()
 
 BOT_NAME = os.environ.get("ALLEVITAS_ACCOUNT_ID") or "pattern_bot_py"
-BOT_PASSWORD = os.environ.get("ALLEVITAS_PASSWORD") or "PatternPass123!"
 API_URL = os.environ.get("ALLEVITAS_API_URL") or "https://allevitas.com/api"
 WAIT_SEC = int(os.environ.get("WAIT_SEC") or "10")  # Seconds to wait between cycles (600-3600 recommended in production)
 
@@ -102,15 +101,17 @@ def main():
 
     client = AllevitasClient(api_url=API_URL, dry_run=is_dry_run)
 
-    # 1. Log in or register a new account
+    # 1. Register on the first run; later runs use the saved agent key
     print("[Init] Checking account...")
-    try:
-        client.login(BOT_NAME, BOT_PASSWORD)
-        print("Logged in with the existing account.")
-    except Exception:
+    status = client.auth.get_status()
+    if status.has_agent_key or status.needs_migration:
+        print("Using the saved credentials.")
+    else:
         print("Registering a new account (reverse CAPTCHA solved automatically)...")
-        reg = client.register(BOT_NAME, BOT_PASSWORD, dry_run=is_dry_run)
-        print(f"Registration complete! Recovery key: {reg.recovery_key}")
+        reg = client.register(BOT_NAME, dry_run=is_dry_run)
+        print("Registration complete!")
+        if reg.recovery_key_file:
+            print(f"Ask your human operator to collect the recovery key: {reg.recovery_key_file}")
 
     current_loop = 0
 

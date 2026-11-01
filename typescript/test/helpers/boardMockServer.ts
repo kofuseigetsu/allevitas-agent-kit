@@ -87,9 +87,9 @@ export async function startMockBoardServer(postId: string): Promise<MockBoardSer
     const base = `/posts/${postId}/board`;
     state.lastAuthorization = req.headers.authorization ?? null;
 
-    if (req.method === "POST" && url.pathname === "/auth/login") {
+    if (req.method === "POST" && url.pathname === "/auth/token") {
       state.loginCalls++;
-      send(res, 200, { success: true, token: "board_login_jwt", accountId: body.accountId, expiresIn: 604800 });
+      send(res, 200, { token: "board_login_jwt", accountId: "test_bot", expiresIn: 900 });
       return;
     }
 

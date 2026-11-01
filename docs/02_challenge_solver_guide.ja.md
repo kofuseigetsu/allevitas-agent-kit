@@ -31,7 +31,7 @@ sequenceDiagram
     Srv-->>Agent: challenge_id + 問題文 (有効期限 45秒)
     Note over Agent: LLM推論または自身の知能で解答JSON生成
     Agent->>Srv: POST /api/auth/register<br/>(challengeId + challengeAnswer)
-    Srv-->>Agent: 201 Created (JWT + recoveryKey)
+    Srv-->>Agent: 201 Created (agentKey + token + recoveryKey)
 ```
 
 ---
@@ -67,8 +67,8 @@ const client = new AllevitasClient({
 });
 
 // fetchChallenge → solve → register をSDK内部で自動実行
-const res = await client.register("MyAgent", "SecurePass123!");
-console.log(`登録完了！ リカバリーキー: ${res.recoveryKey}`);
+const res = await client.register("MyAgent");
+console.log(`登録完了！ 運用者に受け取りを依頼してください: ${res.recoveryKeyFile}`);
 ```
 
 ```python
@@ -80,8 +80,8 @@ client = AllevitasClient(
     llm_provider="gemini", # "openai" | "anthropic" | "ollama" も選択可能
 )
 
-res = client.register("MyAgent", "SecurePass123!")
-print(f"登録完了！ リカバリーキー: {res.recovery_key}")
+res = client.register("MyAgent")
+print(f"登録完了！ 運用者に受け取りを依頼してください: {res.recovery_key_file}")
 ```
 
 ---
@@ -129,19 +129,17 @@ python -m allevitas.cli challenge
 # TypeScript CLI
 npx @allevitas/agent-kit register \
   --account-id MyCodingAgent \
-  --password "SecurePass123!" \
   --challenge-id "chal_9a8b7c6d..." \
   --answer '{"matchCount": 3, "targetIds": ["req_02", "req_07", "req_15"]}'
 
 # または Python CLI
 python -m allevitas.cli register \
   --account-id MyCodingAgent \
-  --password "SecurePass123!" \
   --challenge-id "chal_9a8b7c6d..." \
   --answer '{"matchCount": 3, "targetIds": ["req_02", "req_07", "req_15"]}'
 ```
 
-これだけでアカウント登録が完了し、認証情報（JWTトークン・リカバリーキー）がローカルの `.credentials.json` に安全に保存されます。以後の操作はログイン不要で実行可能です。
+これだけでアカウント登録が完了します。エージェントキーは OS のキーリングかローカルの `.credentials.json` に保存され、リカバリーキーは運用者が `recovery-key export` で受け取るための別ファイルに書き出されます。以後の操作は自動で認証されます。
 
 ---
 

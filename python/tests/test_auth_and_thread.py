@@ -2,6 +2,7 @@
 AllevitasAuth, ThreadClient, RateLimitHandler unit tests (no API key required, uses mocks)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import os
 import tempfile
@@ -25,6 +26,9 @@ from allevitas import (
 )
 
 
+VALID_AGENT_KEY = "alv_sk_validpybot"
+
+
 class MockAllevitasHandler(BaseHTTPRequestHandler):
     rate_limit_count = 0
     login_calls = 0
@@ -35,18 +39,18 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
         body_bytes = self.rfile.read(content_length)
         parsed_body = json.loads(body_bytes.decode("utf-8")) if body_bytes else None
 
-        if self.path == "/auth/login":
+        if self.path == "/auth/token":
             MockAllevitasHandler.login_calls += 1
-            if parsed_body and parsed_body.get("accountId") == "ValidPyBot" and parsed_body.get("password") == "Secret123":
+            if parsed_body and parsed_body.get("agentKey") == VALID_AGENT_KEY:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(
                     json.dumps({
-                        "success": True,
                         "token": "py-jwt-token-98765",
                         "accountId": "ValidPyBot",
-                        "expiresIn": 604800,
+                        "expiresIn": 900,
+                        "recoveryKeyId": "abc123def456",
                     }).encode("utf-8")
                 )
             else:
@@ -89,7 +93,9 @@ class MockAllevitasHandler(BaseHTTPRequestHandler):
                     json.dumps({
                         "success": True,
                         "message": "Registered successfully",
-                        "recoveryKey": "rec_py_12345",
+                        "agentKey": "alv_sk_retrypybot",
+                        "recoveryKey": "alv_rk_retrypybot",
+                        "recoveryKeyId": "abc123def456",
                         "accountId": parsed_body.get("accountId"),
                         "token": "py-jwt-registered-token",
                     }).encode("utf-8")
@@ -448,27 +454,25 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertTrue(res.get("success"))
         self.assertEqual(res.get("count"), 2)
 
-    def test_client_login_and_thread_post(self):
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
-            temp_cred = tf.name
-
-        try:
+    def test_client_token_exchange_and_thread_post(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            temp_cred = os.path.join(tmp_dir, "credentials.json")
             client = AllevitasClient(
                 api_url=self.server_url,
                 credentials_path=temp_cred,
+                keyring=False,
+                agent_key=VALID_AGENT_KEY,
+                import_agent_key=True,
             )
 
-            # Login
-            login_res = client.login("ValidPyBot", "Secret123")
-            self.assertEqual(login_res.token, "py-jwt-token-98765")
             self.assertEqual(client.auth.get_valid_token(), "py-jwt-token-98765")
 
             # Verify credentials are saved
-            client.auth.save_credentials(temp_cred)
             self.assertTrue(os.path.exists(temp_cred))
             with open(temp_cred, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             self.assertEqual(saved["accountId"], "ValidPyBot")
+            self.assertEqual(saved["agentKey"], VALID_AGENT_KEY)
             self.assertEqual(saved["token"], "py-jwt-token-98765")
 
             # Fetch topics
@@ -483,22 +487,18 @@ class TestAuthAndThread(unittest.TestCase):
                 content="This is post content from the Python client.",
             )
             self.assertEqual(post_res.id, "post_py_01")
-        finally:
-            if os.path.exists(temp_cred):
-                os.remove(temp_cred)
 
-    def test_explicit_account_and_password_auto_login_without_file(self):
+    def test_explicit_agent_key_without_file(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             cred_path = os.path.join(tmp_dir, "credentials.json")
             client = AllevitasClient(
                 api_url=self.server_url,
                 credentials_path=cred_path,
                 save_credentials=False,
-                account_id="ValidPyBot",
-                password="Secret123",
+                agent_key=VALID_AGENT_KEY,
             )
 
-            post_res = client.post(topic_id="general", title="Auto login", content="Body")
+            post_res = client.post(topic_id="general", title="Auto exchange", content="Body")
             self.assertEqual(post_res.id, "post_py_01")
             self.assertEqual(MockAllevitasHandler.login_calls, 1)
             self.assertEqual(MockAllevitasHandler.last_post_authorization, "Bearer py-jwt-token-98765")
@@ -523,7 +523,7 @@ class TestAuthAndThread(unittest.TestCase):
             with open(cred_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "accountId": "OtherBot",
-                    "password": "OtherPass",
+                    "agentKey": "alv_sk_otherbot",
                     "token": "other-bot-token",
                     "tokenExpiresAt": int(time.time()) + 7 * 24 * 60 * 60,
                 }, f)
@@ -533,7 +533,7 @@ class TestAuthAndThread(unittest.TestCase):
                 credentials_path=cred_path,
                 save_credentials=False,
                 account_id="ValidPyBot",
-                password="Secret123",
+                agent_key=VALID_AGENT_KEY,
             )
 
             client.post(topic_id="general", title="Override", content="Body")
@@ -544,8 +544,8 @@ class TestAuthAndThread(unittest.TestCase):
         client = AllevitasClient(
             api_url=self.server_url,
             dry_run=True,
+            agent_key=VALID_AGENT_KEY,
         )
-        client.login("ValidPyBot", "Secret123")
 
         post_res = client.post(
             topic_id="general",
@@ -556,10 +556,10 @@ class TestAuthAndThread(unittest.TestCase):
         self.assertEqual(post_res.status, "dry_run")
         self.assertIn("Dry Run", post_res.message or "")
 
-    def test_invalid_login_raises_error(self):
-        client = AllevitasClient(api_url=self.server_url)
+    def test_rejected_agent_key_raises_error(self):
+        client = AllevitasClient(api_url=self.server_url, agent_key="alv_sk_wrongbot")
         with self.assertRaises(RuntimeError) as ctx:
-            client.login("WrongBot", "BadSecret")
+            client.auth.get_valid_token()
         self.assertIn("401", str(ctx.exception))
 
     def test_register_with_self_correction(self):
@@ -591,21 +591,23 @@ class TestAuthAndThread(unittest.TestCase):
             def get_reflection_knowledge(self):
                 return []
 
+        recovery_file = os.path.join(tempfile.gettempdir(), f"allevitas-retry-{time.time()}.recovery-key.json")
         client = AllevitasClient(
             api_url=self.server_url,
             save_credentials=False,
+            recovery_key_file=recovery_file,
         )
         client.auth.challenge_solver = MockSolver()  # type: ignore
 
-        res = client.auth.register("PyRetryBot", "Pass12345")
+        res = client.auth.register("PyRetryBot")
+        os.remove(res.recovery_key_file)
         self.assertTrue(res.success)
         self.assertEqual(res.token, "py-jwt-registered-token")
         self.assertEqual(solve_calls, 1)
         self.assertEqual(correct_calls, 1)
 
     def test_get_comments_list_and_dict_response(self):
-        client = AllevitasClient(api_url=self.server_url)
-        client.login("ValidPyBot", "Secret123")
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
 
         # 1. Verify the tree-structured response with format="tree"
         comments_list = client.thread.get_comments("post_list_comments", format="tree")
@@ -643,8 +645,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_get_comments_flat_and_tree_format(self):
         """Verify format="flat" (default) and format="tree" """
-        client = AllevitasClient(api_url=self.server_url)
-        client.login("ValidPyBot", "Secret123")
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
 
         # 1. Verify the default (format="flat")
         flat_list = client.get_comments("post_list_comments")
@@ -674,8 +675,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_comment_depth_exceeded_error(self):
         """Verify that CommentDepthExceededError is raised on the 2-level depth limit error (400 Bad Request)"""
-        client = AllevitasClient(api_url=self.server_url)
-        client.login("ValidPyBot", "Secret123")
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
 
         # Normal comment post
         res = client.comment("post_01", "Normal reply", parent_id="c_root")
@@ -688,7 +688,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_get_ranking(self):
         """Verify Karma ranking retrieval (GET /api/ranking)"""
-        client = AllevitasClient(api_url=self.server_url)
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
         client.auth.token = "py-jwt-token-98765"
 
         # 1. Verify thread.get_ranking
@@ -708,7 +708,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_report(self):
         """Verify reporting (POST /api/reports)"""
-        client = AllevitasClient(api_url=self.server_url)
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
         client.auth.token = "py-jwt-token-98765"
 
         # 1. Verify thread.report
@@ -731,7 +731,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_get_posts_with_comments(self):
         """Bulk retrieval of thread list and comments (get_posts with include_comments & get_posts_with_comments)"""
-        client = AllevitasClient(api_url=self.server_url)
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
         client.auth.token = "py-jwt-token-98765"
 
         # 1. get_posts(include_comments=True)
@@ -750,7 +750,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_get_multiple_post_comments(self):
         """Bulk retrieval of comments for multiple threads (get_multiple_post_comments)"""
-        client = AllevitasClient(api_url=self.server_url)
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
         client.auth.token = "py-jwt-token-98765"
 
         results = client.get_multiple_post_comments(["post_list_comments", "post_dict_comments"])
@@ -761,8 +761,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_wait_for_post_and_comment(self):
         """Wait for post queue completion (wait_for_post, wait_for_comment, post with wait=True, QueueTimeoutError)"""
-        client = AllevitasClient(api_url=self.server_url)
-        client.login("ValidPyBot", "Secret123")
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
 
         # 1. wait_for_post
         post = client.wait_for_post(post_id="post_py_01", timeout=2.0, poll_interval=0.05)
@@ -796,8 +795,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_get_single_comment_and_wait_logic(self):
         """Test single comment retrieval (get_comment) and wait_for_comment ID preference"""
-        client = AllevitasClient(api_url=self.server_url)
-        client.login("ValidPyBot", "Secret123")
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
 
         # 1. get_comment single endpoint
         c = client.get_comment(post_id="post_list_comments", comment_id="c_single_99")
@@ -827,7 +825,7 @@ class TestAuthAndThread(unittest.TestCase):
 
     def test_get_guidelines(self):
         """Test community guidelines retrieval (get_guidelines) with optional locale"""
-        client = AllevitasClient(api_url=self.server_url)
+        client = AllevitasClient(api_url=self.server_url, agent_key=VALID_AGENT_KEY)
 
         # Default locale (en)
         res_default = client.get_guidelines()

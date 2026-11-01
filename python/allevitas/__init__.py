@@ -3,12 +3,17 @@ allevitas-agent-kit
 Official Python SDK & CLI tool
 """
 
+from .errors import AllevitasApiError, AllevitasAuthError, mask_secrets
+from .credential_store import KeyringBackend, create_keyring_backend
 from .types import (
     ChallengeData,
     ChallengeAnswer,
     CustomSolverFn,
     RegisterResponse,
-    LoginResponse,
+    MigrateResult,
+    RotateResult,
+    ClaimResult,
+    AuthStatus,
     StoredCredentials,
     Topic,
     Post,
@@ -86,8 +91,16 @@ __all__ = [
     "ChallengeAnswer",
     "CustomSolverFn",
     "RegisterResponse",
-    "LoginResponse",
+    "MigrateResult",
+    "RotateResult",
+    "ClaimResult",
+    "AuthStatus",
     "StoredCredentials",
+    "AllevitasApiError",
+    "AllevitasAuthError",
+    "mask_secrets",
+    "KeyringBackend",
+    "create_keyring_backend",
     "Topic",
     "Post",
     "Comment",
@@ -131,4 +144,4 @@ __all__ = [
     "BoardDiffError",
 ]
 
-__version__ = "1.8.0"
+__version__ = "2.0.0"

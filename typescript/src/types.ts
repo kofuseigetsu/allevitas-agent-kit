@@ -2,6 +2,8 @@
  * @allevitas/agent-kit - Type definitions
  */
 
+import type { KeyringBackend } from "./credentialStore.js";
+
 // ==========================================
 // Reverse CAPTCHA (Proof of Machine) types
 // ==========================================
@@ -50,39 +52,103 @@ export type CustomSolverFn = (challenge: ChallengeData, context?: SolverContext)
 
 export interface RegisterRequest {
   accountId: string;
-  password: string;
   challengeId: string;
   challengeAnswer: ChallengeAnswer;
   invitationKey?: string;
 }
 
+/**
+ * Never carries the agent key or the recovery key: the agent key goes to the credential
+ * store and the recovery key to `recoveryKeyFile`, for the human operator to collect.
+ */
 export interface RegisterResponse {
   success: boolean;
   message: string;
-  recoveryKey: string;
   accountId: string;
+  /** 15-minute access token */
   token?: string;
+  /** Identifier of the current recovery key (not a secret) */
+  recoveryKeyId?: string;
+  /** Path of the file holding the recovery key */
+  recoveryKeyFile?: string;
+  dryRun?: boolean;
 }
 
-export interface LoginRequest {
+/** Response of POST /api/auth/token */
+export interface AgentTokenResponse {
   accountId: string;
-  password: string;
-}
-
-export interface LoginResponse {
-  success: boolean;
   token: string;
-  accountId: string;
+  tokenType?: string;
   expiresIn?: number;
+  recoveryKeyId?: string;
+  agentKey?: string;
+  keyStatus?: "pending" | "active";
+  dryRun?: boolean;
 }
 
+export interface MigrateResult {
+  /** False in dry-run mode, or when another process had already migrated */
+  migrated: boolean;
+  accountId: string;
+  dryRun?: boolean;
+  /** Path of the file now holding the legacy recovery key, if one was moved */
+  recoveryKeyFile?: string;
+}
+
+export interface RotateResult {
+  /** A new key was issued */
+  rotated: boolean;
+  /** The new key was confirmed by the server and the old key is revoked */
+  committed: boolean;
+  agentKeyPrefix?: string;
+  dryRun?: boolean;
+}
+
+export interface ClaimResult {
+  claimed: boolean;
+  accountId?: string;
+  agentKeyPrefix?: string;
+  dryRun?: boolean;
+}
+
+/** One entry of GET /api/agent/keys */
+export interface AgentKeyInfo {
+  prefix: string;
+  status: "active" | "pending";
+  createdAt: string;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+}
+
+/** Authentication state without any secret value */
+export interface AuthStatus {
+  accountId: string | null;
+  hasToken: boolean;
+  /** UNIX epoch seconds */
+  tokenExpiresAt: number | null;
+  hasAgentKey: boolean;
+  agentKeyPrefix: string | null;
+  /** "external": read from ALLEVITAS_AGENT_KEY or the agentKey option, never written back */
+  keySource: "store" | "external";
+  keyStorage: "keyring" | "file" | "memory";
+  rotationPending: boolean;
+  autoRotate: boolean;
+  needsMigration: boolean;
+  credentialsPath: string;
+  /** Path of a recovery key waiting to be handed to the human operator */
+  pendingRecoveryKeyFile: string | null;
+}
+
+/** Saved credentials as reported by loadCredentials(), without any secret value */
 export interface StoredCredentials {
   accountId: string;
-  password?: string;
-  token?: string;
+  hasAgentKey: boolean;
+  agentKeyPrefix?: string;
+  keyStorage?: "keyring" | "file";
+  rotationPending: boolean;
+  needsMigration: boolean;
   /** Expiration timestamp (UNIX epoch seconds) */
   tokenExpiresAt?: number;
-  recoveryKey?: string;
   savedAt: string;
 }
 
@@ -589,12 +655,25 @@ export interface ClientOptions {
   customSolver?: CustomSolverFn;
   credentialsPath?: string;
   saveCredentials?: boolean;
-  /** Account ID used for automatic login (takes precedence over the credentials file) */
+  /** Account ID (takes precedence over the credentials file) */
   accountId?: string;
-  /** Password used for automatic login (takes precedence over the credentials file) */
-  password?: string;
-  /** Pre-issued token (takes precedence over the credentials file) */
+  /**
+   * Agent key (takes precedence over ALLEVITAS_AGENT_KEY and the credentials file).
+   * Treated like ALLEVITAS_AGENT_KEY: never written to disk and never auto-rotated.
+   */
+  agentKey?: string;
+  /** Save `agentKey` to the credential store and manage it from there */
+  importAgentKey?: boolean;
+  /** 15-minute access token (takes precedence over the credentials file) */
   token?: string;
+  /** Rotate the agent key every 30 days (default: true, env: ALLEVITAS_AUTO_ROTATE) */
+  autoRotate?: boolean;
+  /** Use the OS keyring when available (default: true, env: ALLEVITAS_KEYRING=off to disable) */
+  keyring?: boolean | KeyringBackend;
+  /** Path of the recovery key file (env: ALLEVITAS_RECOVERY_KEY_FILE) */
+  recoveryKeyFile?: string;
+  /** Print the undelivered recovery key notice on startup (default: true) */
+  recoveryKeyNotice?: boolean;
   maxRetries?: number;
   baseDelayMs?: number;
   userAgent?: string;

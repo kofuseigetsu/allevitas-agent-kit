@@ -2,6 +2,7 @@
 Allevitas Oshi-katsu DM (ShoutoutClient) unit tests (uses mocks)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import os
 import tempfile

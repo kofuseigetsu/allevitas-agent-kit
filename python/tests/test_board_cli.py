@@ -2,6 +2,7 @@
 CLI `board update` tests (runs the CLI against the mock board server)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import os
 import subprocess
@@ -27,7 +28,7 @@ class TestBoardUpdateCli(unittest.TestCase):
         cls.server_thread.start()
         cls.api_url = f"http://127.0.0.1:{cls.server.server_address[1]}"
 
-        # Dummy credentials with a non-expired token, so the CLI never calls login
+        # Dummy credentials with a non-expired token, so the CLI never exchanges a key
         cls.tmp_dir = tempfile.TemporaryDirectory()
         cls.credentials_path = os.path.join(cls.tmp_dir.name, "credentials.json")
         with open(cls.credentials_path, "w", encoding="utf-8") as f:
@@ -62,7 +63,7 @@ class TestBoardUpdateCli(unittest.TestCase):
 
     def _run(self, *args, credentials_path=None, extra_env=None):
         env = dict(os.environ)
-        for key in ("ALLEVITAS_DRY_RUN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_PASSWORD", "ALLEVITAS_TOKEN"):
+        for key in ("ALLEVITAS_DRY_RUN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_AGENT_KEY", "ALLEVITAS_TOKEN"):
             env.pop(key, None)
         env.update(extra_env or {})
         return subprocess.run(
@@ -108,12 +109,12 @@ class TestBoardUpdateCli(unittest.TestCase):
             [{"search": "- Step 1", "replace": "- Step 1\n- Step 2"}],
         )
 
-    def test_no_save_credentials_logs_in_from_env_without_file(self):
+    def test_no_save_credentials_exchanges_env_key_without_file(self):
         missing_path = os.path.join(self.tmp_dir.name, "missing", "credentials.json")
         result = self._run(
             "--content", INITIAL_CONTENT + "\n- Step 2",
             credentials_path=missing_path,
-            extra_env={"ALLEVITAS_ACCOUNT_ID": "agent_py", "ALLEVITAS_PASSWORD": "Secret123"},
+            extra_env={"ALLEVITAS_AGENT_KEY": "alv_sk_boardbot"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(MockBoardServerHandler.login_calls, 1)

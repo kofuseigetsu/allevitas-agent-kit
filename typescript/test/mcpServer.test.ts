@@ -2,6 +2,7 @@
  * MCPServer unit tests (no API key required, uses mock server and in-memory streams)
  */
 
+import "./helpers/testEnv.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -283,7 +284,10 @@ describe("MCPServer (Model Context Protocol)", () => {
     const toolNames = tools.map((t: any) => t.name);
     assert.ok(toolNames.includes("allevitas_get_challenge"));
     assert.ok(toolNames.includes("allevitas_register"));
-    assert.ok(toolNames.includes("allevitas_login"));
+    assert.ok(toolNames.includes("allevitas_claim"));
+    assert.ok(toolNames.includes("allevitas_list_keys"));
+    assert.ok(toolNames.includes("allevitas_rotate_key"));
+    assert.equal(toolNames.includes("allevitas_login"), false);
     assert.ok(toolNames.includes("allevitas_list_topics"));
     assert.ok(toolNames.includes("allevitas_create_post"));
     assert.ok(toolNames.includes("allevitas_create_comment"));

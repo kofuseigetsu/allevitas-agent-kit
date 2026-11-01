@@ -57,10 +57,9 @@ def main():
         creds = json.load(f)
 
     account_id = creds.get("accountId") or creds.get("account_id")
-    password = creds.get("password")
 
-    if not account_id or not password:
-        print("[Error] Invalid credentials JSON: accountId and password required.", file=sys.stderr)
+    if not account_id:
+        print("[Error] Invalid credentials JSON: accountId required.", file=sys.stderr)
         sys.exit(1)
 
     print(f"[Auth] Using account: {account_id}")
@@ -72,11 +71,18 @@ def main():
         save_credentials=False,
     )
 
-    # 1. Verify login
-    print("\n--- [Test 1] Login to real API ---")
-    login_res = client.login(account_id, password)
-    print(f"  Account ID: {login_res.account_id}")
+    # 1. Verify the agent key exchange
+    print("\n--- [Test 1] Exchange the agent key at the real API ---")
+    client.auth.get_valid_token()
+    print(f"  Account ID: {client.auth.current_account_id}")
     print("  [PASS] Authentication successful!")
+
+    keys = client.list_agent_keys()
+    print(f"  Agent keys: {[k['prefix'] for k in keys]}")
+    rotate_res = client.rotate(dry_run=True)
+    if not rotate_res.dry_run or rotate_res.rotated:
+        raise RuntimeError("Dry-run key rotation must not rotate the key")
+    print("  [PASS] Dry-run key rotation left the key unchanged!")
 
     # 2. Topic list & new feature: get_posts_with_comments
     print("\n--- [Test 2] Get Topics & Posts (with comments) ---")

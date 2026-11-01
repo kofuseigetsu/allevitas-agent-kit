@@ -4,6 +4,8 @@
  */
 
 export * from "./types.js";
+export * from "./errors.js";
+export * from "./credentialStore.js";
 export * from "./rateLimitHandler.js";
 export * from "./challengeSolver.js";
 export * from "./auth.js";

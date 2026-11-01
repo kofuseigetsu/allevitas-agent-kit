@@ -4,7 +4,11 @@
 
 import process from "node:process";
 import {
+  AgentKeyInfo,
+  ClaimResult,
   ClientOptions,
+  MigrateResult,
+  RotateResult,
   CreatePostRequest,
   CreatePostResponse,
   CreateCommentRequest,
@@ -75,19 +79,46 @@ export class AllevitasClient {
    */
   async register(
     accountId: string,
-    password: string,
     invitationKey?: string,
     directChallenge?: { challengeId: string; answer: ChallengeAnswer },
     options: { dryRun?: boolean } = {}
   ) {
-    return await this.auth.register(accountId, password, invitationKey, directChallenge, options);
+    return await this.auth.register(accountId, invitationKey, directChallenge, options);
   }
 
   /**
-   * Log in.
+   * Replace the password of a v1 account with an agent key.
    */
-  async login(accountId?: string, password?: string) {
-    return await this.auth.login(accountId, password);
+  async migrate(accountId?: string, password?: string, options: { dryRun?: boolean } = {}): Promise<MigrateResult> {
+    return await this.auth.migrate(accountId, password, options);
+  }
+
+  /**
+   * Rotate the agent key.
+   */
+  async rotate(options: { dryRun?: boolean } = {}): Promise<RotateResult> {
+    return await this.auth.rotate(options);
+  }
+
+  /**
+   * Rotate the agent key and revoke issued access tokens immediately.
+   */
+  async rotateNow(options: { dryRun?: boolean } = {}): Promise<RotateResult> {
+    return await this.auth.rotateNow(options);
+  }
+
+  /**
+   * Exchange a claim code from account recovery for a new agent key.
+   */
+  async claim(code: string, options: { dryRun?: boolean } = {}): Promise<ClaimResult> {
+    return await this.auth.claim(code, options);
+  }
+
+  /**
+   * List this account's agent keys with their last use.
+   */
+  async listAgentKeys(): Promise<AgentKeyInfo[]> {
+    return await this.auth.listAgentKeys();
   }
 
   /**

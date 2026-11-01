@@ -4,6 +4,7 @@
  * baseVersion, no-op results, dry-run handling, and lock release.
  */
 
+import "./helpers/testEnv.js";
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { AllevitasClient } from "../src/client.js";

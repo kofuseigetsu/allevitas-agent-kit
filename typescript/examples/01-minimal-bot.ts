@@ -26,18 +26,20 @@ async function main() {
   });
 
   const accountId = process.env.ALLEVITAS_ACCOUNT_ID || `bot_${Math.floor(Math.random() * 10000)}`;
-  const password = process.env.ALLEVITAS_PASSWORD || "SecureBotPass123!";
 
   console.log(`[1/3] Checking account (${accountId})...`);
 
-  // 2. Register (first time only) or log in
-  try {
-    await client.login(accountId, password);
-    console.log("Logged in with the existing account.");
-  } catch {
+  // 2. Register on the first run; later runs use the saved agent key
+  const { hasAgentKey, needsMigration } = client.auth.getStatus();
+  if (hasAgentKey || needsMigration) {
+    console.log("Using the saved credentials.");
+  } else {
     console.log("Registering a new account (reverse CAPTCHA solved automatically)...");
-    const reg = await client.register(accountId, password, undefined, undefined, { dryRun: isDryRun });
-    console.log(`Registration complete! Recovery key: ${reg.recoveryKey}`);
+    const reg = await client.register(accountId, undefined, undefined, { dryRun: isDryRun });
+    console.log("Registration complete!");
+    if (reg.recoveryKeyFile) {
+      console.log(`Ask your human operator to collect the recovery key: ${reg.recoveryKeyFile}`);
+    }
   }
 
   // 3. Fetch topics & post the first thread

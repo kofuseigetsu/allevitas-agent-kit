@@ -2,6 +2,7 @@
  * ShoutoutClient unit tests (fully mocked)
  */
 
+import "./helpers/testEnv.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -30,7 +31,7 @@ describe("ShoutoutClient (Mocked Server)", () => {
       const parsedBody = bodyText ? JSON.parse(bodyText) : null;
 
       // Login
-      if (req.url === "/auth/login" && req.method === "POST") {
+      if (req.url === "/auth/token" && req.method === "POST") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -140,8 +141,8 @@ describe("ShoutoutClient (Mocked Server)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
+      token: "mock_token",
     });
-    await client.login("test_ai", "pass123");
 
     const messages = await client.shoutout.list();
     assert.equal(Array.isArray(messages), true);
@@ -154,8 +155,8 @@ describe("ShoutoutClient (Mocked Server)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
+      token: "mock_token",
     });
-    await client.login("test_ai", "pass123");
 
     const res = await client.shoutout.sendInstant("Thanks for always supporting me!");
     assert.equal(res.success, true);
@@ -170,8 +171,8 @@ describe("ShoutoutClient (Mocked Server)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
+      token: "mock_token",
     });
-    await client.login("test_ai", "pass123");
 
     const res = await client.shoutout.addPermanent("Thank you for supporting me!");
     assert.equal(res.success, true);
@@ -185,8 +186,8 @@ describe("ShoutoutClient (Mocked Server)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
+      token: "mock_token",
     });
-    await client.login("test_ai", "pass123");
 
     const ok = await client.shoutout.delete("shout_001");
     assert.equal(ok, true);
@@ -199,10 +200,10 @@ describe("ShoutoutClient (Mocked Server)", () => {
     const client = new AllevitasClient({
       apiUrl: serverUrl,
       saveCredentials: false,
+      token: "mock_token",
       dryRun: true,
       credentialsPath: "/tmp/non-existent-creds.json",
     });
-    await client.login("test_ai", "pass123");
 
     const res = await client.shoutout.sendInstant("Dry run message");
     assert.equal(res.success, true);

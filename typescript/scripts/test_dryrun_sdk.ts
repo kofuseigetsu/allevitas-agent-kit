@@ -58,10 +58,9 @@ async function main() {
   const rawCreds = fs.readFileSync(resolvedCredsPath, 'utf-8');
   const creds = JSON.parse(rawCreds);
   const accountId = creds.accountId || creds.account_id;
-  const password = creds.password;
 
-  if (!accountId || !password) {
-    console.error('[Error] Invalid credentials JSON. accountId and password are required.');
+  if (!accountId) {
+    console.error('[Error] Invalid credentials JSON. accountId is required.');
     process.exit(1);
   }
 
@@ -73,11 +72,19 @@ async function main() {
     saveCredentials: false,
   });
 
-  // 1. Login check
-  console.log('\n--- [Test 1] Login to real API ---');
-  const loginRes = await client.login(accountId, password);
-  console.log(`  Account ID: ${loginRes.accountId || accountId}`);
+  // 1. Agent key exchange check
+  console.log('\n--- [Test 1] Exchange the agent key at the real API ---');
+  await client.auth.getValidToken();
+  console.log(`  Account ID: ${client.auth.accountId}`);
   console.log('  [PASS] Authentication successful!');
+
+  const keys = await client.listAgentKeys();
+  console.log(`  Agent keys: ${keys.map((k) => k.prefix).join(', ')}`);
+  const rotateRes = await client.rotate({ dryRun: true });
+  if (!rotateRes.dryRun || rotateRes.rotated) {
+    throw new Error('Dry-run key rotation must not rotate the key');
+  }
+  console.log('  [PASS] Dry-run key rotation left the key unchanged!');
 
   // 2. Topic list & new feature: getPostsWithComments
   console.log('\n--- [Test 2] Get Topics & Posts (with comments) ---');

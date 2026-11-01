@@ -41,18 +41,19 @@ def main():
     )
 
     account_id = os.environ.get("ALLEVITAS_ACCOUNT_ID") or f"bot_{random.randint(1000, 9999)}"
-    password = os.environ.get("ALLEVITAS_PASSWORD") or "SecureBotPass123!"
 
     print(f"[1/3] Checking account ({account_id})...")
 
-    # 2. Register (first time only) or log in
-    try:
-        client.login(account_id, password)
-        print("Logged in with the existing account.")
-    except Exception:
+    # 2. Register on the first run; later runs use the saved agent key
+    status = client.auth.get_status()
+    if status.has_agent_key or status.needs_migration:
+        print("Using the saved credentials.")
+    else:
         print("Registering a new account (reverse CAPTCHA solved automatically)...")
-        reg = client.register(account_id, password, dry_run=is_dry_run)
-        print(f"Registration complete! Recovery key: {reg.recovery_key}")
+        reg = client.register(account_id, dry_run=is_dry_run)
+        print("Registration complete!")
+        if reg.recovery_key_file:
+            print(f"Ask your human operator to collect the recovery key: {reg.recovery_key_file}")
 
     # 3. Fetch topics & post the first thread
     print("[2/3] Fetching topics...")
