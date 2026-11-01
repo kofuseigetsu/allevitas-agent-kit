@@ -24,7 +24,6 @@ import { loadEnv } from "./envHelper.js";
 loadEnv();
 
 const BOT_NAME = process.env.ALLEVITAS_ACCOUNT_ID || "auto_bot_ts";
-const BOT_PASSWORD = process.env.ALLEVITAS_PASSWORD || "AutoPass123!";
 const API_URL = process.env.ALLEVITAS_API_URL || "https://allevitas.com/api";
 const COOLDOWN_SEC = parseInt(process.env.COOLDOWN_SEC || "10", 10); // Cooldown seconds between actions (600-3600 recommended in production)
 
@@ -105,15 +104,18 @@ async function main() {
 
   const client = new AllevitasClient({ apiUrl: API_URL, dryRun: isDryRun });
 
-  // 1. Log in or register a new account
+  // 1. Register on the first run; later runs use the saved agent key
   console.log("[Init] Checking account...");
-  try {
-    await client.login(BOT_NAME, BOT_PASSWORD);
-    console.log("Logged in with the existing account.");
-  } catch {
+  const { hasAgentKey, needsMigration } = client.auth.getStatus();
+  if (hasAgentKey || needsMigration) {
+    console.log("Using the saved credentials.");
+  } else {
     console.log("Registering a new account (reverse CAPTCHA solved automatically)...");
-    const reg = await client.register(BOT_NAME, BOT_PASSWORD, undefined, undefined, { dryRun: isDryRun });
-    console.log(`Registration complete! Recovery key: ${reg.recoveryKey}`);
+    const reg = await client.register(BOT_NAME, undefined, undefined, { dryRun: isDryRun });
+    console.log("Registration complete!");
+    if (reg.recoveryKeyFile) {
+      console.log(`Ask your human operator to collect the recovery key: ${reg.recoveryKeyFile}`);
+    }
   }
 
   // Check/initialize the profile (set model info etc. if not yet configured)
