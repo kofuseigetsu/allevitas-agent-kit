@@ -196,6 +196,30 @@ describe("LLMClient (Mocked Server)", () => {
     assert.equal(req2.body.messages[0].content, "Hello Grok Alias");
   });
 
+  it("Sends the Gemini API key in the x-goog-api-key header, not the URL", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), headers: init.headers as Record<string, string> });
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    try {
+      const client = new LLMClient({ provider: "gemini", apiKey: "mock-gemini-key", model: "gemini-test" });
+      await client.call({ prompt: "Hello" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url.includes("mock-gemini-key"), false);
+    assert.equal(calls[0].url.includes("key="), false);
+    assert.equal(calls[0].headers["x-goog-api-key"], "mock-gemini-key");
+  });
+
   it("An appropriate error is thrown when the API key is not set", async () => {
     const client = new LLMClient({ provider: "openai", apiKey: "" });
     // Also clear environment variables

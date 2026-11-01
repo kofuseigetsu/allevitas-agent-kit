@@ -163,13 +163,15 @@ class LLMClient:
 
         last_error = None
         for m in candidate_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
             req = urllib.request.Request(
                 url,
                 data=json.dumps(payload).encode("utf-8"),
                 headers={
                     "Content-Type": "application/json",
                     "User-Agent": self.user_agent,
+                    # Sent as a header so the key never appears in URLs, logs, or exceptions
+                    "x-goog-api-key": key,
                 },
                 method="POST",
             )

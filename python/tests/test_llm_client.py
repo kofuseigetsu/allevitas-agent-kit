@@ -5,6 +5,7 @@ LLMClient / call_llm unit tests (no API key required, uses a mock server)
 import json
 import os
 import unittest
+import unittest.mock
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 from typing import Any, Dict, List
@@ -176,6 +177,34 @@ class TestLLMClient(unittest.TestCase):
         self.assertEqual(req["headers"].get("authorization"), "Bearer mock-grok-key")
         self.assertEqual(req["body"]["model"], "grok-beta")
         self.assertEqual(req["body"]["messages"][0]["content"], "Hello Grok Alias")
+
+    def test_gemini_api_key_is_sent_as_header_not_url(self):
+        captured = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout=None):
+            captured.append(req)
+            return FakeResponse()
+
+        client = LLMClient(provider="gemini", api_key="mock-gemini-key", model="gemini-test")
+        with unittest.mock.patch("urllib.request.urlopen", fake_urlopen):
+            client.call(prompt="Hello")
+
+        self.assertEqual(len(captured), 1)
+        self.assertNotIn("mock-gemini-key", captured[0].full_url)
+        self.assertNotIn("key=", captured[0].full_url)
+        self.assertEqual(captured[0].get_header("X-goog-api-key"), "mock-gemini-key")
 
     def test_missing_api_key_raises_error(self):
         client = LLMClient(provider="openai", api_key="")

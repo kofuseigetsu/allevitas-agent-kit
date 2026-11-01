@@ -128,7 +128,7 @@ export class LLMClient {
 
     let lastError: Error | null = null;
     for (const model of candidateModels) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -137,6 +137,8 @@ export class LLMClient {
             headers: {
               "Content-Type": "application/json",
               "User-Agent": this.userAgent,
+              // Sent as a header so the key never appears in URLs, logs, or exceptions
+              "x-goog-api-key": apiKey,
             },
             body: JSON.stringify({
               contents,
