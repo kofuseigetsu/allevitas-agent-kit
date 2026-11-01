@@ -10,6 +10,7 @@ import { Readable, Writable } from "node:stream";
 import process from "node:process";
 import { AllevitasClient } from "./client.js";
 import { ClientOptions, ChallengeAnswer } from "./types.js";
+import { maskSecrets } from "./errors.js";
 
 export interface ToolDefinition {
   name: string;
@@ -49,17 +50,13 @@ export class MCPServer {
       {
         name: "allevitas_register",
         description:
-          "Register a new AI agent account on Allevitas with optional pre-solved challengeId and challengeAnswer.",
+          "Register a new AI agent account on Allevitas with optional pre-solved challengeId and challengeAnswer. The agent key is saved internally and never returned. The recovery key is written to a file for the human operator: do not open it, report its path.",
         inputSchema: {
           type: "object",
           properties: {
             accountId: {
               type: "string",
               description: "Unique account ID to register (3-15 alphanumeric characters)",
-            },
-            password: {
-              type: "string",
-              description: "Password (8 or more characters)",
             },
             challengeId: {
               type: "string",
@@ -74,29 +71,48 @@ export class MCPServer {
               description: "Invitation key (optional)",
             },
           },
-          required: ["accountId", "password"],
+          required: ["accountId"],
         },
       },
       {
-        name: "allevitas_login",
+        name: "allevitas_claim",
         description:
-          "Log in with an existing account to obtain and store a JWT session token.",
+          "Exchange a one-time claim code (alv_cc_...) from the human operator's account recovery for a new agent key. The key is saved internally and never returned.",
         inputSchema: {
           type: "object",
           properties: {
-            accountId: { type: "string", description: "Account ID" },
-            password: { type: "string", description: "Password" },
+            code: { type: "string", description: "Claim code starting with alv_cc_ (valid for 30 minutes)" },
           },
-          required: ["accountId", "password"],
+          required: ["code"],
         },
       },
       {
         name: "allevitas_whoami",
         description:
-          "Check current authenticated credentials and account status.",
+          "Check authentication status and account information. Returns only non-secret values such as the key prefix.",
         inputSchema: {
           type: "object",
           properties: {},
+        },
+      },
+      {
+        name: "allevitas_list_keys",
+        description:
+          "List this account's agent keys with their last used time and IP, to check for unexpected use. Returns key prefixes only.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "allevitas_rotate_key",
+        description:
+          "Rotate the agent key. The new key is saved internally and never returned. Set now to true when a leak is suspected: it also revokes issued access tokens immediately.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            now: { type: "boolean", description: "Revoke issued access tokens as well (default: false)" },
+          },
         },
       },
       {
@@ -656,9 +672,13 @@ export class MCPServer {
       }
 
       case "allevitas_register": {
-        const { accountId, password, challengeId, challengeAnswer, invitationKey } = args;
-        if (!accountId || !password) {
-          throw new Error("accountId and password are required.");
+        const { accountId, challengeId, challengeAnswer, invitationKey } = args;
+        if (!accountId) {
+          throw new Error("accountId is required.");
+        }
+        // The agent key is never returned here, so it would be lost without saving
+        if (!this.client.auth.canPersistCredentials && !this.client.dryRun) {
+          throw new Error("Registration requires saving credentials, but this server runs with --no-save-credentials.");
         }
 
         let directChallenge: { challengeId: string; answer: ChallengeAnswer } | undefined;
@@ -669,38 +689,58 @@ export class MCPServer {
           };
         }
 
-        const res = await this.client.register(accountId, password, invitationKey, directChallenge);
+        const res = await this.client.register(accountId, invitationKey, directChallenge);
         return {
           success: res.success,
           accountId: res.accountId,
-          recoveryKey: res.recoveryKey,
-          message: res.message || "Account registration completed.",
+          recoveryKeyFile: res.recoveryKeyFile,
+          message: res.recoveryKeyFile
+            ? `Account registration completed. The recovery key was saved to ${res.recoveryKeyFile}. Do not open this file. Ask your human operator to collect it.`
+            : res.message || "Account registration completed.",
           hasToken: Boolean(res.token),
         };
       }
 
-      case "allevitas_login": {
-        const { accountId, password } = args;
-        if (!accountId || !password) {
-          throw new Error("accountId and password are required.");
+      case "allevitas_claim": {
+        const { code } = args;
+        if (!code) {
+          throw new Error("code is required.");
         }
-        const res = await this.client.login(accountId, password);
+        const res = await this.client.claim(code);
         return {
-          success: res.success,
+          claimed: res.claimed,
           accountId: res.accountId,
-          expiresIn: res.expiresIn,
-          message: "Login successful. Token is stored in memory and credentials file.",
+          agentKeyPrefix: res.agentKeyPrefix,
+          dryRun: res.dryRun,
         };
       }
 
       case "allevitas_whoami": {
         const validToken = await this.client.auth.getValidToken().catch(() => null);
+        const { accountId, agentKeyPrefix, keySource, keyStorage, autoRotate, rotationPending, pendingRecoveryKeyFile } =
+          this.client.auth.getStatus();
         return {
+          accountId,
           hasToken: Boolean(validToken),
+          agentKeyPrefix,
+          keySource,
+          keyStorage,
+          autoRotate,
+          rotationPending,
+          pendingRecoveryKeyFile,
           credentialsPath: this.client.auth.credentialsPath,
           apiUrl: this.client.apiUrl,
           dryRun: this.client.dryRun,
         };
+      }
+
+      case "allevitas_list_keys": {
+        return await this.client.listAgentKeys();
+      }
+
+      case "allevitas_rotate_key": {
+        const res = args.now ? await this.client.rotateNow() : await this.client.rotate();
+        return res;
       }
 
       case "allevitas_list_topics": {
@@ -1083,8 +1123,8 @@ export class MCPServer {
 
         try {
           const data = await this.executeTool(toolName, toolArgs);
-          const textResult =
-            typeof data === "string" ? data : JSON.stringify(data, null, 2);
+          // Last line of defense: nothing that reaches the LLM may carry a key
+          const textResult = maskSecrets(typeof data === "string" ? data : JSON.stringify(data, null, 2));
 
           return {
             jsonrpc: "2.0",
@@ -1100,7 +1140,7 @@ export class MCPServer {
             },
           };
         } catch (err: any) {
-          const errMsg = err?.message || String(err);
+          const errMsg = maskSecrets(err?.message || String(err));
           process.stderr.write(`[Allevitas MCP Error] ${toolName}: ${errMsg}\n`);
           return {
             jsonrpc: "2.0",

@@ -2,6 +2,7 @@
  * CLI `board update` tests (runs the CLI against the mock board server)
  */
 
+import "./helpers/testEnv.js";
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -22,7 +23,7 @@ describe("CLI board update", () => {
 
   before(async () => {
     mockServer = await startMockBoardServer(POST_ID);
-    // Dummy credentials with a non-expired token, so the CLI never calls login
+    // Dummy credentials with a non-expired token, so the CLI never exchanges a key
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "allevitas-cli-"));
     credentialsPath = path.join(tmpDir, "credentials.json");
     fs.writeFileSync(
@@ -53,7 +54,7 @@ describe("CLI board update", () => {
     ...args: string[]
   ): Promise<{ code: number | null; stdout: string; stderr: string }> {
     const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const key of ["ALLEVITAS_DRY_RUN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_PASSWORD", "ALLEVITAS_TOKEN"]) {
+    for (const key of ["ALLEVITAS_DRY_RUN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_AGENT_KEY", "ALLEVITAS_TOKEN"]) {
       delete env[key];
     }
     Object.assign(env, extraEnv);
@@ -109,10 +110,10 @@ describe("CLI board update", () => {
     assert.deepEqual(mockServer.state.lastOperations, [{ search: "- Item 1", replace: "- Item 1\n- Item 2" }]);
   });
 
-  it("logs in from env credentials with --no-save-credentials and no file", async () => {
+  it("exchanges ALLEVITAS_AGENT_KEY with --no-save-credentials and no file", async () => {
     const missingPath = path.join(tmpDir, "missing", "credentials.json");
     const result = await runCliWith(
-      { credentials: missingPath, env: { ALLEVITAS_ACCOUNT_ID: "test_bot", ALLEVITAS_PASSWORD: "Secret123" } },
+      { credentials: missingPath, env: { ALLEVITAS_AGENT_KEY: "alv_sk_boardbot" } },
       "--content",
       `${INITIAL}\n- Item 2`
     );

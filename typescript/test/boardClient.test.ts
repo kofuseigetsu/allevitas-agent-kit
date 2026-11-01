@@ -2,6 +2,7 @@
  * BoardClient unit tests (no API key required, uses mock server)
  */
 
+import "./helpers/testEnv.js";
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";

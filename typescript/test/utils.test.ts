@@ -2,6 +2,7 @@
  * Tests for normalizeApiUrl and utilities
  */
 
+import "./helpers/testEnv.js";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeApiUrl, DEFAULT_API_URL } from "../src/utils.js";

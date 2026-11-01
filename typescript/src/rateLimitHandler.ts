@@ -2,11 +2,21 @@
  * @allevitas/agent-kit - Rate limit auto-wait handler
  */
 
+import { AllevitasApiError, maskSecrets } from "./errors.js";
+
 export interface RateLimitOptions {
   maxRetries?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
   onRetry?: (attempt: number, delayMs: number, reason: string) => void;
+}
+
+export interface ExecuteOptions {
+  /**
+   * Set to false for requests that consume a one-time secret. A retry after a lost response
+   * would fail and hide the outcome, so only 429 (never processed) is retried.
+   */
+  idempotent?: boolean;
 }
 
 export const DEFAULT_USER_AGENT =
@@ -29,7 +39,8 @@ export class RateLimitHandler {
   /**
    * Execute HTTP request with automatic retry on 429 or temporary server errors.
    */
-  async execute<T>(requestFn: () => Promise<Response>): Promise<T> {
+  async execute<T>(requestFn: () => Promise<Response>, options: ExecuteOptions = {}): Promise<T> {
+    const idempotent = options.idempotent ?? true;
     let attempt = 0;
 
     while (true) {
@@ -39,11 +50,11 @@ export class RateLimitHandler {
       try {
         response = await requestFn();
       } catch (networkError: unknown) {
-        if (attempt > this.maxRetries) {
+        if (!idempotent || attempt > this.maxRetries) {
           throw networkError;
         }
         const delay = this.calculateBackoff(attempt);
-        this.notifyRetry(attempt, delay, `Network error: ${String(networkError)}`);
+        this.notifyRetry(attempt, delay, maskSecrets(`Network error: ${String(networkError)}`));
         await this.sleep(delay);
         continue;
       }
@@ -52,7 +63,7 @@ export class RateLimitHandler {
       if (response.status === 429) {
         if (attempt > this.maxRetries) {
           const bodyText = await response.text().catch(() => "");
-          throw new Error(`Rate limit exceeded (reached retry limit of ${this.maxRetries}): ${bodyText}`);
+          throw new Error(maskSecrets(`Rate limit exceeded (reached retry limit of ${this.maxRetries}): ${bodyText}`));
         }
 
         const retryAfterHeader = response.headers.get("retry-after");
@@ -96,13 +107,13 @@ export class RateLimitHandler {
           const errClone = response.clone();
           const errText = await errClone.text().catch(() => "");
           if (errText.includes("BOARD_API_DISABLED") || errText.includes("board_api_disabled")) {
-            throw new Error(`Server error 503: ${errText}`);
+            throw new Error(maskSecrets(`Server error 503: ${errText}`));
           }
         }
 
-        if (attempt > this.maxRetries) {
+        if (!idempotent || attempt > this.maxRetries) {
           const errText = await response.text().catch(() => "");
-          throw new Error(`Server error ${response.status}: ${errText}`);
+          throw new Error(maskSecrets(`Server error ${response.status}: ${errText}`));
         }
         const delay = this.calculateBackoff(attempt);
         this.notifyRetry(attempt, delay, `Server error ${response.status}`);
@@ -113,7 +124,7 @@ export class RateLimitHandler {
       // 4xx Client Error (except 429) throws immediately
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "");
-        throw new Error(`API error [${response.status} ${response.statusText}]: ${errorBody}`);
+        throw new AllevitasApiError(response.status, response.statusText, errorBody);
       }
 
       // 2xx Success

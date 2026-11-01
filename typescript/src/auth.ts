@@ -6,10 +6,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import {
+  AgentKeyInfo,
+  AgentTokenResponse,
+  AuthStatus,
+  ClaimResult,
   RegisterRequest,
   RegisterResponse,
-  LoginRequest,
-  LoginResponse,
+  MigrateResult,
+  RotateResult,
   StoredCredentials,
   ClientOptions,
   UserProfile,
@@ -20,9 +24,38 @@ import {
 import { ChallengeSolver } from "./challengeSolver.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { normalizeApiUrl } from "./utils.js";
+import { AllevitasApiError, AllevitasAuthError, maskSecrets } from "./errors.js";
+import {
+  assertWritableDirectory,
+  createKeyringBackend,
+  detectRecoveryKeyFormat,
+  deleteRecoveryKeyFile,
+  enforcePrivateFile,
+  KeyringBackend,
+  readJsonFile,
+  readRecoveryKeyFile,
+  storeInKeyring,
+  withFileLock,
+  writeFileAtomic,
+  writeRecoveryKeyFile,
+} from "./credentialStore.js";
 
-const TOKEN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;  // Auto-refresh when within 24 hours
+const ACCESS_TOKEN_LIFETIME_SEC = 15 * 60;
+const REFRESH_MARGIN_MS = 60 * 1000;           // Refresh when within 1 minute of expiry
+const ROTATION_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // Rotate every 30 days
+const AGENT_KEY_PREFIX = "alv_sk_";
+const CLAIM_CODE_PREFIX = "alv_cc_";
+const KEY_DISPLAY_PREFIX_LENGTH = AGENT_KEY_PREFIX.length + 8;
+
+type KeySource = "store" | "external";
+
+function keyDisplayPrefix(agentKey: string | null): string | null {
+  return agentKey ? agentKey.slice(0, KEY_DISPLAY_PREFIX_LENGTH) : null;
+}
+
+function warn(message: string): void {
+  process.stderr.write(`[Allevitas SDK] ${maskSecrets(message)}\n`);
+}
 
 export class AllevitasAuth {
   private apiUrl: string;
@@ -30,17 +63,32 @@ export class AllevitasAuth {
   private challengeSolver: ChallengeSolver;
   private rateLimitHandler: RateLimitHandler;
   private userAgent: string;
+  private keyring: KeyringBackend | null;
   public readonly dryRun: boolean;
 
   private currentToken: string | null = null;
   private tokenExpiresAt: number | null = null;
   private currentAccountId: string | null = null;
-  private currentPassword: string | null = null;
-  private currentRecoveryKey: string | null = null;
+  private currentAgentKey: string | null = null;
+  private pendingAgentKey: string | null = null;
+  private keyCreatedAt: number | null = null;
+  private keySource: KeySource = "store";
+  private keyStorage: "keyring" | "file" | null = null;
+  // Stored keys exist but the keyring cannot return them; the store must not be overwritten
+  private keyringUnavailable = false;
+  // In-memory keys are newer than the store; otherwise the store wins when saving
+  private keysDirty = false;
+  // Left in a credentials file written by v1; used once for migration
+  private legacyPassword: string | null = null;
+  private legacyRecoveryKey: string | null = null;
+  private fatalAuthError: { error: AllevitasAuthError; agentKey: string | null } | null = null;
+  private warnedRecoveryAccountMismatch = false;
+  private inFlight: Promise<void> | null = null;
 
   constructor(apiUrl: string, challengeSolver: ChallengeSolver, options: ClientOptions = {}) {
+    const { agentKey, token, ...safeOptions } = options;
     this.apiUrl = normalizeApiUrl(apiUrl);
-    this.options = options;
+    this.options = safeOptions;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
     this.challengeSolver = challengeSolver;
@@ -48,31 +96,59 @@ export class AllevitasAuth {
       maxRetries: options.maxRetries ?? 3,
       baseDelayMs: options.baseDelayMs ?? 1000,
     });
+    this.keyring = this.resolveKeyring();
 
-    // Auto-load credentials if existing file is present
-    this.tryAutoLoadCredentials();
-    this.applyExplicitCredentials();
+    const explicitKey = agentKey || process.env.ALLEVITAS_AGENT_KEY || null;
+    if (explicitKey && !options.importAgentKey) {
+      this.keySource = "external";
+    } else {
+      // Auto-load credentials if existing file is present
+      this.tryAutoLoadCredentials();
+    }
+    this.applyExplicitCredentials(explicitKey, token);
+
+    if (options.recoveryKeyNotice !== false) {
+      this.notifyPendingRecoveryKey();
+    }
   }
 
-  private applyExplicitCredentials(): void {
+  private resolveKeyring(): KeyringBackend | null {
+    const { keyring } = this.options;
+    if (keyring && typeof keyring === "object") {
+      return keyring;
+    }
+    const disabledByEnv = ["off", "false", "0", "no"].includes((process.env.ALLEVITAS_KEYRING || "").toLowerCase());
+    return keyring === false || disabledByEnv ? null : createKeyringBackend();
+  }
+
+  private applyExplicitCredentials(explicitKey: string | null, token?: string): void {
     // Explicitly passed credentials take precedence over the credentials file
-    const { accountId, password, token } = this.options;
+    const { accountId } = this.options;
     if (accountId) {
       if (accountId !== this.currentAccountId) {
-        // Never reuse a token or recovery key that belongs to another account
+        // Never reuse secrets that belong to another account
         this.currentToken = null;
         this.tokenExpiresAt = null;
-        this.currentRecoveryKey = null;
-        this.currentPassword = null;
+        this.currentAgentKey = null;
+        this.pendingAgentKey = null;
+        this.keyCreatedAt = null;
+        this.legacyRecoveryKey = null;
+        this.legacyPassword = null;
       }
       this.currentAccountId = accountId;
     }
-    if (password) {
-      this.currentPassword = password;
+    if (explicitKey && explicitKey !== this.currentAgentKey) {
+      this.currentAgentKey = explicitKey;
+      this.pendingAgentKey = null;
+      this.keyCreatedAt = Date.now();
+      this.keysDirty = this.keySource === "store";
+      // A cached token may belong to the key this one replaces
+      this.currentToken = null;
+      this.tokenExpiresAt = null;
     }
     if (token) {
       this.currentToken = token;
-      // Expiry of an injected token is unknown; rely on 401 retry to re-login
+      // Expiry of an injected token is unknown; rely on 401 retry to exchange the agent key
       this.tokenExpiresAt = null;
     }
   }
@@ -82,18 +158,19 @@ export class AllevitasAuth {
    */
   async register(
     accountId: string,
-    password: string,
     invitationKey?: string,
     directChallenge?: { challengeId: string; answer: ChallengeAnswer },
     options: { dryRun?: boolean } = {}
   ): Promise<RegisterResponse> {
     const isDryRun = options.dryRun ?? this.dryRun;
+    if (!isDryRun) {
+      this.assertRegistrationCanPersist(accountId);
+    }
 
     // If direct answer is provided, submit directly without retrying or self-correction
     if (directChallenge) {
       return await this.executeRegisterRequest({
         accountId,
-        password,
         challengeId: directChallenge.challengeId,
         challengeAnswer: directChallenge.answer,
         invitationKey,
@@ -116,8 +193,7 @@ export class AllevitasAuth {
       try {
         return await this.executeRegisterRequest({
           accountId,
-          password,
-          challengeId: challenge.id,
+            challengeId: challenge.id,
           challengeAnswer: answer,
           invitationKey,
         }, isDryRun);
@@ -138,8 +214,7 @@ export class AllevitasAuth {
             const correctedAnswer = await this.challengeSolver.correctAnswer(challenge, answer, attempt);
             return await this.executeRegisterRequest({
               accountId,
-              password,
-              challengeId: challenge.id,
+                    challengeId: challenge.id,
               challengeAnswer: correctedAnswer,
               invitationKey,
             }, isDryRun);
@@ -171,109 +246,710 @@ export class AllevitasAuth {
     reqBody: RegisterRequest,
     isDryRun: boolean
   ): Promise<RegisterResponse> {
-    const res = await this.rateLimitHandler.execute<RegisterResponse>(() =>
-      fetch(`${this.apiUrl}/auth/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": this.userAgent,
-          ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
-        },
-        body: JSON.stringify(reqBody),
-      })
+    const res = await this.rateLimitHandler.execute<any>(
+      () =>
+        fetch(`${this.apiUrl}/auth/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": this.userAgent,
+            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
+          },
+          body: JSON.stringify(reqBody),
+        }),
+      { idempotent: false }
     );
 
-    this.currentAccountId = reqBody.accountId;
-    this.currentPassword = reqBody.password;
-    this.currentRecoveryKey = res.recoveryKey;
+    if (isDryRun || !res.agentKey) {
+      return {
+        success: res.success ?? true,
+        message: res.message || "",
+        accountId: res.accountId || reqBody.accountId,
+        dryRun: isDryRun,
+      };
+    }
 
+    this.currentAccountId = res.accountId || reqBody.accountId;
+    this.currentAgentKey = res.agentKey;
+    this.pendingAgentKey = null;
+    this.keyCreatedAt = Date.now();
+    this.keysDirty = true;
+    this.fatalAuthError = null;
     if (res.token) {
       this.currentToken = res.token;
-      this.tokenExpiresAt = Date.now() + TOKEN_LIFETIME_MS;
+      this.tokenExpiresAt = Date.now() + ACCESS_TOKEN_LIFETIME_SEC * 1000;
     }
 
-    // Securely persist credentials
-    await this.saveCredentials();
-
-    return res;
-  }
-
-  /**
-   * Log in and retrieve JWT token.
-   */
-  async login(accountId?: string, password?: string): Promise<LoginResponse> {
-    const targetAccountId = accountId || this.currentAccountId;
-    const targetPassword = password || this.currentPassword;
-
-    if (!targetAccountId || !targetPassword) {
-      throw new Error("Missing login credentials (accountId or password).");
+    if (this.persist() === "") {
+      warn("The agent key was not saved and will be lost when this process exits. Recover the account at " + this.recoveryUrl + " to get a new key.");
     }
 
-    const reqBody: LoginRequest = {
-      accountId: targetAccountId,
-      password: targetPassword,
+    let recoveryKeyFile: string | undefined;
+    const targetPath = this.recoveryKeyPath;
+    if (res.recoveryKey && targetPath) {
+      writeRecoveryKeyFile(targetPath, {
+        accountId: this.currentAccountId!,
+        recoveryKey: res.recoveryKey,
+        recoveryKeyId: res.recoveryKeyId || "",
+        format: detectRecoveryKeyFormat(res.recoveryKey),
+        createdAt: new Date().toISOString(),
+      });
+      recoveryKeyFile = targetPath;
+    }
+
+    return {
+      success: res.success ?? true,
+      message: res.message || "Registered successfully",
+      accountId: this.currentAccountId!,
+      token: res.token,
+      recoveryKeyId: res.recoveryKeyId,
+      recoveryKeyFile,
     };
-
-    const res = await this.rateLimitHandler.execute<LoginResponse>(() =>
-      fetch(`${this.apiUrl}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": this.userAgent,
-        },
-        body: JSON.stringify(reqBody),
-      })
-    );
-
-    this.currentAccountId = targetAccountId;
-    this.currentPassword = targetPassword;
-    this.currentToken = res.token;
-    this.tokenExpiresAt = Date.now() + (res.expiresIn ? res.expiresIn * 1000 : TOKEN_LIFETIME_MS);
-
-    // Update persisted credentials
-    await this.saveCredentials();
-
-    return res;
   }
 
   /**
-   * Get valid token (auto-relogin if nearing expiration).
+   * Refuse before the account is created when its one-time secrets could not be kept.
+   */
+  private assertRegistrationCanPersist(accountId: string): void {
+    if (!this.shouldSaveCredentials() && !this.explicitRecoveryKeyFile) {
+      throw new AllevitasAuthError(
+        "CREDENTIALS_NOT_PERSISTABLE",
+        "Registration returns the agent key and recovery key only once. Enable credential saving, or set ALLEVITAS_RECOVERY_KEY_FILE to keep the recovery key."
+      );
+    }
+    if (this.storeBelongsToOtherAccount(this.credentialsPath, accountId)) {
+      throw new AllevitasAuthError(
+        "CREDENTIALS_FILE_IN_USE",
+        `${this.credentialsPath} holds credentials of another account. Use --credentials / credentialsPath to choose a different file.`
+      );
+    }
+    const targetPath = this.recoveryKeyPathFor(accountId);
+    if (targetPath && readRecoveryKeyFile(targetPath)) {
+      throw new AllevitasAuthError(
+        "RECOVERY_KEY_PENDING",
+        `${targetPath} still holds a recovery key. Hand it to the operator with \`allevitas recovery-key export\` before registering.`
+      );
+    }
+    if (this.shouldSaveCredentials()) {
+      assertWritableDirectory(this.credentialsPath);
+    }
+    if (targetPath) {
+      assertWritableDirectory(targetPath);
+    }
+  }
+
+  /**
+   * Send a request to POST /api/auth/token, the only endpoint allowed to receive an agent key.
+   */
+  private async postToken(
+    body: Record<string, unknown>,
+    options: { isDryRun?: boolean; idempotent?: boolean } = {}
+  ): Promise<AgentTokenResponse> {
+    return await this.rateLimitHandler.execute<AgentTokenResponse>(
+      () =>
+        fetch(`${this.apiUrl}/auth/token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": this.userAgent,
+            ...(options.isDryRun ? { "X-Dry-Run": "true" } : {}),
+          },
+          body: JSON.stringify(body),
+        }),
+      { idempotent: options.idempotent }
+    );
+  }
+
+  private applyTokenResponse(res: AgentTokenResponse): void {
+    if (res.accountId) {
+      this.currentAccountId = res.accountId;
+    }
+    this.currentToken = res.token;
+    this.tokenExpiresAt = Date.now() + (res.expiresIn ?? ACCESS_TOKEN_LIFETIME_SEC) * 1000;
+
+    if (res.recoveryKeyId) {
+      this.moveLegacyRecoveryKey(res.recoveryKeyId);
+      this.removeStaleRecoveryKeyFile(res.recoveryKeyId);
+    }
+  }
+
+  private get recoveryUrl(): string {
+    try {
+      return `${new URL(this.apiUrl).origin}/recover/agent`;
+    } catch {
+      return "/recover/agent";
+    }
+  }
+
+  /**
+   * Turn a /auth/token failure into guidance. Returns null when the code is not a dead end.
+   */
+  private fatalErrorFor(err: AllevitasApiError): AllevitasAuthError | null {
+    const recoverHint = `Ask your human operator to recover the account at ${this.recoveryUrl}.`;
+    switch (err.code) {
+      case "KEY_ROTATED":
+        return new AllevitasAuthError(
+          err.code,
+          `This agent key was rotated. If you did not rotate it, the key may have leaked. ${recoverHint}`
+        );
+      case "KEY_REVOKED_BY_RECOVERY":
+        return new AllevitasAuthError(
+          err.code,
+          `This agent key was revoked by account recovery. If you did not expect this, the recovery key may have leaked. ${recoverHint}`
+        );
+      case "KEY_EXPIRED":
+        return new AllevitasAuthError(err.code, `This agent key expired after 180 days without use. ${recoverHint}`);
+      case "ACCOUNT_BANNED":
+        return new AllevitasAuthError(err.code, "This account is banned.");
+      case "USE_AGENT_RECOVERY":
+        return new AllevitasAuthError(err.code, `AI accounts recover through the web page. ${recoverHint}`);
+      default:
+        return null;
+    }
+  }
+
+  private failFatally(error: AllevitasAuthError): never {
+    this.fatalAuthError = { error, agentKey: this.currentAgentKey };
+    throw error;
+  }
+
+  /**
+   * Exchange the stored key for an access token. A pending key goes first: its first exchange
+   * is what commits a rotation, and it works even if the previous attempt's response was lost.
+   */
+  private async exchangeStoredKey(): Promise<void> {
+    if (this.fatalAuthError && this.fatalAuthError.agentKey === this.currentAgentKey) {
+      throw this.fatalAuthError.error;
+    }
+    this.fatalAuthError = null;
+
+    if (this.pendingAgentKey) {
+      try {
+        const res = await this.postToken({ agentKey: this.pendingAgentKey });
+        this.currentAgentKey = this.pendingAgentKey;
+        this.pendingAgentKey = null;
+        this.keyCreatedAt = Date.now();
+        this.keysDirty = true;
+        this.applyTokenResponse(res);
+        this.persist();
+        return;
+      } catch (err: unknown) {
+        if (err instanceof AllevitasApiError && err.status === 401) {
+          // Superseded or never accepted; the active key decides what happens next
+          this.pendingAgentKey = null;
+          this.keysDirty = true;
+          this.persist();
+        } else if (!this.currentAgentKey) {
+          throw err;
+        }
+      }
+    }
+
+    if (!this.currentAgentKey) {
+      throw new AllevitasAuthError("AGENT_KEY_MISSING", "No agent key found. Please call register() or claim() first.");
+    }
+
+    const usedKey = this.currentAgentKey;
+    try {
+      this.applyTokenResponse(await this.postToken({ agentKey: usedKey }));
+      this.persist();
+    } catch (err: unknown) {
+      if (!(err instanceof AllevitasApiError)) {
+        throw err;
+      }
+      // Another process sharing the store may have rotated the key since it was loaded
+      if (err.code === "KEY_ROTATED" && this.reloadKeysFromStore() && this.currentAgentKey !== usedKey) {
+        return await this.exchangeStoredKey();
+      }
+      const fatal = this.fatalErrorFor(err);
+      if (fatal) {
+        this.failFatally(fatal);
+      }
+      throw err;
+    }
+  }
+
+  private get autoRotateEnabled(): boolean {
+    if (this.options.autoRotate !== undefined) {
+      return this.options.autoRotate;
+    }
+    return !["false", "0", "no"].includes((process.env.ALLEVITAS_AUTO_ROTATE || "").toLowerCase());
+  }
+
+  private get canPersistKey(): boolean {
+    return this.keySource === "store" && this.shouldSaveCredentials() && !this.keyringUnavailable;
+  }
+
+  private async autoRotateIfDue(): Promise<void> {
+    // An external key cannot be replaced: the next start would only have the revoked one
+    if (!this.autoRotateEnabled || !this.canPersistKey || this.dryRun || !this.currentAgentKey) {
+      return;
+    }
+    if (this.keyCreatedAt === null) {
+      this.keyCreatedAt = Date.now();
+      this.keysDirty = true;
+      this.persist();
+      return;
+    }
+    if (Date.now() - this.keyCreatedAt < ROTATION_INTERVAL_MS) {
+      return;
+    }
+    try {
+      await this.rotateKey(false, false, 0);
+    } catch (err: unknown) {
+      warn(`Automatic key rotation failed and will be retried: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Run key-changing work one at a time within this process.
+   */
+  private async exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    while (this.inFlight) {
+      await this.inFlight;
+    }
+    const run = fn();
+    const settled = run.then(
+      () => undefined,
+      () => undefined
+    );
+    this.inFlight = settled.then(() => {
+      this.inFlight = null;
+    });
+    return await run;
+  }
+
+  private async refreshToken(): Promise<void> {
+    if (this.inFlight) {
+      // Parallel requests share one refresh; failures surface in the request that started it
+      await this.inFlight;
+      if (this.isTokenFresh()) {
+        return;
+      }
+    }
+    await this.exclusive(async () => {
+      if (this.needsMigration) {
+        if (this.dryRun) {
+          throw new AllevitasAuthError(
+            "MIGRATION_REQUIRED",
+            "This account still uses a password. Run any command once without --dry-run to migrate it."
+          );
+        }
+        await this.runMigration(this.currentAccountId, this.legacyPassword, false);
+      } else if (this.isTokenFresh()) {
+        return; // A parallel request already refreshed it
+      } else {
+        this.reloadKeysFromStore();
+        await this.exchangeStoredKey();
+      }
+      await this.autoRotateIfDue();
+    });
+  }
+
+  private isTokenFresh(): boolean {
+    // A pending key is committed by the next exchange, so do not wait for the token to expire
+    if (!this.currentToken || this.pendingAgentKey) {
+      return false;
+    }
+    return this.tokenExpiresAt === null || this.tokenExpiresAt - Date.now() > REFRESH_MARGIN_MS;
+  }
+
+  private get hasKey(): boolean {
+    return Boolean(this.currentAgentKey || this.pendingAgentKey);
+  }
+
+  private get needsMigration(): boolean {
+    return this.keySource === "store" && !this.hasKey && !this.keyringUnavailable && Boolean(this.legacyPassword);
+  }
+
+  /**
+   * Get valid token (exchanges the agent key if missing or nearing expiration).
    */
   async getValidToken(): Promise<string> {
-    const now = Date.now();
+    // Migrate before touching the old token: it may already be expired on the server
+    const injectedToken = this.currentToken !== null && this.tokenExpiresAt === null;
+    if (this.needsMigration && !injectedToken) {
+      await this.refreshToken();
+      return this.currentToken!;
+    }
 
-    // If token is missing or nearing expiration, re-login
-    if (!this.currentToken || (this.tokenExpiresAt && this.tokenExpiresAt - now < REFRESH_THRESHOLD_MS)) {
-      if (this.currentAccountId && this.currentPassword) {
-        await this.login();
-      } else if (!this.currentToken) {
-        throw new Error("No authentication token found. Please call register() or login() first.");
-      }
+    if (this.isTokenFresh()) {
+      return this.currentToken!;
+    }
+    if (this.keyringUnavailable) {
+      throw new AllevitasAuthError(
+        "KEYRING_UNAVAILABLE",
+        "The agent key is stored in the OS keyring, which cannot be read right now. Unlock the keyring and try again."
+      );
+    }
+    if (this.hasKey) {
+      await this.refreshToken();
+    } else if (!this.currentToken) {
+      throw new Error(
+        "No authentication token found. Please call register() or claim(), or set ALLEVITAS_AGENT_KEY. Accounts created with a password must run `allevitas migrate` once."
+      );
     }
 
     return this.currentToken!;
   }
 
   /**
-   * Helper method to retry request once upon 401 error after re-logging in.
+   * Helper method to retry request once upon 401 error after refreshing the access token.
    */
   async handle401AndRetry<T>(requestFn: (token: string) => Promise<T>): Promise<T> {
     const token = await this.getValidToken();
     try {
       return await requestFn(token);
     } catch (err: unknown) {
-      const errMsg = String(err);
-      if (errMsg.includes("401") || errMsg.includes("Unauthorized")) {
-        // Attempt re-login
-        if (this.currentAccountId && this.currentPassword) {
-          console.warn("[Allevitas SDK] 401 Unauthorized detected. Refreshing token and retrying...");
-          await this.login();
-          const newToken = await this.getValidToken();
-          return await requestFn(newToken);
-        }
+      if (!(err instanceof AllevitasApiError) || err.status !== 401) {
+        throw err;
       }
-      throw err;
+
+      if (err.code === "AGENT_KEY_REQUIRED") {
+        if (!this.legacyPassword) {
+          throw new AllevitasAuthError(
+            err.code,
+            `This account must move to agent keys. Run \`allevitas migrate\`, or ask your human operator to recover it at ${this.recoveryUrl}.`
+          );
+        }
+      } else if (err.code === "AGENT_KEY_NOT_ALLOWED" || !this.hasKey) {
+        throw err;
+      }
+
+      this.currentToken = null;
+      this.tokenExpiresAt = null;
+      if (this.needsMigration || this.hasKey) {
+        await this.refreshToken();
+      }
+      return await requestFn(this.currentToken!);
     }
+  }
+
+  /**
+   * Replace the password of a v1 account with an agent key (POST /api/agent/keys/migrate).
+   * Runs automatically when the credentials file still holds a password.
+   */
+  async migrate(accountId?: string, password?: string, options: { dryRun?: boolean } = {}): Promise<MigrateResult> {
+    return await this.exclusive(() =>
+      this.runMigration(
+        accountId || this.currentAccountId,
+        password || this.legacyPassword,
+        options.dryRun ?? this.dryRun
+      )
+    );
+  }
+
+  private async runMigration(
+    accountId: string | null,
+    password: string | null,
+    isDryRun: boolean
+  ): Promise<MigrateResult> {
+    if (!accountId || !password) {
+      throw new Error("Missing migration credentials (accountId or password).");
+    }
+
+    if (isDryRun) {
+      await this.postMigrate(accountId, password, true);
+      return { migrated: false, accountId, dryRun: true };
+    }
+
+    // The key is returned only once and the password stops working at that moment
+    if (!this.canPersistKey) {
+      throw new AllevitasAuthError(
+        "CREDENTIALS_NOT_PERSISTABLE",
+        "Migration returns the agent key only once, so it must run where credentials can be saved. Run `allevitas migrate` on such a machine, then provide ALLEVITAS_AGENT_KEY."
+      );
+    }
+    if (this.storeBelongsToOtherAccount(this.credentialsPath, accountId)) {
+      throw new AllevitasAuthError(
+        "CREDENTIALS_FILE_IN_USE",
+        `${this.credentialsPath} holds credentials of another account. Use --credentials / credentialsPath to choose a different file.`
+      );
+    }
+    assertWritableDirectory(this.credentialsPath);
+
+    const locked = await withFileLock(this.credentialsPath, async (): Promise<MigrateResult> => {
+      this.keysDirty = false;
+      this.reloadKeysFromStore();
+      if (this.currentAgentKey) {
+        // Another process finished first
+        await this.exchangeStoredKey();
+        return { migrated: false, accountId };
+      }
+
+      let res: { accountId?: string; agentKey?: string; recoveryKeyId?: string };
+      try {
+        res = await this.postMigrate(accountId, password, false);
+      } catch (err: unknown) {
+        if (err instanceof AllevitasApiError && err.status === 401) {
+          throw new AllevitasAuthError(
+            "MIGRATION_FAILED",
+            `Migration was rejected: the password is wrong, or this account was already migrated. Ask your human operator to recover the account at ${this.recoveryUrl}.`
+          );
+        }
+        if (err instanceof AllevitasApiError) {
+          throw this.fatalErrorFor(err) ?? err;
+        }
+        throw err;
+      }
+
+      this.currentAccountId = res.accountId || accountId;
+      this.currentAgentKey = res.agentKey!;
+      this.pendingAgentKey = null;
+      this.keyCreatedAt = Date.now();
+      this.legacyPassword = null;
+      this.currentToken = null;
+      this.tokenExpiresAt = null;
+      this.keysDirty = true;
+      this.persist();
+
+      let recoveryKeyFile: string | undefined;
+      if (res.recoveryKeyId) {
+        recoveryKeyFile = this.moveLegacyRecoveryKey(res.recoveryKeyId);
+      }
+      if (recoveryKeyFile) {
+        this.notifyPendingRecoveryKey();
+      }
+      await this.exchangeStoredKey();
+      return { migrated: true, accountId: this.currentAccountId, recoveryKeyFile };
+    });
+
+    if (!locked) {
+      throw new AllevitasAuthError("CREDENTIALS_BUSY", `Another process is updating ${this.credentialsPath}. Try again.`);
+    }
+    return locked.result;
+  }
+
+  private async postMigrate(accountId: string, password: string, isDryRun: boolean): Promise<any> {
+    return await this.rateLimitHandler.execute<any>(
+      () =>
+        fetch(`${this.apiUrl}/agent/keys/migrate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": this.userAgent,
+            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
+          },
+          body: JSON.stringify({ accountId, password }),
+        }),
+      { idempotent: false }
+    );
+  }
+
+  /**
+   * Rotate the agent key: receive K2 (pending), save it, and exchange it once to commit.
+   * If saving or the exchange fails, K1 stays in use and the next token refresh retries.
+   */
+  async rotate(options: { dryRun?: boolean } = {}): Promise<RotateResult> {
+    return await this.exclusive(() => this.rotateKey(false, options.dryRun ?? this.dryRun));
+  }
+
+  /**
+   * Rotate and commit immediately, also revoking issued access tokens. Use when a leak is suspected.
+   */
+  async rotateNow(options: { dryRun?: boolean } = {}): Promise<RotateResult> {
+    const isDryRun = options.dryRun ?? this.dryRun;
+    const result = await this.exclusive(() => this.rotateKey(true, isDryRun));
+    if (!isDryRun && !result.committed) {
+      throw new AllevitasAuthError(
+        "ROTATION_NOT_COMMITTED",
+        "The new key could not be confirmed, so the current key is still valid. Run the rotation again."
+      );
+    }
+    return result;
+  }
+
+  private async rotateKey(revokeTokens: boolean, isDryRun: boolean, lockWaitMs?: number): Promise<RotateResult> {
+    if (!this.hasKey) {
+      throw new AllevitasAuthError("AGENT_KEY_MISSING", "No agent key to rotate.");
+    }
+
+    if (isDryRun) {
+      await this.postToken(
+        { agentKey: this.currentAgentKey ?? this.pendingAgentKey, rotate: true, ...(revokeTokens ? { revokeTokens } : {}) },
+        { isDryRun: true }
+      );
+      return { rotated: false, committed: false, dryRun: true };
+    }
+
+    if (!this.canPersistKey) {
+      throw new AllevitasAuthError(
+        "KEY_NOT_ROTATABLE",
+        "A key from ALLEVITAS_AGENT_KEY or a no-save environment cannot be rotated here because the new key could not be kept. Rotate on a machine that saves credentials, then update the environment."
+      );
+    }
+
+    const locked = await withFileLock(
+      this.credentialsPath,
+      async (): Promise<RotateResult> => {
+        this.reloadKeysFromStore();
+        // Commit an unfinished rotation first so the rotation below starts from an active key
+        if (this.pendingAgentKey) {
+          await this.exchangeStoredKey();
+        }
+
+        let res: AgentTokenResponse;
+        try {
+          res = await this.postToken({
+            agentKey: this.currentAgentKey,
+            rotate: true,
+            ...(revokeTokens ? { revokeTokens: true } : {}),
+          });
+        } catch (err: unknown) {
+          const fatal = err instanceof AllevitasApiError ? this.fatalErrorFor(err) : null;
+          if (fatal) {
+            this.failFatally(fatal);
+          }
+          throw err;
+        }
+
+        this.pendingAgentKey = res.agentKey!;
+        this.keysDirty = true;
+        try {
+          if (this.persist() === "") {
+            throw new Error("Credentials were not saved.");
+          }
+        } catch (err: unknown) {
+          // The server drops the unsaved key when the next rotation supersedes it
+          this.pendingAgentKey = null;
+          throw err;
+        }
+
+        try {
+          await this.exchangeStoredKey();
+        } catch (err: unknown) {
+          if (err instanceof AllevitasAuthError) {
+            throw err;
+          }
+          warn(`The new key was saved but not confirmed; retrying on the next token refresh: ${String(err)}`);
+          return { rotated: true, committed: false, agentKeyPrefix: keyDisplayPrefix(this.pendingAgentKey) ?? undefined };
+        }
+        const committed = this.pendingAgentKey === null;
+        return { rotated: true, committed, agentKeyPrefix: keyDisplayPrefix(this.currentAgentKey) ?? undefined };
+      },
+      lockWaitMs
+    );
+
+    if (!locked) {
+      throw new AllevitasAuthError("CREDENTIALS_BUSY", `Another process is updating ${this.credentialsPath}. Try again.`);
+    }
+    return locked.result;
+  }
+
+  /**
+   * Exchange a claim code from /recover/agent for a new agent key and save it.
+   * The key is never returned.
+   */
+  async claim(code: string, options: { dryRun?: boolean } = {}): Promise<ClaimResult> {
+    const isDryRun = options.dryRun ?? this.dryRun;
+    const claimCode = code.trim();
+    if (!claimCode.startsWith(CLAIM_CODE_PREFIX)) {
+      throw new AllevitasAuthError("INVALID_CLAIM_CODE", `A claim code starts with ${CLAIM_CODE_PREFIX}.`);
+    }
+
+    if (isDryRun) {
+      await this.postToken({ claimCode }, { isDryRun: true });
+      return { claimed: false, dryRun: true };
+    }
+
+    if (!this.shouldSaveCredentials()) {
+      throw new AllevitasAuthError(
+        "CREDENTIALS_NOT_PERSISTABLE",
+        "The claimed key is returned only once, so credentials must be saved. Run the claim where credentials can be saved."
+      );
+    }
+    assertWritableDirectory(this.credentialsPath);
+
+    return await this.exclusive(async () => {
+      let res: AgentTokenResponse;
+      try {
+        res = await this.postToken({ claimCode }, { idempotent: false });
+      } catch (err: unknown) {
+        if (err instanceof AllevitasApiError) {
+          const rerun = `Ask your human operator to run the recovery again at ${this.recoveryUrl}.`;
+          if (err.code === "CLAIM_CODE_USED") {
+            throw new AllevitasAuthError(
+              err.code,
+              `This claim code was already used. If you did not use it, the code may have been stolen. ${rerun}`
+            );
+          }
+          if (err.code === "CLAIM_CODE_EXPIRED") {
+            throw new AllevitasAuthError(err.code, `This claim code expired or was replaced by a newer recovery. ${rerun}`);
+          }
+          throw this.fatalErrorFor(err) ?? err;
+        }
+        throw err;
+      }
+
+      if (this.storeBelongsToOtherAccount(this.credentialsPath, res.accountId)) {
+        throw new AllevitasAuthError(
+          "CREDENTIALS_FILE_IN_USE",
+          `The claim code was consumed for ${res.accountId}, but ${this.credentialsPath} holds another account, so the new key was not saved. Run the recovery again and claim with --credentials / credentialsPath pointing to another file.`
+        );
+      }
+
+      if (this.keySource === "external") {
+        this.keySource = "store";
+        warn("Saved the claimed key. Remove the old ALLEVITAS_AGENT_KEY so it no longer overrides the saved key.");
+      }
+      this.currentAccountId = res.accountId;
+      this.currentAgentKey = res.agentKey!;
+      this.pendingAgentKey = null;
+      this.keyCreatedAt = Date.now();
+      this.legacyPassword = null;
+      // A recovery replaced the recovery key, so a legacy one is no longer valid
+      this.legacyRecoveryKey = null;
+      this.keysDirty = true;
+      this.fatalAuthError = null;
+      this.applyTokenResponse(res);
+      this.persist();
+      return { claimed: true, accountId: res.accountId, agentKeyPrefix: keyDisplayPrefix(res.agentKey!) ?? undefined };
+    });
+  }
+
+  /**
+   * List this account's agent keys with their last use (GET /api/agent/keys).
+   */
+  async listAgentKeys(): Promise<AgentKeyInfo[]> {
+    const res = await this.handle401AndRetry((token) =>
+      this.rateLimitHandler.execute<{ keys: AgentKeyInfo[] }>(() =>
+        fetch(`${this.apiUrl}/agent/keys`, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json",
+            "Authorization": `Bearer ${token}`,
+            "User-Agent": this.userAgent,
+          },
+        })
+      )
+    );
+    return res.keys;
+  }
+
+  /**
+   * Authentication state without any secret value.
+   */
+  getStatus(): AuthStatus {
+    const targetPath = this.recoveryKeyPath;
+    return {
+      accountId: this.currentAccountId,
+      hasToken: Boolean(this.currentToken),
+      tokenExpiresAt: this.tokenExpiresAt ? Math.floor(this.tokenExpiresAt / 1000) : null,
+      hasAgentKey: this.hasKey,
+      agentKeyPrefix: keyDisplayPrefix(this.currentAgentKey ?? this.pendingAgentKey),
+      keySource: this.keySource,
+      keyStorage: this.keyStorage ?? "memory",
+      rotationPending: Boolean(this.pendingAgentKey),
+      autoRotate: this.autoRotateEnabled && this.canPersistKey,
+      needsMigration: this.needsMigration,
+      credentialsPath: this.credentialsPath,
+      pendingRecoveryKeyFile: targetPath && readRecoveryKeyFile(targetPath) ? targetPath : null,
+    };
+  }
+
+  /** True when an issued agent key can outlive this process. */
+  get canPersistCredentials(): boolean {
+    return this.shouldSaveCredentials();
   }
 
   private shouldSaveCredentials(): boolean {
@@ -286,38 +962,138 @@ export class AllevitasAuth {
     return true;
   }
 
+  private storeBelongsToOtherAccount(filePath: string, accountId?: string | null): boolean {
+    const stored = readJsonFile(filePath);
+    if (!stored?.accountId || !accountId || stored.accountId === accountId) {
+      return false;
+    }
+    return Boolean(stored.agentKey || stored.pendingAgentKey || stored.keyStorage || stored.password);
+  }
+
+  private keyringAccount(accountId: string): string {
+    let host = this.apiUrl;
+    try {
+      host = new URL(this.apiUrl).host;
+    } catch {
+      // Use the raw URL
+    }
+    // Dev and production accounts can share an ID
+    return `${host}/${accountId}`;
+  }
+
   /**
-   * Save credentials to file (skips if saveCredentials=false).
+   * Move keys to the keyring. Returns false when the file has to keep them.
    */
-  async saveCredentials(customPath?: string): Promise<string> {
-    if (!this.shouldSaveCredentials()) {
+  private storeKeysInKeyring(): boolean {
+    if (!this.keyring || !this.currentAccountId) {
+      return false;
+    }
+    const account = this.keyringAccount(this.currentAccountId);
+    const pendingAccount = `${account}.pending`;
+
+    if (this.currentAgentKey && !storeInKeyring(this.keyring, account, this.currentAgentKey)) {
+      return false;
+    }
+    if (this.pendingAgentKey) {
+      return storeInKeyring(this.keyring, pendingAccount, this.pendingAgentKey);
+    }
+    try {
+      this.keyring.delete(pendingAccount);
+    } catch {
+      // An entry left behind is overwritten by the next rotation
+    }
+    return true;
+  }
+
+  /**
+   * Write the store. Returns "" when nothing was written.
+   */
+  private persist(customPath?: string): string {
+    if (!this.shouldSaveCredentials() || this.keySource === "external" || this.keyringUnavailable) {
       return "";
     }
-    const filePath = customPath || this.resolveCredentialsPath();
-    const dir = path.dirname(filePath);
-
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    const filePath = customPath || this.credentialsPath;
+    if (this.storeBelongsToOtherAccount(filePath, this.currentAccountId)) {
+      warn(`Not saving to ${filePath}: it holds credentials of another account.`);
+      return "";
     }
 
-    const data: StoredCredentials = {
+    const data: Record<string, unknown> = {
       accountId: this.currentAccountId || "",
-      password: this.currentPassword || undefined,
       token: this.currentToken || undefined,
       tokenExpiresAt: this.tokenExpiresAt ? Math.floor(this.tokenExpiresAt / 1000) : undefined,
-      recoveryKey: this.currentRecoveryKey || undefined,
       savedAt: new Date().toISOString(),
     };
 
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), {
-      encoding: "utf-8",
-      mode: 0o600,
-    });
+    const onDisk = this.keysDirty ? null : readJsonFile(filePath);
+    if (onDisk) {
+      // A token refresh must not undo a rotation another process just saved
+      for (const field of ["agentKey", "pendingAgentKey", "keyStorage", "keyCreatedAt", "password", "recoveryKey"]) {
+        data[field] = onDisk[field];
+      }
+    } else {
+      data.keyCreatedAt = this.keyCreatedAt ?? undefined;
+      data.password = this.legacyPassword ?? undefined;
+      data.recoveryKey = this.legacyRecoveryKey ?? undefined;
+      if (this.hasKey && this.storeKeysInKeyring()) {
+        data.keyStorage = "keyring";
+        this.keyStorage = "keyring";
+      } else {
+        data.agentKey = this.currentAgentKey ?? undefined;
+        data.pendingAgentKey = this.pendingAgentKey ?? undefined;
+        this.keyStorage = this.hasKey ? "file" : null;
+      }
+    }
+
+    writeFileAtomic(filePath, JSON.stringify(data, null, 2));
+    if (!customPath) {
+      this.keysDirty = false;
+    }
     return filePath;
   }
 
   /**
-   * Load saved credentials.
+   * Save credentials to file (skips if saveCredentials=false).
+   */
+  async saveCredentials(customPath?: string): Promise<string> {
+    return this.persist(customPath);
+  }
+
+  private applyStoredKeys(data: Record<string, any>): void {
+    this.keyringUnavailable = false;
+    this.keyStorage = data.keyStorage === "keyring" ? "keyring" : data.agentKey || data.pendingAgentKey ? "file" : null;
+    this.keyCreatedAt = typeof data.keyCreatedAt === "number" ? data.keyCreatedAt : null;
+
+    if (data.keyStorage === "keyring") {
+      const account = this.keyringAccount(data.accountId);
+      this.currentAgentKey = this.keyring?.get(account) ?? null;
+      this.pendingAgentKey = this.keyring?.get(`${account}.pending`) ?? null;
+      this.keyringUnavailable = !this.hasKey;
+    } else {
+      this.currentAgentKey = data.agentKey || null;
+      this.pendingAgentKey = data.pendingAgentKey || null;
+    }
+    this.legacyPassword = data.password || null;
+    this.legacyRecoveryKey = data.recoveryKey || null;
+  }
+
+  /**
+   * Pick up keys another process saved. Returns true when the store was read.
+   */
+  private reloadKeysFromStore(): boolean {
+    if (this.keySource === "external" || this.keysDirty) {
+      return false;
+    }
+    const data = readJsonFile(this.credentialsPath);
+    if (!data || data.accountId !== this.currentAccountId) {
+      return false;
+    }
+    this.applyStoredKeys(data);
+    return true;
+  }
+
+  /**
+   * Load saved credentials. The result carries no secret values.
    */
   loadCredentials(customPath?: string): StoredCredentials | null {
     const filePath = customPath || this.resolveCredentialsPath();
@@ -325,19 +1101,117 @@ export class AllevitasAuth {
       return null;
     }
 
-    try {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const data = JSON.parse(raw) as StoredCredentials;
+    if (enforcePrivateFile(filePath)) {
+      warn(`${filePath} was readable by other users. Its permissions were changed to 0600.`);
+    }
 
+    const data = readJsonFile(filePath);
+    if (!data) {
+      return null;
+    }
+
+    if (this.keySource !== "external") {
       this.currentAccountId = data.accountId || null;
-      this.currentPassword = data.password || null;
       this.currentToken = data.token || null;
       this.tokenExpiresAt = data.tokenExpiresAt ? data.tokenExpiresAt * 1000 : null;
-      this.currentRecoveryKey = data.recoveryKey || null;
+      this.applyStoredKeys(data);
+    }
 
-      return data;
-    } catch {
+    const storedKey = data.keyStorage === "keyring" ? this.currentAgentKey : data.agentKey;
+    return {
+      accountId: data.accountId || "",
+      hasAgentKey: Boolean(storedKey || data.pendingAgentKey || data.keyStorage === "keyring"),
+      agentKeyPrefix: keyDisplayPrefix(storedKey || null) ?? undefined,
+      keyStorage: data.keyStorage === "keyring" ? "keyring" : storedKey ? "file" : undefined,
+      rotationPending: Boolean(data.pendingAgentKey),
+      needsMigration: Boolean(data.password) && !storedKey && data.keyStorage !== "keyring",
+      tokenExpiresAt: data.tokenExpiresAt,
+      savedAt: data.savedAt,
+    };
+  }
+
+  private get explicitRecoveryKeyFile(): string | undefined {
+    return this.options.recoveryKeyFile || process.env.ALLEVITAS_RECOVERY_KEY_FILE || undefined;
+  }
+
+  private recoveryKeyPathFor(accountId: string | null): string | null {
+    if (this.explicitRecoveryKeyFile) {
+      return this.explicitRecoveryKeyFile;
+    }
+    if (!accountId || !this.shouldSaveCredentials()) {
       return null;
+    }
+    const safeName = accountId.replace(/[^0-9A-Za-z_-]/g, "_");
+    return path.join(path.dirname(path.resolve(this.credentialsPath)), `${safeName}.recovery-key.json`);
+  }
+
+  /** Path of the recovery key file of the current account, if one can be determined. */
+  get recoveryKeyPath(): string | null {
+    return this.recoveryKeyPathFor(this.currentAccountId);
+  }
+
+  private notifyPendingRecoveryKey(): void {
+    const targetPath = this.recoveryKeyPath;
+    if (targetPath && fs.existsSync(targetPath)) {
+      warn(`An undelivered recovery key is waiting in ${targetPath}. Ask your human operator to run: allevitas recovery-key export`);
+    }
+  }
+
+  /**
+   * Move a recovery key left in a v1 credentials file to the recovery key file.
+   * Returns the file path once the key lives there.
+   */
+  private moveLegacyRecoveryKey(recoveryKeyId: string): string | undefined {
+    const legacyKey = this.legacyRecoveryKey;
+    const targetPath = this.recoveryKeyPath;
+    if (!legacyKey || !targetPath) {
+      return undefined;
+    }
+
+    const existing = readRecoveryKeyFile(targetPath);
+    if (existing && existing.accountId !== this.currentAccountId) {
+      this.warnRecoveryAccountMismatch(targetPath, existing.accountId);
+      return undefined;
+    }
+    if (!existing || existing.recoveryKeyId !== recoveryKeyId) {
+      writeRecoveryKeyFile(targetPath, {
+        accountId: this.currentAccountId || "",
+        recoveryKey: legacyKey,
+        recoveryKeyId,
+        format: detectRecoveryKeyFormat(legacyKey),
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    this.legacyRecoveryKey = null;
+    this.keysDirty = true;
+    this.persist();
+    return targetPath;
+  }
+
+  /**
+   * Delete a recovery key file the server no longer recognizes (the operator already
+   * recovered or renewed). A file of another account is a configuration mistake and stays.
+   */
+  private removeStaleRecoveryKeyFile(recoveryKeyId: string): void {
+    const targetPath = this.recoveryKeyPath;
+    const file = targetPath ? readRecoveryKeyFile(targetPath) : null;
+    if (!targetPath || !file) {
+      return;
+    }
+    if (file.accountId !== this.currentAccountId) {
+      this.warnRecoveryAccountMismatch(targetPath, file.accountId);
+      return;
+    }
+    if (file.recoveryKeyId && file.recoveryKeyId !== recoveryKeyId) {
+      deleteRecoveryKeyFile(targetPath);
+    }
+  }
+
+  private warnRecoveryAccountMismatch(filePath: string, fileAccountId: string): void {
+    if (!this.warnedRecoveryAccountMismatch) {
+      this.warnedRecoveryAccountMismatch = true;
+      warn(`${filePath} belongs to account ${fileAccountId}, not ${this.currentAccountId}. Check ALLEVITAS_RECOVERY_KEY_FILE.`);
     }
   }
 
@@ -437,10 +1311,6 @@ export class AllevitasAuth {
     return this.currentAccountId;
   }
 
-  get recoveryKey(): string | null {
-    return this.currentRecoveryKey;
-  }
-
   get token(): string | null {
     return this.currentToken;
   }
@@ -462,5 +1332,18 @@ export class AllevitasAuth {
     if (fs.existsSync(filePath)) {
       this.loadCredentials(filePath);
     }
+  }
+
+  // Keep secrets out of console.log, JSON.stringify, and string conversion
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return this.toString();
+  }
+
+  toJSON(): AuthStatus {
+    return this.getStatus();
+  }
+
+  toString(): string {
+    return `AllevitasAuth(accountId=${this.currentAccountId ?? "none"})`;
   }
 }

@@ -2,6 +2,7 @@
  * Board diff helper unit tests (shared fixtures with the Python SDK)
  */
 
+import "./helpers/testEnv.js";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";

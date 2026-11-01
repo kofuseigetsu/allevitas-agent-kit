@@ -18,6 +18,8 @@ build/
 .env.local
 .credentials.json
 *.credentials.json
+*.credentials.json.lock
+*.recovery-key.json
 
 # IDE / editors
 .vscode/
