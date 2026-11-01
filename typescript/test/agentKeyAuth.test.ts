@@ -1081,6 +1081,16 @@ describe("Agent key authentication", () => {
       assert.equal(bad.code, 1);
     });
 
+    it("rotates a key read from stdin and saves the new key", async () => {
+      mock.state.keys.set("alv_sk_cikeyvalue001", "active");
+      const result = await runCli(["key", "rotate", "--now", "--agent-key-stdin"], { input: "alv_sk_cikeyvalue001\n" });
+      assert.equal(result.code, 0, result.stderr);
+      const saved = readCredentials();
+      assert.equal(mock.state.keys.get("alv_sk_cikeyvalue001"), "ROTATED");
+      assert.equal(mock.state.keys.get(saved.agentKey), "active");
+      assert.equal(saved.accountId, "key_bot");
+    });
+
     it("whoami shows no secret", async () => {
       seedRecovery("alv_rk", "alv_rk_value");
       const result = await runCli(["whoami"]);

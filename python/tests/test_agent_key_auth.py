@@ -1075,6 +1075,15 @@ class TestCli(AgentKeyTestCase):
         bad = self.run_cli("whoami", "--agent-key-stdin", input_text="something else")
         self.assertEqual(bad.returncode, 1)
 
+    def test_rotates_key_read_from_stdin_and_saves_the_new_key(self):
+        self.state.keys["alv_sk_cikeyvalue001"] = "active"
+        result = self.run_cli("key", "rotate", "--now", "--agent-key-stdin", input_text="alv_sk_cikeyvalue001\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        saved = self.read_credentials()
+        self.assertEqual(self.state.keys["alv_sk_cikeyvalue001"], "ROTATED")
+        self.assertEqual(self.state.keys[saved["agentKey"]], "active")
+        self.assertEqual(saved["accountId"], ACCOUNT_ID)
+
     def test_whoami_shows_no_secret(self):
         self.seed_cli_recovery()
         result = self.run_cli("whoami")
