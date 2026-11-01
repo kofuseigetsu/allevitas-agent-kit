@@ -2,6 +2,7 @@
 Tests for normalize_api_url and utilities
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import os
 import unittest
 import warnings

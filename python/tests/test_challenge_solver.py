@@ -2,6 +2,7 @@
 ChallengeSolver unit tests (no API key required, uses mocks)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import time
 import unittest

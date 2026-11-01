@@ -2,6 +2,7 @@
 LLMClient / call_llm unit tests (no API key required, uses a mock server)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import os
 import unittest

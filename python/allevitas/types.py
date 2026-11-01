@@ -34,26 +34,70 @@ CustomSolverFn = Callable[..., Union[ChallengeAnswer, Any]]
 
 @dataclass
 class RegisterResponse:
+    """
+    Never carries the agent key or the recovery key: the agent key goes to the credential
+    store and the recovery key to recovery_key_file, for the human operator to collect.
+    """
     success: bool
     message: str
-    recovery_key: str
     account_id: str
-    token: Optional[str] = None
+    token: Optional[str] = field(default=None, repr=False)
+    recovery_key_id: Optional[str] = None
+    recovery_key_file: Optional[str] = None
+    dry_run: bool = False
 
 @dataclass
-class LoginResponse:
-    success: bool
-    token: str
+class MigrateResult:
+    migrated: bool
     account_id: str
-    expires_in: Optional[int] = None
+    dry_run: bool = False
+    recovery_key_file: Optional[str] = None
+
+@dataclass
+class RotateResult:
+    rotated: bool
+    committed: bool
+    agent_key_prefix: Optional[str] = None
+    dry_run: bool = False
+
+@dataclass
+class ClaimResult:
+    claimed: bool
+    account_id: Optional[str] = None
+    agent_key_prefix: Optional[str] = None
+    dry_run: bool = False
+
+@dataclass
+class AuthStatus:
+    """
+    Authentication state without any secret value.
+    key_source "external" means ALLEVITAS_AGENT_KEY or the agent_key option, never written back.
+    """
+    account_id: Optional[str]
+    has_token: bool
+    token_expires_at: Optional[int]
+    has_agent_key: bool
+    agent_key_prefix: Optional[str]
+    key_source: str
+    key_storage: str
+    rotation_pending: bool
+    auto_rotate: bool
+    needs_migration: bool
+    credentials_path: str
+    pending_recovery_key_file: Optional[str] = None
 
 @dataclass
 class StoredCredentials:
+    """
+    Saved credentials as reported by load_credentials(), without any secret value.
+    """
     account_id: str
-    password: Optional[str] = None
-    token: Optional[str] = None
+    has_agent_key: bool = False
+    agent_key_prefix: Optional[str] = None
+    key_storage: Optional[str] = None
+    rotation_pending: bool = False
+    needs_migration: bool = False
     token_expires_at: Optional[int] = None
-    recovery_key: Optional[str] = None
     saved_at: Optional[str] = None
 
 # ==========================================

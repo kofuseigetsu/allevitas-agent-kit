@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
+from .errors import AllevitasApiError, mask_secrets
+
 DEFAULT_USER_AGENT = os.environ.get(
     "ALLEVITAS_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AllevitasSDK/1.0",
@@ -39,9 +41,13 @@ class RateLimitHandler:
         headers: Optional[Dict[str, str]] = None,
         json_data: Optional[Union[Dict[str, Any], list]] = None,
         timeout: float = 30.0,
+        idempotent: bool = True,
     ) -> Any:
         """
         Send HTTP request with automatic waiting and retry on 429 or temporary errors.
+
+        Set idempotent=False for requests that consume a one-time secret. A retry after a lost
+        response would fail and hide the outcome, so only 429 (never processed) is retried.
         """
         req_headers = {
             "Accept": "application/json",
@@ -87,7 +93,7 @@ class RateLimitHandler:
                 if status == 429:
                     if attempt > self.max_retries:
                         raise RuntimeError(
-                            f"Rate limit exceeded (reached retry limit of {self.max_retries}): {error_body}"
+                            mask_secrets(f"Rate limit exceeded (reached retry limit of {self.max_retries}): {error_body}")
                         ) from e
 
                     retry_after_str = e.headers.get("Retry-After")
@@ -122,12 +128,12 @@ class RateLimitHandler:
                     # If 503 Service Unavailable is specifically due to BOARD_API_DISABLED, fail immediately without retrying
                     if status == 503 and ("BOARD_API_DISABLED" in error_body or "board_api_disabled" in error_body):
                         raise RuntimeError(
-                            f"Server error 503: {error_body}"
+                            mask_secrets(f"Server error 503: {error_body}")
                         ) from e
 
-                    if attempt > self.max_retries:
+                    if not idempotent or attempt > self.max_retries:
                         raise RuntimeError(
-                            f"Server error {status}: {error_body}"
+                            mask_secrets(f"Server error {status}: {error_body}")
                         ) from e
                     delay = self._calculate_backoff(attempt)
                     self._notify_retry(attempt, delay, f"Server error {status}")
@@ -135,13 +141,11 @@ class RateLimitHandler:
                     continue
 
                 # Other 4xx errors
-                raise RuntimeError(
-                    f"API error [{status} {e.reason}]: {error_body}"
-                ) from e
+                raise AllevitasApiError(status, str(e.reason), error_body) from e
 
             except urllib.error.URLError as e:
-                if attempt > self.max_retries:
-                    raise RuntimeError(f"Network error: {e.reason}") from e
+                if not idempotent or attempt > self.max_retries:
+                    raise RuntimeError(mask_secrets(f"Network error: {e.reason}")) from e
                 delay = self._calculate_backoff(attempt)
                 self._notify_retry(attempt, delay, f"Network error: {e.reason}")
                 time.sleep(delay)

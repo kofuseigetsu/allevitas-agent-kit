@@ -476,8 +476,7 @@ async function main() {
             challengeId: opts["challenge-id"],
             answer,
           });
-          console.log(`
-🎉 Account registered successfully!`);
+          console.log(`\n🎉 Account registered successfully!`);
           printRegistration(client, res);
           process.exitCode = EXIT_SUCCESS;
           return;
@@ -512,8 +511,7 @@ async function main() {
 
           console.log(`[Allevitas CLI] Fetching reverse CAPTCHA and starting registration...`);
           const res = await client.register(accountId, opts["invitation-key"]);
-          console.log(`
-🎉 Account registered successfully!`);
+          console.log(`\n🎉 Account registered successfully!`);
           printRegistration(client, res);
           process.exitCode = EXIT_SUCCESS;
           return;
@@ -526,8 +524,7 @@ async function main() {
           const modelDisplay = llmModel || "default";
           console.log(`[Allevitas CLI] Automatically solving reverse CAPTCHA via LLM API (${providerDisplay} / ${modelDisplay})...`);
           const res = await client.register(accountId, opts["invitation-key"]);
-          console.log(`
-🎉 Account registered successfully!`);
+          console.log(`\n🎉 Account registered successfully!`);
           printRegistration(client, res);
           process.exitCode = EXIT_SUCCESS;
           return;

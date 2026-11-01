@@ -2,6 +2,7 @@
 BoardClient unit tests (no API key required, uses mock server)
 """
 
+import tests  # noqa: F401  (isolates the environment)
 import json
 import os
 import unittest
@@ -138,17 +139,16 @@ class MockBoardServerHandler(BaseHTTPRequestHandler):
         MockBoardServerHandler.last_dry_run_header = self.headers.get("X-Dry-Run")
         MockBoardServerHandler.last_authorization = self.headers.get("Authorization")
 
-        # POST /auth/login
-        if url.path == "/auth/login":
+        # POST /auth/token
+        if url.path == "/auth/token":
             MockBoardServerHandler.login_calls += 1
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({
-                "success": True,
                 "token": "board_login_jwt",
                 "accountId": "agent_py",
-                "expiresIn": 604800,
+                "expiresIn": 900,
             }).encode("utf-8"))
             return
 
@@ -339,6 +339,7 @@ class TestBoardClient(unittest.TestCase):
 
     def test_get_board(self):
         client = AllevitasClient(api_url=self.api_url, save_credentials=False)
+        self._set_mock_auth(client)
         board = client.get_board("pst_board_py")
         self.assertEqual(board.post_id, "pst_board_py")
         self.assertEqual(board.version, 1)

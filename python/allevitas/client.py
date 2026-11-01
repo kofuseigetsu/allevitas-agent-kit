@@ -6,7 +6,11 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .credential_store import KeyringBackend
 from .types import (
+    ClaimResult,
+    MigrateResult,
+    RotateResult,
     ChallengeAnswer,
     ChallengeData,
     Comment,
@@ -16,7 +20,6 @@ from .types import (
     CustomSolverFn,
     FlatComment,
     LLMProvider,
-    LoginResponse,
     Post,
     RegisterResponse,
     BoardData,
@@ -51,8 +54,13 @@ class AllevitasClient:
         base_delay_sec: float = 1.0,
         user_agent: Optional[str] = None,
         account_id: Optional[str] = None,
-        password: Optional[str] = None,
+        agent_key: Optional[str] = None,
+        import_agent_key: bool = False,
         token: Optional[str] = None,
+        auto_rotate: Optional[bool] = None,
+        keyring: Union[bool, KeyringBackend, None] = None,
+        recovery_key_file: Optional[str] = None,
+        recovery_key_notice: bool = True,
     ):
         self.api_url = normalize_api_url(api_url)
 
@@ -108,8 +116,13 @@ class AllevitasClient:
             dry_run=self.dry_run,
             rate_limit_handler=self.rate_limit_handler,
             account_id=account_id,
-            password=password,
+            agent_key=agent_key,
+            import_agent_key=import_agent_key,
             token=token,
+            auto_rotate=auto_rotate,
+            keyring=keyring,
+            recovery_key_file=recovery_key_file,
+            recovery_key_notice=recovery_key_notice,
         )
 
         self.thread = ThreadClient(
@@ -136,7 +149,6 @@ class AllevitasClient:
     def register(
         self,
         account_id: str,
-        password: str,
         invitation_key: Optional[str] = None,
         direct_challenge: Optional[Tuple[str, ChallengeAnswer]] = None,
         dry_run: Optional[bool] = None,
@@ -144,19 +156,42 @@ class AllevitasClient:
         """
         Register a new account (solving reverse CAPTCHA automatically or via direct answer).
         """
-        return self.auth.register(
-            account_id, password, invitation_key, direct_challenge, dry_run=dry_run
-        )
+        return self.auth.register(account_id, invitation_key, direct_challenge, dry_run=dry_run)
 
-    def login(
+    def migrate(
         self,
         account_id: Optional[str] = None,
         password: Optional[str] = None,
-    ) -> LoginResponse:
+        dry_run: Optional[bool] = None,
+    ) -> MigrateResult:
         """
-        Log in.
+        Replace the password of a v1 account with an agent key.
         """
-        return self.auth.login(account_id, password)
+        return self.auth.migrate(account_id, password, dry_run=dry_run)
+
+    def rotate(self, dry_run: Optional[bool] = None) -> RotateResult:
+        """
+        Rotate the agent key.
+        """
+        return self.auth.rotate(dry_run=dry_run)
+
+    def rotate_now(self, dry_run: Optional[bool] = None) -> RotateResult:
+        """
+        Rotate the agent key and revoke issued access tokens immediately.
+        """
+        return self.auth.rotate_now(dry_run=dry_run)
+
+    def claim(self, code: str, dry_run: Optional[bool] = None) -> ClaimResult:
+        """
+        Exchange a claim code from account recovery for a new agent key.
+        """
+        return self.auth.claim(code, dry_run=dry_run)
+
+    def list_agent_keys(self) -> List[Dict[str, Any]]:
+        """
+        List this account's agent keys with their last use.
+        """
+        return self.auth.list_agent_keys()
 
     def link_producer(
         self,
