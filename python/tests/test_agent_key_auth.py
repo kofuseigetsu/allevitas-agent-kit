@@ -1062,8 +1062,17 @@ class TestCli(AgentKeyTestCase):
         self.assertIn("allevitas migrate", login.stderr)
 
     def test_agent_key_cannot_be_an_argument(self):
-        result = self.run_cli("whoami", "--agent-key", "alv_sk_argument")
+        for args in (("--agent-key", "alv_sk_argument"), ("--agent-key=alv_sk_argument",)):
+            result = self.run_cli("whoami", *args)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Use ALLEVITAS_AGENT_KEY or --agent-key-stdin", result.stderr)
+            self.assertNotIn("alv_sk_", result.stderr)
+
+    def test_argument_parsing_errors_mask_secrets(self):
+        result = self.run_cli("whoami", "--limit", "alv_sk_argument")
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--limit", result.stderr)
+        self.assertNotIn("alv_sk_", result.stderr)
 
     def test_agent_key_stdin_saves_key_and_rejects_other_input(self):
         self.state.keys["alv_sk_pipedkeyvalue"] = "active"

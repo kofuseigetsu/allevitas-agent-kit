@@ -369,7 +369,11 @@ async function main() {
       allowPositionals: true,
     });
   } catch (err: unknown) {
-    console.error(`[Error] Failed to parse command line arguments: ${String(err)}`);
+    if (commandArgs.some((arg) => arg.split("=")[0] === "--agent-key")) {
+      console.error("[Error] Agent keys cannot be passed as arguments. Use ALLEVITAS_AGENT_KEY or --agent-key-stdin.");
+    } else {
+      console.error(`[Error] Failed to parse command line arguments: ${maskSecrets(String(err))}`);
+    }
     process.exit(EXIT_GENERAL_ERROR);
   }
 

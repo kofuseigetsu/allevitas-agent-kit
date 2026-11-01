@@ -204,6 +204,12 @@ board Options:
     print(help_text)
 
 
+class _MaskingArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse echoes rejected values, such as `--limit <value>`
+        super().error(mask_secrets(message))
+
+
 def main():
     if len(sys.argv) <= 1 or "-h" in sys.argv or "--help" in sys.argv:
         print_help()
@@ -213,7 +219,7 @@ def main():
     cmd_args = sys.argv[2:]
 
     # allow_abbrev=False: `--agent-key` must not resolve to `--agent-key-stdin`
-    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser = _MaskingArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("subaction", nargs="?", default=None)
     parser.add_argument("--action", type=str)
     parser.add_argument("--api-url", default=os.environ.get("ALLEVITAS_API_URL", "https://allevitas.com/api"))
@@ -279,7 +285,7 @@ def main():
     try:
         args, extra_positionals = parser.parse_known_args(cmd_args)
     except Exception as e:
-        print(f"[Error] Failed to parse command line arguments: {e}", file=sys.stderr)
+        print(f"[Error] Failed to parse command line arguments: {mask_secrets(str(e))}", file=sys.stderr)
         sys.exit(EXIT_GENERAL_ERROR)
 
     unknown_flags = [arg for arg in extra_positionals if arg.startswith("--")]

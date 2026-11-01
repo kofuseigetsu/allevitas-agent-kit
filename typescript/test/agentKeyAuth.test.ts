@@ -839,7 +839,7 @@ describe("Agent key authentication", () => {
       assert.equal(result.isError, false);
       assert.ok(!text.includes("alv_sk_"));
       assert.ok(!text.includes("alv_rk_"));
-      assert.ok(text.includes(recoveryPath));
+      assert.equal(JSON.parse(text).recoveryKeyFile, recoveryPath);
       assert.match(readCredentials().agentKey, /^alv_sk_/);
     });
 
@@ -1066,8 +1066,19 @@ describe("Agent key authentication", () => {
     });
 
     it("has no way to pass the agent key as an argument", async () => {
-      const result = await runCli(["whoami", "--agent-key", "alv_sk_argument"]);
+      for (const args of [["--agent-key", "alv_sk_argument"], ["--agent-key=alv_sk_argument"]]) {
+        const result = await runCli(["whoami", ...args]);
+        assert.notEqual(result.code, 0);
+        assert.match(result.stderr, /Use ALLEVITAS_AGENT_KEY or --agent-key-stdin/);
+        assert.ok(!result.stderr.includes("alv_sk_"));
+      }
+    });
+
+    it("masks secrets in argument parsing errors", async () => {
+      const result = await runCli(["whoami", "--alv_sk_argument"]);
       assert.notEqual(result.code, 0);
+      assert.match(result.stderr, /Failed to parse command line arguments/);
+      assert.ok(!result.stderr.includes("alv_sk_"));
     });
 
     it("--agent-key-stdin saves the key and rejects other input", async () => {
