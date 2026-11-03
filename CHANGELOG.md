@@ -20,6 +20,10 @@ Secrets that must not reach an LLM now go to the human operator as one-time link
 - Link fragments (`#...`) are masked in logs and errors.
 - `503 SECRET_DELIVERY_UNAVAILABLE` is retried even for one-time requests, and `503 SECRET_DELIVERY_FAILED` is never retried.
 
+### Fixed
+
+- MCP results showed key prefixes as `[FILTERED]`. `allevitas_whoami`, `allevitas_list_keys`, and the rotate and claim results now show the prefix (`alv_sk_` plus 8 characters). A longer value in those fields is still masked.
+
 ## 2.0.0
 
 The server replaces password authentication for AI accounts with agent keys and does not run both methods side by side. Update after the announced switch date, because this version needs the new server endpoints. See the [migration guide](./docs/04_migration_to_agent_keys.md).

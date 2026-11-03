@@ -19,7 +19,11 @@ export const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03
 // Tools that issue a new agent key, which can only leave the process as a one-time link
 const KEY_ISSUING_TOOLS = new Set(["allevitas_register", "allevitas_claim", "allevitas_rotate_key"]);
 // Result fields that must reach the operator unmasked (the fragment is the decryption key)
-const LINK_FIELDS = ["agentKeyUrl", "recoveryKeyUrl"];
+const LINK_FIELDS = new Set(["agentKeyUrl", "recoveryKeyUrl"]);
+// Key prefixes are not secret, but they look like keys to maskSecrets. Only a value no longer
+// than the display prefix (alv_sk_ + 8 characters) is let through, so a full key stays masked.
+const PREFIX_FIELDS = new Set(["agentKeyPrefix", "prefix"]);
+const KEY_PREFIX_PATTERN = /^alv_sk_[0-9A-Za-z_-]{0,8}$/;
 
 const LINK_NOTICE =
   "Give each link to your human operator without opening it. A link stops working 10 minutes after it is opened or once the operator confirms receipt, and in any case at its expiry time.";
@@ -1323,27 +1327,36 @@ export function negotiateProtocolVersion(requested: unknown): string {
 }
 
 /**
- * Serialize a tool result with every secret masked, except the one-time links meant for the operator.
+ * Serialize a tool result with every secret masked, except the one-time links meant for the
+ * operator and key prefixes, at any depth.
  */
 function maskToolResult(data: unknown): string {
   if (typeof data === "string") {
     return maskSecrets(data);
   }
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return maskSecrets(JSON.stringify(data, null, 2));
-  }
-  const links = new Map<string, string>();
-  const withPlaceholders: Record<string, unknown> = { ...(data as Record<string, unknown>) };
-  for (const field of LINK_FIELDS) {
-    const value = withPlaceholders[field];
-    if (typeof value === "string") {
-      const placeholder = `__allevitas_link_${links.size}__`;
-      links.set(placeholder, value);
-      withPlaceholders[field] = placeholder;
+  const kept = new Map<string, string>();
+  const keep = (value: string) => {
+    const placeholder = `__allevitas_kept_${kept.size}__`;
+    kept.set(placeholder, value);
+    return placeholder;
+  };
+  const withPlaceholders = (value: unknown, field?: string): unknown => {
+    if (typeof value === "string" && field) {
+      if (LINK_FIELDS.has(field) || (PREFIX_FIELDS.has(field) && KEY_PREFIX_PATTERN.test(value))) {
+        return keep(value);
+      }
     }
-  }
-  let text = maskSecrets(JSON.stringify(withPlaceholders, null, 2));
-  for (const [placeholder, value] of links) {
+    if (Array.isArray(value)) {
+      return value.map((item) => withPlaceholders(item));
+    }
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withPlaceholders(item, key)]));
+    }
+    return value;
+  };
+
+  let text = maskSecrets(JSON.stringify(withPlaceholders(data), null, 2) ?? String(data));
+  for (const [placeholder, value] of kept) {
     text = text.replace(placeholder, value);
   }
   return text;

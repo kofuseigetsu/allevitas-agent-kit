@@ -911,6 +911,23 @@ describe("Agent key authentication", () => {
       assert.ok(!listed.content[0].text.includes(readCredentials().agentKey));
     });
 
+    it("shows key prefixes in whoami and list_keys", async () => {
+      seedStore();
+      const server = new MCPServer(createClient());
+      const whoami = JSON.parse((await call(server, "allevitas_whoami")).content[0].text);
+      assert.equal(whoami.agentKeyPrefix, "alv_sk_storedke");
+      const listed = JSON.parse((await call(server, "allevitas_list_keys")).content[0].text);
+      assert.deepEqual(listed.map((k: any) => k.prefix), ["alv_sk_storedke"]);
+    });
+
+    it("still masks a full key in a prefix field", async () => {
+      const server = new MCPServer(createClient());
+      (server as any).client.listAgentKeys = async () => [{ prefix: "alv_sk_storedkeyvalue", status: "active" }];
+      const text = (await call(server, "allevitas_list_keys")).content[0].text;
+      assert.ok(!text.includes("alv_sk_storedkeyvalue"));
+      assert.match(text, /\[FILTERED\]/);
+    });
+
     it("masks secrets in tool errors", async () => {
       const server = new MCPServer(createClient());
       (server as any).client.claim = async () => {
