@@ -98,6 +98,9 @@ class AuthStatus:
     needs_migration: bool
     credentials_path: str
     pending_recovery_key_file: Optional[str] = None
+    # "url" when new keys are returned as one-time links instead of being saved
+    secret_delivery: Optional[str] = None
+
 
 @dataclass
 class StoredCredentials:

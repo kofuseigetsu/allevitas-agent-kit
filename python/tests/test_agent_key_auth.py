@@ -27,6 +27,7 @@ from allevitas import (
     create_keyring_backend,
     mask_secrets,
 )
+from allevitas.cli import LINK_NOTICE
 from allevitas.credential_store import file_lock, store_in_keyring, write_file_atomic
 
 THIRTY_ONE_DAYS_SEC = 31 * 24 * 60 * 60
@@ -1585,10 +1586,11 @@ class TestSecretDeliveryCli(SecretDeliveryTestCase):
         result = self.run_cli(*self.REGISTER)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            "Recovery key link: https://allevitas.com/secrets/r1#serverkey (expires 2026-11-04T00:00:00.000Z)",
+            "Recovery key link: https://allevitas.com/secrets/r1#serverkey (expires 2026-11-04T00:00:00.000Z)\n"
+            "Do not open the link. Give it to your human operator: it stops working 10 minutes after it is opened, "
+            "once receipt is confirmed, or at its expiry.\n",
             result.stdout,
         )
-        self.assertIn("Do not open it. Hand it to your human operator.", result.stdout)
         self.assertNotIn("alv_rk_", result.stdout)
         self.assertFalse(os.path.exists(self.recovery_path))
 
@@ -1597,6 +1599,9 @@ class TestSecretDeliveryCli(SecretDeliveryTestCase):
         linked = self.run_cli(*self.REGISTER, "--json")
         self.assertEqual(linked.returncode, 0, linked.stderr)
         out = json.loads(linked.stdout)
+        self.assertNotIn("token", out)
+        self.assertNotIn("credentialsPath", out)
+        self.assertEqual(out["accountId"], ACCOUNT_ID)
         self.assertEqual(out["recoveryKeyUrl"], "https://allevitas.com/secrets/r1#serverkey")
         self.assertIsNone(out["recoveryKeyUrlExpiresAt"])
         self.assertIsNone(out["recoveryKeyFile"])
@@ -1643,14 +1648,24 @@ class TestSecretDeliveryCli(SecretDeliveryTestCase):
     def test_register_url_mode_prints_the_agent_key_link(self):
         result = self.run_cli(*self.REGISTER, "--secret-delivery", "url")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Agent key link: https://allevitas.com/secrets/s001#fragkey001", result.stdout)
-        self.assertIn("The agent key was not saved here.", result.stdout)
+        self.assertIn(
+            "Agent key link:    https://allevitas.com/secrets/s001#fragkey001 (expires 2026-11-04T00:00:00.000Z)\n"
+            "Recovery key link: https://allevitas.com/secrets/s002#fragkey002 (expires 2026-11-04T00:00:00.000Z)\n"
+            + LINK_NOTICE + "\n"
+            "The agent key was not saved. The operator sets it as ALLEVITAS_AGENT_KEY or saves it with --agent-key-stdin.\n",
+            result.stdout,
+        )
 
     def test_key_rotate_prints_the_link_and_rotate_now_is_refused(self):
         self.seed_store()
         rotated = self.run_cli("key", "rotate", "--secret-delivery", "url")
         self.assertEqual(rotated.returncode, 0, rotated.stderr)
-        self.assertIn("New agent key link: https://allevitas.com/secrets/s001#fragkey001", rotated.stdout)
+        self.assertIn(
+            "New agent key link: https://allevitas.com/secrets/s001#fragkey001 (expires 2026-11-04T00:00:00.000Z)\n"
+            + LINK_NOTICE + "\n"
+            "The current key stays valid until the new key is used for the first time.\n",
+            rotated.stdout,
+        )
         self.assertEqual(self.read_credentials()["agentKey"], STORED_KEY)
 
         refused = self.run_cli("key", "rotate", "--now", env={"ALLEVITAS_SECRET_DELIVERY": "url"})
@@ -1662,8 +1677,30 @@ class TestSecretDeliveryCli(SecretDeliveryTestCase):
         self.state.claim_codes["alv_cc_good"] = "unused"
         result = self.run_cli("key", "claim", "--no-save-credentials", input_text="alv_cc_good\n")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Agent key link: https://allevitas.com/secrets/s001#fragkey001", result.stdout)
+        self.assertIn(
+            f"New agent key link for {ACCOUNT_ID}: https://allevitas.com/secrets/s001#fragkey001 "
+            "(expires 2026-11-04T00:00:00.000Z)\n" + LINK_NOTICE + "\n",
+            result.stdout,
+        )
         self.assertFalse(os.path.exists(self.cred_path))
+
+    def test_secret_delivery_accepts_only_url(self):
+        for value in ("URL", "email", " url"):
+            result = self.run_cli("whoami", "--secret-delivery", value)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(f'[Error] --secret-delivery accepts only "url" (got "{value}").', result.stderr)
+
+    def test_whoami_reports_url_delivery(self):
+        self.seed_store()
+        on = self.run_cli("whoami", "--secret-delivery", "url")
+        self.assertIn("New Keys:       returned as one-time links (not saved)", on.stdout)
+        off = self.run_cli("whoami")
+        self.assertNotIn("New Keys:", off.stdout)
+
+    def test_auto_url_delivery_prints_nothing_extra(self):
+        result = self.run_cli(*self.REGISTER, "--no-save-credentials")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("URL delivery", result.stdout)
 
     def test_help_documents_url_delivery(self):
         result = self.run_cli("--help")

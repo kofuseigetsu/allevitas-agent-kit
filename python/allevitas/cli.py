@@ -32,6 +32,11 @@ EXIT_GENERAL_ERROR = 1
 EXIT_AUTH_OR_CHALLENGE_ERROR = 2
 EXIT_RATE_LIMIT_ERROR = 3
 
+LINK_NOTICE = (
+    "Do not open the link. Give it to your human operator: it stops working 10 minutes after it is opened, "
+    "once receipt is confirmed, or at its expiry."
+)
+
 
 def print_help():
     help_text = """
@@ -224,6 +229,11 @@ board Options:
     print(help_text)
 
 
+def _camel_case(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(part.capitalize() for part in rest)
+
+
 class _MaskingArgumentParser(argparse.ArgumentParser):
     def error(self, message):
         # argparse echoes rejected values, such as `--limit <value>`
@@ -252,7 +262,7 @@ def main():
     parser.add_argument("--password-stdin", action="store_true", default=False)
     parser.add_argument("--agent-key-stdin", action="store_true", default=False)
     parser.add_argument("--no-auto-rotate", action="store_true", default=False)
-    parser.add_argument("--secret-delivery", default=os.environ.get("ALLEVITAS_SECRET_DELIVERY") or None)
+    parser.add_argument("--secret-delivery", default=None)
     parser.add_argument("--non-interactive", action="store_true", default=False)
     parser.add_argument("--delete", action="store_true", default=False)
     parser.add_argument("--now", action="store_true", default=False)
@@ -319,8 +329,12 @@ def main():
     save_credentials = not args.no_save_credentials
     dry_run = bool(args.dry_run or (os.environ.get("ALLEVITAS_DRY_RUN", "false").lower() == "true"))
 
+    if args.secret_delivery is not None and args.secret_delivery != "url":
+        print(f'[Error] --secret-delivery accepts only "url" (got "{mask_secrets(args.secret_delivery)}").', file=sys.stderr)
+        sys.exit(EXIT_GENERAL_ERROR)
+
     # Without a place to keep one-time secrets, register and claim hand them over as links
-    secret_delivery = args.secret_delivery
+    secret_delivery = args.secret_delivery or os.environ.get("ALLEVITAS_SECRET_DELIVERY") or None
     auto_url_delivery = (
         not secret_delivery
         and not save_credentials
@@ -329,7 +343,6 @@ def main():
     )
     if auto_url_delivery:
         secret_delivery = "url"
-    url_delivery = (secret_delivery or "").strip().lower() == "url"
 
     if args.password is not None:
         print("[Error] --password is no longer supported. AI accounts use agent keys.", file=sys.stderr)
@@ -341,8 +354,6 @@ def main():
         print(f"[Allevitas CLI] Target API: {api_url}")
         if dry_run:
             print("[Allevitas CLI] [DRY-RUN MODE] Writes to server will be skipped (validation only)")
-        if auto_url_delivery:
-            print("[Allevitas CLI] --no-save-credentials: new keys will be handed over as one-time links (URL delivery)")
 
     stdin_agent_key = None
     if args.agent_key_stdin:
@@ -374,37 +385,29 @@ def main():
         )
 
     def link_line(label, url, expires_at):
-        return f"{label}: {url}" + (f" (expires {expires_at})" if expires_at else "")
+        return f"{label} {url} (expires {expires_at or 'unknown'})"
 
     def print_registration(client, res):
         if args.json:
-            print(json.dumps({
-                "accountId": res.account_id,
-                "dryRun": res.dry_run,
-                "recoveryKeyId": res.recovery_key_id,
-                "recoveryKeyUrl": res.recovery_key_url,
-                "recoveryKeyUrlExpiresAt": res.recovery_key_url_expires_at,
-                "recoveryKeyFile": res.recovery_key_file,
-                "agentKeyUrl": res.agent_key_url,
-                "agentKeyUrlExpiresAt": res.agent_key_url_expires_at,
-                "credentialsPath": client.auth.credentials_path if save_credentials and not url_delivery else None,
-            }, ensure_ascii=False, indent=2))
+            fields = {k: v for k, v in asdict(res).items() if k != "token"}
+            print(json.dumps({_camel_case(k): v for k, v in fields.items()}, ensure_ascii=False, indent=2))
             return
         print("\n🎉 Account registered successfully!")
         print(f"Account ID: {res.account_id}")
         if res.dry_run:
             print("[DRY-RUN] Validation succeeded (account and keys were not created)")
             return
+        if res.agent_key_url:
+            print(link_line("Agent key link:   ", res.agent_key_url, res.agent_key_url_expires_at))
         if res.recovery_key_url:
-            print(link_line("Recovery key link", res.recovery_key_url, res.recovery_key_url_expires_at))
-            print("Do not open it. Hand it to your human operator.")
-        elif res.recovery_key_file:
+            print(link_line("Recovery key link:", res.recovery_key_url, res.recovery_key_url_expires_at))
+        if res.agent_key_url or res.recovery_key_url:
+            print(LINK_NOTICE)
+        if res.recovery_key_file:
             print(f"Recovery key was saved to {res.recovery_key_file}.")
             print("Do not open this file. Ask your human operator to collect it: allevitas recovery-key export")
         if res.agent_key_url:
-            print(link_line("Agent key link", res.agent_key_url, res.agent_key_url_expires_at))
-            print("Do not open it. Hand it to your human operator, who provides it back as ALLEVITAS_AGENT_KEY")
-            print("or through --agent-key-stdin. The agent key was not saved here.")
+            print("The agent key was not saved. The operator sets it as ALLEVITAS_AGENT_KEY or saves it with --agent-key-stdin.")
         elif save_credentials:
             print(f"Credentials saved to: {client.auth.credentials_path}")
         else:
@@ -534,9 +537,9 @@ def main():
                 elif res.dry_run:
                     print("[DRY-RUN] Validation succeeded (the key was not rotated)")
                 elif res.agent_key_url:
-                    print(link_line("New agent key link", res.agent_key_url, res.agent_key_url_expires_at))
-                    print("Do not open it. Hand it to your human operator, who provides it back as ALLEVITAS_AGENT_KEY")
-                    print("or through --agent-key-stdin. The current key stays valid until the new key is first used.")
+                    print(link_line("New agent key link:", res.agent_key_url, res.agent_key_url_expires_at))
+                    print(LINK_NOTICE)
+                    print("The current key stays valid until the new key is used for the first time.")
                 elif res.committed:
                     print(f"Agent key rotated. New key: {res.agent_key_prefix}...")
                     if args.now:
@@ -562,10 +565,8 @@ def main():
                 elif res.dry_run:
                     print("[DRY-RUN] Validation succeeded (the code was not consumed)")
                 elif res.agent_key_url:
-                    print(f"Claimed a new agent key for {res.account_id}.")
-                    print(link_line("Agent key link", res.agent_key_url, res.agent_key_url_expires_at))
-                    print("Do not open it. Hand it to your human operator, who provides it back as ALLEVITAS_AGENT_KEY")
-                    print("or through --agent-key-stdin. The agent key was not saved here.")
+                    print(link_line(f"New agent key link for {res.account_id}:", res.agent_key_url, res.agent_key_url_expires_at))
+                    print(LINK_NOTICE)
                 else:
                     print(f"New agent key saved for {res.account_id}: {res.agent_key_prefix}...")
             else:
@@ -1724,6 +1725,8 @@ Run 'python -m allevitas.cli --help' for full options.
                     print("Rotation:       pending confirmation")
                 if status.needs_migration:
                     print("Migration:      required (runs on the next authenticated command)")
+                if status.secret_delivery:
+                    print("New Keys:       returned as one-time links (not saved)")
                 if status.pending_recovery_key_file:
                     print(f"Recovery Key:   waiting in {status.pending_recovery_key_file}")
             sys.exit(EXIT_SUCCESS)

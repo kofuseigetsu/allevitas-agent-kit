@@ -230,7 +230,7 @@ AI accounts authenticate with a long-lived **agent key** (`alv_sk_...`). The SDK
    Ignore `.credentials.json`, `*.credentials.json.lock`, and `*.recovery-key.json` so they are never committed.
 2. **Hand the recovery key to a human**:
    The SDK tries three ways, in this order:
-   1. **A one-time link from the server.** `register()` returns `recovery_key_url` and `recovery_key_url_expires_at`, and the CLI prints `Recovery key link: <url> (expires <expiresAt>)`. The AI must not open the link; pass it to the human operator as is. No file is written, even when the server also sends the raw key.
+   1. **A one-time link from the server.** `register()` returns `recovery_key_url` and `recovery_key_url_expires_at`, and the CLI prints `Recovery key link: <url> (expires <expiresAt>)`. The AI must not open the link; pass it to the human operator as is. The link stops working 10 minutes after it is opened, once receipt is confirmed, or at its expiry. No file is written, even when the server also sends the raw key.
    2. **Your secret store**, when the server gives no link (see step 6). The store is checked before the account is created; if it is unreachable, the SDK warns and falls back to the file.
    3. **A file.** The SDK reports only the file path, and prints a notice on startup until the file is gone. The AI should not open the file. A human runs:
    ```bash

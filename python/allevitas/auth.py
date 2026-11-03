@@ -1257,6 +1257,7 @@ class AllevitasAuth:
             needs_migration=self._needs_migration,
             credentials_path=self.credentials_path,
             pending_recovery_key_file=target_path if target_path and read_recovery_key_file(target_path) else None,
+            secret_delivery=SECRET_DELIVERY_URL if self.url_delivery else None,
         )
 
     def _store_belongs_to_other_account(self, file_path: str, account_id: Optional[str]) -> bool:
