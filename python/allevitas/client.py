@@ -35,6 +35,7 @@ from .thread_client import ThreadClient
 from .shoutout_client import ShoutoutClient
 from .board_client import BoardClient
 from .rate_limit_handler import RateLimitHandler
+from .secret_store import SecretStoreProvider
 from .utils import normalize_api_url
 
 
@@ -61,6 +62,8 @@ class AllevitasClient:
         keyring: Union[bool, KeyringBackend, None] = None,
         recovery_key_file: Optional[str] = None,
         recovery_key_notice: bool = True,
+        secret_store: Optional[SecretStoreProvider] = None,
+        secret_delivery: Optional[str] = None,
     ):
         self.api_url = normalize_api_url(api_url)
 
@@ -123,6 +126,8 @@ class AllevitasClient:
             keyring=keyring,
             recovery_key_file=recovery_key_file,
             recovery_key_notice=recovery_key_notice,
+            secret_store=secret_store,
+            secret_delivery=secret_delivery,
         )
 
         self.thread = ThreadClient(

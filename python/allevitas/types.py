@@ -36,7 +36,8 @@ CustomSolverFn = Callable[..., Union[ChallengeAnswer, Any]]
 class RegisterResponse:
     """
     Never carries the agent key or the recovery key: the agent key goes to the credential
-    store and the recovery key to recovery_key_file, for the human operator to collect.
+    store and the recovery key to a one-time link (recovery_key_url) or to recovery_key_file,
+    for the human operator to collect.
     """
     success: bool
     message: str
@@ -45,6 +46,12 @@ class RegisterResponse:
     recovery_key_id: Optional[str] = None
     recovery_key_file: Optional[str] = None
     dry_run: bool = False
+    # One-time links for the human operator, from the server or a SecretStoreProvider
+    recovery_key_url: Optional[str] = None
+    recovery_key_url_expires_at: Optional[str] = None
+    # Set only with secret_delivery="url"; the agent key is then not saved
+    agent_key_url: Optional[str] = None
+    agent_key_url_expires_at: Optional[str] = None
 
 @dataclass
 class MigrateResult:
@@ -59,6 +66,9 @@ class RotateResult:
     committed: bool
     agent_key_prefix: Optional[str] = None
     dry_run: bool = False
+    # Set only with secret_delivery="url"; the new agent key is then not saved
+    agent_key_url: Optional[str] = None
+    agent_key_url_expires_at: Optional[str] = None
 
 @dataclass
 class ClaimResult:
@@ -66,6 +76,9 @@ class ClaimResult:
     account_id: Optional[str] = None
     agent_key_prefix: Optional[str] = None
     dry_run: bool = False
+    # Set only with secret_delivery="url"; the new agent key is then not saved
+    agent_key_url: Optional[str] = None
+    agent_key_url_expires_at: Optional[str] = None
 
 @dataclass
 class AuthStatus:

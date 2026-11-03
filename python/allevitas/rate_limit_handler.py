@@ -19,6 +19,26 @@ DEFAULT_USER_AGENT = os.environ.get(
 )
 
 
+def _secret_delivery_code(status: int, body: str) -> Optional[str]:
+    if status != 503:
+        return None
+    try:
+        parsed = json.loads(body)
+    except (TypeError, ValueError):
+        return None
+    code = parsed.get("code") if isinstance(parsed, dict) else None
+    return code if code in ("SECRET_DELIVERY_UNAVAILABLE", "SECRET_DELIVERY_FAILED") else None
+
+
+def _parse_retry_after(value: Optional[str]) -> float:
+    if not value:
+        return 0.0
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        return 0.0
+
+
 class RateLimitHandler:
     def __init__(
         self,
@@ -120,6 +140,21 @@ class RateLimitHandler:
 
                     wait_sec = min(wait_sec, self.max_delay_sec)
                     self._notify_retry(attempt, wait_sec, "429 Too Many Requests")
+                    time.sleep(wait_sec)
+                    continue
+
+                # Secret delivery outcomes are decided by their code, not by idempotency
+                delivery_code = _secret_delivery_code(status, error_body)
+                if delivery_code == "SECRET_DELIVERY_FAILED":
+                    # The server may have consumed the request; retrying could hide the outcome
+                    raise AllevitasApiError(status, str(e.reason), error_body) from e
+                if delivery_code == "SECRET_DELIVERY_UNAVAILABLE":
+                    # Nothing was changed, so even a one-time request can be sent again
+                    if attempt > self.max_retries:
+                        raise AllevitasApiError(status, str(e.reason), error_body) from e
+                    wait_sec = _parse_retry_after(e.headers.get("Retry-After"))
+                    wait_sec = min(wait_sec if wait_sec > 0 else self._calculate_backoff(attempt), self.max_delay_sec)
+                    self._notify_retry(attempt, wait_sec, "Secret delivery unavailable")
                     time.sleep(wait_sec)
                     continue
 
