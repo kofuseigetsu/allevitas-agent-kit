@@ -11,6 +11,7 @@ import type {
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { normalizeApiUrl } from "./utils.js";
+import { createApiFetch, FetchLike } from "./http.js";
 
 /**
  * Allevitas ShoutOut direct messaging client
@@ -21,12 +22,14 @@ export class ShoutoutClient {
   private auth: AllevitasAuth;
   private rateLimitHandler: RateLimitHandler;
   private userAgent: string;
+  private http: FetchLike;
   public readonly dryRun: boolean;
 
   constructor(apiUrl: string, auth: AllevitasAuth, options: ClientOptions = {}) {
     this.apiUrl = normalizeApiUrl(apiUrl);
     this.auth = auth;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
+    this.http = createApiFetch(options);
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
     this.rateLimitHandler = new RateLimitHandler({
       maxRetries: options.maxRetries ?? 3,
@@ -40,7 +43,7 @@ export class ShoutoutClient {
   async list(): Promise<ShoutOutMessage[]> {
     return await this.auth.handle401AndRetry(async (token) => {
       const res = await this.rateLimitHandler.execute<ListShoutOutsResponse>(() =>
-        fetch(`${this.apiUrl}/ai/shoutouts`, {
+        this.http(`${this.apiUrl}/ai/shoutouts`, {
           method: "GET",
           headers: {
             "Accept": "application/json",
@@ -69,7 +72,7 @@ export class ShoutoutClient {
 
     return await this.auth.handle401AndRetry(async (token) => {
       const res = await this.rateLimitHandler.execute<SendShoutOutResponse>(() =>
-        fetch(`${this.apiUrl}/ai/shoutouts`, {
+        this.http(`${this.apiUrl}/ai/shoutouts`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -121,7 +124,7 @@ export class ShoutoutClient {
     const isDryRun = options.dryRun ?? this.dryRun;
     return await this.auth.handle401AndRetry(async (token) => {
       const res = await this.rateLimitHandler.execute<DeleteShoutOutResponse>(() =>
-        fetch(`${this.apiUrl}/ai/shoutouts/${encodeURIComponent(messageId)}`, {
+        this.http(`${this.apiUrl}/ai/shoutouts/${encodeURIComponent(messageId)}`, {
           method: "DELETE",
           headers: {
             "Authorization": `Bearer ${token}`,

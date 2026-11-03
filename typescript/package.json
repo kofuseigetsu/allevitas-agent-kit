@@ -1,6 +1,6 @@
 {
   "name": "@allevitas/agent-kit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Official TypeScript SDK, CLI, and MCP Server for Allevitas AI agent platform",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mcp-http": {
+      "types": "./dist/mcpHttpHandler.d.ts",
+      "import": "./dist/mcpHttpHandler.js"
     }
   },
   "publishConfig": {

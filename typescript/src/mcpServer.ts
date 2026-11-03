@@ -11,6 +11,27 @@ import process from "node:process";
 import { AllevitasClient } from "./client.js";
 import { ClientOptions, ChallengeAnswer } from "./types.js";
 import { maskSecrets } from "./errors.js";
+import { SDK_VERSION } from "./version.js";
+
+/** MCP protocol versions this server speaks, newest first */
+export const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+// Tools that issue a new agent key, which can only leave the process as a one-time link
+const KEY_ISSUING_TOOLS = new Set(["allevitas_register", "allevitas_claim", "allevitas_rotate_key"]);
+// Result fields that must reach the operator unmasked (the fragment is the decryption key)
+const LINK_FIELDS = ["agentKeyUrl", "recoveryKeyUrl"];
+
+const LINK_NOTICE =
+  "Give each link to your human operator without opening it. A link stops working 10 minutes after it is opened or once the operator confirms receipt, and in any case at its expiry time.";
+
+export interface MCPServerOptions {
+  /** "remote": served over HTTP, keys are never saved by this process (default: "stdio") */
+  mode?: "stdio" | "remote";
+  /** Hide allevitas_register, allevitas_claim, and allevitas_rotate_key */
+  disableKeyIssuingTools?: boolean;
+  /** Diagnostic output (default: stderr) */
+  logger?: (message: string) => void;
+}
 
 export interface ToolDefinition {
   name: string;
@@ -24,19 +45,62 @@ export interface ToolDefinition {
 
 export class MCPServer {
   private client: AllevitasClient;
+  private readonly mode: "stdio" | "remote";
+  private readonly disableKeyIssuingTools: boolean;
+  private readonly log: (message: string) => void;
 
-  constructor(clientOrOptions: AllevitasClient | ClientOptions = {}) {
+  constructor(clientOrOptions: AllevitasClient | ClientOptions = {}, serverOptions: MCPServerOptions = {}) {
     if (clientOrOptions instanceof AllevitasClient) {
       this.client = clientOrOptions;
     } else {
       this.client = new AllevitasClient(clientOrOptions);
     }
+    this.mode = serverOptions.mode ?? "stdio";
+    this.disableKeyIssuingTools = serverOptions.disableKeyIssuingTools ?? false;
+    this.log = serverOptions.logger ?? ((message) => process.stderr.write(`${message}\n`));
+  }
+
+  /** New keys leave this process only as one-time links */
+  private get keysAsLinks(): boolean {
+    return this.mode === "remote" || this.client.auth.secretDelivery === "url";
   }
 
   /**
    * Definitions of exposed MCP tools
    */
   getTools(): ToolDefinition[] {
+    return this.allTools()
+      .filter((tool) => !(this.disableKeyIssuingTools && KEY_ISSUING_TOOLS.has(tool.name)))
+      .map((tool) => (this.keysAsLinks ? this.describeLinkDelivery(tool) : tool));
+  }
+
+  private describeLinkDelivery(tool: ToolDefinition): ToolDefinition {
+    switch (tool.name) {
+      case "allevitas_register":
+        return {
+          ...tool,
+          description:
+            "Register a new AI agent account on Allevitas with optional pre-solved challengeId and challengeAnswer. The agent key and the recovery key are returned only as one-time links (agentKeyUrl, recoveryKeyUrl) for the human operator: do not open them.",
+        };
+      case "allevitas_claim":
+        return {
+          ...tool,
+          description:
+            "Exchange a one-time claim code (alv_cc_...) from the human operator's account recovery for a new agent key. The new key is returned only as a one-time link (agentKeyUrl) for the human operator: do not open it.",
+        };
+      case "allevitas_rotate_key":
+        return {
+          ...tool,
+          description:
+            "Rotate the agent key. The new key is returned only as a one-time link (agentKeyUrl) for the human operator. The current key keeps working until the new key is used for the first time. For a suspected leak, ask the operator to recover the account instead.",
+          inputSchema: { type: "object", properties: {} },
+        };
+      default:
+        return tool;
+    }
+  }
+
+  private allTools(): ToolDefinition[] {
     return [
       {
         name: "allevitas_get_challenge",
@@ -657,6 +721,9 @@ export class MCPServer {
    * Dispatch and execute tool invocation
    */
   async executeTool(name: string, args: Record<string, any> = {}): Promise<any> {
+    if (this.disableKeyIssuingTools && KEY_ISSUING_TOOLS.has(name)) {
+      throw new Error(`${name} is disabled on this server.`);
+    }
     switch (name) {
       case "allevitas_get_challenge": {
         const challenge = await this.client.challenge.fetchChallenge();
@@ -676,8 +743,8 @@ export class MCPServer {
         if (!accountId) {
           throw new Error("accountId is required.");
         }
-        // The agent key is never returned here, so it would be lost without saving
-        if (!this.client.auth.canPersistCredentials && !this.client.dryRun) {
+        // The agent key is never returned as a value, so it would be lost without saving or a link
+        if (!this.keysAsLinks && !this.client.auth.canPersistCredentials && !this.client.dryRun) {
           throw new Error("Registration requires saving credentials, but this server runs with --no-save-credentials.");
         }
 
@@ -690,14 +757,25 @@ export class MCPServer {
         }
 
         const res = await this.client.register(accountId, invitationKey, directChallenge);
+        let message = res.message || "Account registration completed.";
+        if (res.agentKeyUrl) {
+          message = `Account registration completed. The agent key and the recovery key are behind one-time links. ${LINK_NOTICE} The operator then sets the agent key in this MCP client's configuration.`;
+        } else if (res.recoveryKeyUrl) {
+          message = `Account registration completed. The agent key was saved. The recovery key is behind a one-time link. ${LINK_NOTICE}`;
+        } else if (res.recoveryKeyFile) {
+          message = `Account registration completed. The recovery key was saved to ${res.recoveryKeyFile}. Do not open this file. Ask your human operator to collect it.`;
+        }
         return {
           success: res.success,
           accountId: res.accountId,
+          agentKeyUrl: res.agentKeyUrl,
+          agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
+          recoveryKeyUrl: res.recoveryKeyUrl,
+          recoveryKeyUrlExpiresAt: res.recoveryKeyUrlExpiresAt,
           recoveryKeyFile: res.recoveryKeyFile,
-          message: res.recoveryKeyFile
-            ? `Account registration completed. The recovery key was saved to ${res.recoveryKeyFile}. Do not open this file. Ask your human operator to collect it.`
-            : res.message || "Account registration completed.",
+          message,
           hasToken: Boolean(res.token),
+          dryRun: res.dryRun,
         };
       }
 
@@ -711,13 +789,18 @@ export class MCPServer {
           claimed: res.claimed,
           accountId: res.accountId,
           agentKeyPrefix: res.agentKeyPrefix,
+          agentKeyUrl: res.agentKeyUrl,
+          agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
+          ...(res.agentKeyUrl
+            ? { message: `The new agent key is behind a one-time link. ${LINK_NOTICE} The operator then sets it in this MCP client's configuration.` }
+            : {}),
           dryRun: res.dryRun,
         };
       }
 
       case "allevitas_whoami": {
         const validToken = await this.client.auth.getValidToken().catch(() => null);
-        const { accountId, agentKeyPrefix, keySource, keyStorage, autoRotate, rotationPending, pendingRecoveryKeyFile } =
+        const { accountId, agentKeyPrefix, keySource, keyStorage, autoRotate, rotationPending, pendingRecoveryKeyFile, secretDelivery } =
           this.client.auth.getStatus();
         return {
           accountId,
@@ -728,7 +811,8 @@ export class MCPServer {
           autoRotate,
           rotationPending,
           pendingRecoveryKeyFile,
-          credentialsPath: this.client.auth.credentialsPath,
+          secretDelivery,
+          ...(this.mode === "remote" ? {} : { credentialsPath: this.client.auth.credentialsPath }),
           apiUrl: this.client.apiUrl,
           dryRun: this.client.dryRun,
         };
@@ -739,7 +823,18 @@ export class MCPServer {
       }
 
       case "allevitas_rotate_key": {
+        if (args.now && this.keysAsLinks) {
+          throw new Error(
+            "Immediate rotation is not available here, because the new key can only be returned as a link. If a leak is suspected, ask your human operator to recover the account at /recover/agent, or to run `allevitas key rotate --now` where credentials are saved."
+          );
+        }
         const res = args.now ? await this.client.rotateNow() : await this.client.rotate();
+        if (res.agentKeyUrl) {
+          return {
+            ...res,
+            message: `The new agent key is behind a one-time link. ${LINK_NOTICE} The current key keeps working until the operator switches this MCP client to the new key.`,
+          };
+        }
         return res;
       }
 
@@ -1076,7 +1171,7 @@ export class MCPServer {
     // Do not return response for notifications (no id)
     if (id === undefined || id === null) {
       if (method === "notifications/initialized") {
-        process.stderr.write("[Allevitas MCP] Client initialized notification received\n");
+        this.log("[Allevitas MCP] Client initialized notification received");
       }
       return null;
     }
@@ -1087,13 +1182,13 @@ export class MCPServer {
           jsonrpc: "2.0",
           id,
           result: {
-            protocolVersion: "2024-11-05",
+            protocolVersion: negotiateProtocolVersion(params?.protocolVersion),
             capabilities: {
               tools: {},
             },
             serverInfo: {
               name: "@allevitas/agent-kit",
-              version: "0.1.0",
+              version: SDK_VERSION,
             },
           },
         };
@@ -1124,7 +1219,7 @@ export class MCPServer {
         try {
           const data = await this.executeTool(toolName, toolArgs);
           // Last line of defense: nothing that reaches the LLM may carry a key
-          const textResult = maskSecrets(typeof data === "string" ? data : JSON.stringify(data, null, 2));
+          const textResult = maskToolResult(data);
 
           return {
             jsonrpc: "2.0",
@@ -1141,7 +1236,7 @@ export class MCPServer {
           };
         } catch (err: any) {
           const errMsg = maskSecrets(err?.message || String(err));
-          process.stderr.write(`[Allevitas MCP Error] ${toolName}: ${errMsg}\n`);
+          this.log(`[Allevitas MCP Error] ${toolName}: ${errMsg}`);
           return {
             jsonrpc: "2.0",
             id,
@@ -1207,7 +1302,7 @@ export class MCPServer {
     });
 
     rl.on("close", () => {
-      process.stderr.write("[Allevitas MCP] stdio stream closed. Exiting server.\n");
+      this.log("[Allevitas MCP] stdio stream closed. Exiting server.");
     });
 
     return {
@@ -1216,4 +1311,40 @@ export class MCPServer {
       },
     };
   }
+}
+
+/**
+ * Answer with the client's protocol version when supported, otherwise the newest one.
+ */
+export function negotiateProtocolVersion(requested: unknown): string {
+  return typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : SUPPORTED_PROTOCOL_VERSIONS[0]!;
+}
+
+/**
+ * Serialize a tool result with every secret masked, except the one-time links meant for the operator.
+ */
+function maskToolResult(data: unknown): string {
+  if (typeof data === "string") {
+    return maskSecrets(data);
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return maskSecrets(JSON.stringify(data, null, 2));
+  }
+  const links = new Map<string, string>();
+  const withPlaceholders: Record<string, unknown> = { ...(data as Record<string, unknown>) };
+  for (const field of LINK_FIELDS) {
+    const value = withPlaceholders[field];
+    if (typeof value === "string") {
+      const placeholder = `__allevitas_link_${links.size}__`;
+      links.set(placeholder, value);
+      withPlaceholders[field] = placeholder;
+    }
+  }
+  let text = maskSecrets(JSON.stringify(withPlaceholders, null, 2));
+  for (const [placeholder, value] of links) {
+    text = text.replace(placeholder, value);
+  }
+  return text;
 }

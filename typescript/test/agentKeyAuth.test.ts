@@ -38,6 +38,9 @@ const ENV_KEYS = [
   "ALLEVITAS_NO_SAVE_CREDENTIALS",
   "ALLEVITAS_DRY_RUN",
   "ALLEVITAS_PASSWORD",
+  "ALLEVITAS_SECRET_DELIVERY",
+  "ALLEVITAS_SECRET_STORE_MODULE",
+  "ALLEVITAS_SECRET_STORE_TTL",
 ];
 
 class FakeKeyring implements KeyringBackend {
@@ -110,6 +113,12 @@ describe("Agent key authentication", () => {
     mock.state.failTokenRequests = 0;
     mock.state.nextApiError = null;
     mock.state.dryRunHeaders.length = 0;
+    mock.state.ignoreSecretDelivery = false;
+    mock.state.linkRecoveryKey = false;
+    mock.state.secretDeliveryError = null;
+    mock.state.links.clear();
+    mock.state.registerRequests.length = 0;
+    mock.state.forwardedFor.length = 0;
 
     stderrLines = [];
     process.stderr.write = ((chunk: string) => {
@@ -594,13 +603,17 @@ describe("Agent key authentication", () => {
       assert.equal(fs.existsSync(recoveryPath), false);
     });
 
-    it("refuses in a stateless environment without an explicit recovery key file", async () => {
+    it("returns both keys as links in a stateless environment without a recovery key file", async () => {
       const client = withoutSecrets(createClient({ saveCredentials: false }));
-      await assert.rejects(client.register("key_bot"), (err: any) => {
-        assert.equal(err.code, "CREDENTIALS_NOT_PERSISTABLE");
-        return true;
-      });
-      assert.equal(mock.state.keys.size, 0);
+      const res = await client.register("key_bot");
+
+      assert.equal(mock.state.registerRequests[0].secretDelivery, "url");
+      assert.match(mock.state.links.get(res.agentKeyUrl!)!, /^alv_sk_/);
+      assert.equal(mock.state.links.get(res.recoveryKeyUrl!), "alv_rk_registered");
+      assert.equal(res.recoveryKeyFile, undefined);
+      assert.equal(fs.existsSync(credPath), false);
+      assert.equal(fs.existsSync(recoveryPath), false);
+      assert.equal(client.auth.getStatus().hasAgentKey, false);
     });
 
     it("allows a dry run in a stateless environment and writes nothing", async () => {
@@ -746,13 +759,13 @@ describe("Agent key authentication", () => {
       assert.equal(mock.state.tokenRequests.length, 0);
     });
 
-    it("refuses without credential saving, before consuming the code", async () => {
+    it("returns the new key as a link without credential saving", async () => {
       mock.state.claimCodes.set("alv_cc_good", "unused");
-      await assert.rejects(createClient({ saveCredentials: false }).claim("alv_cc_good"), (err: any) => {
-        assert.equal(err.code, "CREDENTIALS_NOT_PERSISTABLE");
-        return true;
-      });
-      assert.equal(mock.state.claimCodes.get("alv_cc_good"), "unused");
+      const res = await createClient({ saveCredentials: false }).claim("alv_cc_good");
+      assert.equal(res.claimed, true);
+      assert.match(mock.state.links.get(res.agentKeyUrl!)!, /^alv_sk_/);
+      assert.equal(mock.state.tokenRequests[0].secretDelivery, "url");
+      assert.equal(fs.existsSync(credPath), false);
     });
 
     it("replaces an environment key with the saved one", async () => {
@@ -841,6 +854,18 @@ describe("Agent key authentication", () => {
       assert.ok(!text.includes("alv_rk_"));
       assert.equal(JSON.parse(text).recoveryKeyFile, recoveryPath);
       assert.match(readCredentials().agentKey, /^alv_sk_/);
+    });
+
+    it("register passes the server's recovery key link through unmasked and writes no file", async () => {
+      mock.state.linkRecoveryKey = true;
+      const server = new MCPServer(withoutSecrets(createClient()));
+      const result = await call(server, "allevitas_register", { accountId: "key_bot" });
+
+      const data = JSON.parse(result.content[0].text);
+      assert.equal(mock.state.links.get(data.recoveryKeyUrl), "alv_rk_registered");
+      assert.match(data.message, /one-time link/);
+      assert.ok(!result.content[0].text.includes("alv_rk_"));
+      assert.equal(fs.existsSync(recoveryPath), false);
     });
 
     it("register fails without credential saving, even with a recovery key file", async () => {
@@ -1100,6 +1125,66 @@ describe("Agent key authentication", () => {
       assert.equal(mock.state.keys.get("alv_sk_cikeyvalue001"), "ROTATED");
       assert.equal(mock.state.keys.get(saved.agentKey), "active");
       assert.equal(saved.accountId, "key_bot");
+    });
+
+    const registerArgs = ["--account-id", "key_bot", "--challenge-id", "c1", "--answer", '{"matchCount":1}'];
+
+    it("register prints the server's recovery key link and keeps the agent key", async () => {
+      mock.state.linkRecoveryKey = true;
+      const result = await runCli(["register", ...registerArgs]);
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, /Recovery key link: http:\/\/127\.0\.0\.1:\d+\/secrets\/\S+#\S+ \(expires 2026-11-04/);
+      assert.match(result.stdout, /Do not open the link/);
+      assert.match(result.stdout, /Credentials saved to/);
+      assert.ok(!result.stdout.includes("alv_rk_"));
+      assert.equal(fs.existsSync(recoveryPath), false);
+    });
+
+    it("register --json prints only the result, without the token", async () => {
+      mock.state.linkRecoveryKey = true;
+      const result = await runCli(["register", ...registerArgs, "--json"]);
+      assert.equal(result.code, 0, result.stderr);
+      const data = JSON.parse(result.stdout);
+      assert.ok(data.recoveryKeyUrl && data.recoveryKeyUrlExpiresAt);
+      assert.equal(data.token, undefined);
+    });
+
+    it("register with --no-save-credentials returns both keys as links", async () => {
+      const result = await runCli(["register", ...registerArgs, "--no-save-credentials"]);
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, /Agent key link: +http/);
+      assert.match(result.stdout, /The agent key was not saved/);
+      assert.ok(!result.stdout.includes("alv_sk_"));
+      assert.equal(fs.existsSync(credPath), false);
+      assert.equal(mock.state.registerRequests[0].secretDelivery, "url");
+    });
+
+    it("key rotate --secret-delivery url prints a link and keeps the current key", async () => {
+      seedStore();
+      const result = await runCli(["key", "rotate", "--secret-delivery", "url"]);
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, /New agent key link: http/);
+      assert.match(result.stdout, /stays valid/);
+      assert.equal(mock.state.keys.get("alv_sk_storedkeyvalue"), "active");
+      assert.equal(readCredentials().pendingAgentKey, undefined);
+
+      const now = await runCli(["key", "rotate", "--now", "--secret-delivery", "url"]);
+      assert.notEqual(now.code, 0);
+      assert.match(now.stderr + now.stdout, /recover/);
+    });
+
+    it("key claim with ALLEVITAS_SECRET_DELIVERY=url prints a link", async () => {
+      mock.state.claimCodes.set("alv_cc_good", "unused");
+      const result = await runCli(["key", "claim"], { input: "alv_cc_good\n", env: { ALLEVITAS_SECRET_DELIVERY: "url" } });
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, /New agent key link for key_bot: http/);
+      assert.equal(fs.existsSync(credPath), false);
+    });
+
+    it("rejects an unknown --secret-delivery value", async () => {
+      const result = await runCli(["whoami", "--secret-delivery", "email"]);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /accepts only "url"/);
     });
 
     it("whoami shows no secret", async () => {
