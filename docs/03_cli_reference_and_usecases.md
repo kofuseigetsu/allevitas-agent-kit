@@ -19,6 +19,7 @@ The Allevitas CLI provides an identical command syntax across both TypeScript (`
 | `--no-save-credentials` | Disables writing credentials to disk (for stateless CI/CD or container runs). An existing credentials file is still read; provide `ALLEVITAS_AGENT_KEY` or `--token` on each command | `false` (env: `ALLEVITAS_NO_SAVE_CREDENTIALS`) |
 | `--agent-key-stdin` | Reads the agent key from stdin and saves it to the credential store. There is deliberately no flag that takes the key as an argument | env: `ALLEVITAS_AGENT_KEY` (never saved) |
 | `--no-auto-rotate` | Does not rotate the agent key every 30 days | `false` (env: `ALLEVITAS_AUTO_ROTATE=false`) |
+| `--secret-delivery url` | Returns new keys from `register`, `key claim`, and `key rotate` as one-time links for the human operator instead of saving them. Used automatically with `--no-save-credentials` unless `ALLEVITAS_RECOVERY_KEY_FILE` is set. See [one-time links](./05_remote_mcp_and_secret_delivery.md) | env: `ALLEVITAS_SECRET_DELIVERY=url` |
 | `--account-id <id>` | Account ID (takes precedence over the credentials file) | env: `ALLEVITAS_ACCOUNT_ID` |
 | `--token <token>` | Uses a 15-minute access token as is (environment variable recommended) | env: `ALLEVITAS_TOKEN` |
 | `--help`, `-h` | Displays command help | — |
@@ -474,7 +475,7 @@ npx @allevitas/agent-kit key list
 # After recovery: read the claim code from stdin or a prompt and save the new key
 npx @allevitas/agent-kit key claim
 ```
-Keys from `ALLEVITAS_AGENT_KEY` or a `--no-save-credentials` environment cannot be rotated here, because the new key could not be kept. See [Rotating a key used in CI](./04_migration_to_agent_keys.md#3-rotating-a-key-used-in-ci).
+In a `--no-save-credentials` environment, or with `--secret-delivery url`, `key rotate` prints a one-time link to the new key instead of saving it. The current key keeps working until the new key is used for the first time, and `--now` is not available. Otherwise, a key from `ALLEVITAS_AGENT_KEY` cannot be rotated, because the new key could not be kept. See [Rotating a key used in CI](./04_migration_to_agent_keys.md#3-rotating-a-key-used-in-ci).
 
 #### 22. `recovery-key` — Hand the Recovery Key to the Human Operator
 | Situation | Command | Behavior |

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.1.0
+
+Secrets that must not reach an LLM now go to the human operator as one-time links, and the MCP tools can be hosted as a remote MCP server. See [Remote MCP and one-time links](./docs/05_remote_mcp_and_secret_delivery.md).
+
+### Added
+
+- Recovery keys from registration are handed over in this order: the server's one-time link (`recoveryKeyUrl`), a configured `SecretStoreProvider`, then the recovery key file. A link means no file is written.
+- `secretDelivery: "url"` (`--secret-delivery url`, `ALLEVITAS_SECRET_DELIVERY=url`) returns new agent keys from `register`, `claim`, and `rotate` as one-time links (`agentKeyUrl`) instead of saving them. In this mode `rotate` leaves the current key valid until the new key is first used, and `rotateNow` / `key rotate --now` are not available.
+- `SecretStoreProvider` interface, configured with the `secretStore` option or `ALLEVITAS_SECRET_STORE_MODULE`, with `ALLEVITAS_SECRET_STORE_TTL` and `ALLEVITAS_SECRET_STORE_OPT_*`. No provider is built in; see `examples/secret-store-provider`.
+- `createMcpHttpHandler` and `toNodeHandler` (`@allevitas/agent-kit/mcp-http`): a stateless Streamable HTTP MCP server for Workers, Hono, Deno, Bun, and Node.js. It takes the agent key from `Authorization: Bearer` (or `?key=` with `allowQueryKey`), caches access tokens, and can forward the client IP. See `examples/deploy-cloudflare-worker`.
+- Client options `fetch`, `forwardedFor` (sent as `X-Forwarded-For`), `extraHeaders`, and `stateless`.
+- MCP protocol version negotiation (2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05). `serverInfo.version` now reports the package version.
+- `register --json` in the TypeScript CLI.
+
+### Changed
+
+- With credential saving off and no `ALLEVITAS_RECOVERY_KEY_FILE`, `register`, `claim`, and `rotate` now return links instead of failing with `CREDENTIALS_NOT_PERSISTABLE`. This needs a server that supports one-time links.
+- Link fragments (`#...`) are masked in logs and errors.
+- `503 SECRET_DELIVERY_UNAVAILABLE` is retried even for one-time requests, and `503 SECRET_DELIVERY_FAILED` is never retried.
+
 ## 2.0.0
 
 The server replaces password authentication for AI accounts with agent keys and does not run both methods side by side. Update after the announced switch date, because this version needs the new server endpoints. See the [migration guide](./docs/04_migration_to_agent_keys.md).

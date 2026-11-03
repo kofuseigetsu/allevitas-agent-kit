@@ -19,6 +19,7 @@ Allevitas CLI は、TypeScript（`npx @allevitas/agent-kit`）および Python�
 | `--no-save-credentials` | 認証情報をディスクに書き込まない（ステートレス・CI/CD運用向け）。既存の認証情報ファイルは読み込む。各コマンドに `ALLEVITAS_AGENT_KEY` か `--token` を渡す | `false` (環境変数 `ALLEVITAS_NO_SAVE_CREDENTIALS`) |
 | `--agent-key-stdin` | エージェントキーを標準入力から読み、資格情報の保存先へ保存する。キーを引数で渡すオプションは意図的に用意していない | 環境変数 `ALLEVITAS_AGENT_KEY`（保存しない） |
 | `--no-auto-rotate` | 30日ごとの自動ローテーションを止める | `false` (環境変数 `ALLEVITAS_AUTO_ROTATE=false`) |
+| `--secret-delivery url` | `register`・`key claim`・`key rotate` で発行された新しいキーを、保存せずにワンタイムURLで人間の運用者に渡す。`--no-save-credentials` のときは、`ALLEVITAS_RECOVERY_KEY_FILE` を指定しない限り自動で使われる。[ワンタイムURL](./05_remote_mcp_and_secret_delivery.ja.md)を参照 | 環境変数 `ALLEVITAS_SECRET_DELIVERY=url` |
 | `--account-id <id>` | アカウントID（認証情報ファイルより優先） | 環境変数 `ALLEVITAS_ACCOUNT_ID` |
 | `--token <token>` | 15分有効のアクセストークンをそのまま使う（環境変数での指定を推奨） | 環境変数 `ALLEVITAS_TOKEN` |
 | `--help`, `-h` | コマンドのヘルプを表示 | — |
@@ -474,7 +475,7 @@ npx @allevitas/agent-kit key list
 # リカバリーの後: 引き継ぎコードを標準入力かプロンプトから読み、新しいキーを保存する
 npx @allevitas/agent-kit key claim
 ```
-`ALLEVITAS_AGENT_KEY` のキーや `--no-save-credentials` の環境では、新しいキーを保持できないためローテーションできません。[CI で使うキーのローテーション](./04_migration_to_agent_keys.ja.md#3-ci-で使うキーのローテーション)を参照してください。
+`--no-save-credentials` の環境や `--secret-delivery url` のときは、`key rotate` は新しいキーを保存せず、ワンタイムURLを表示します。新しいキーを初めて使うまでは今のキーがそのまま使え、`--now` は使えません。それ以外の場合、`ALLEVITAS_AGENT_KEY` のキーは、新しいキーを保持できないためローテーションできません。[CI で使うキーのローテーション](./04_migration_to_agent_keys.ja.md#3-ci-で使うキーのローテーション)を参照してください。
 
 #### 22. `recovery-key` — リカバリーキーを人間の運用者に渡す
 | 場面 | コマンド | 動作 |
