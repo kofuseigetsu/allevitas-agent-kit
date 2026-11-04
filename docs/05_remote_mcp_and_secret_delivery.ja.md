@@ -19,11 +19,8 @@ LLM のコンテキストに入れてはいけない秘密情報があります�
 
 ### 通常の登録でのリカバリーキー
 
-リカバリーキーは、次のうち最初に使えた方法で渡します。
-
 1. **サーバーのワンタイムURL（`recoveryKeyUrl`）。** 公式のサーバーが作るので、設定はいりません。SDK はファイルを書きません。
-2. **設定した `SecretStoreProvider`。** サーバーが URL を返さなかったときだけ使います（[4章](#4-secretstoreprovider)を参照）。
-3. **ローカルのファイル。** 従来の動作です。`<資格情報のディレクトリ>/<アカウントID>.recovery-key.json` に書き出し、`allevitas recovery-key export` で取り出します。
+2. **サーバーが URL を返さなかったときは、ローカルのファイル。** 従来の動作です。`<資格情報のディレクトリ>/<アカウントID>.recovery-key.json` に書き出し、`allevitas recovery-key export` で取り出します。
 
 エージェントキーは、これまでどおり OS のキーリングか `.credentials.json` に保存します。
 
@@ -53,8 +50,7 @@ URL モードでは、自動ローテーションは行いません。リンク�
 | :--- | :--- | :--- |
 | `SECRET_DELIVERY_UNAVAILABLE` | 一時的にリンクを作れない。何も変更されていない | SDK が `Retry-After` に従って再試行します |
 | `SECRET_DELIVERY_FAILED` | キーは発行されたが、リンクを作れなかった | register: アカウントは作られていないので、登録し直します。rotate: 今のキーはそのまま使えます。claim: コードは使われたので、リカバリーし直します |
-| `SECRET_DELIVERY_UNSUPPORTED` | サーバーがリンクではなく生のキーを返した | リンクに対応したサーバーを使うか、`SecretStoreProvider` を設定します |
-| `CONFIG_CONFLICT` | シークレットストアと `ALLEVITAS_RECOVERY_KEY_FILE` を両方指定した | どちらか一方にします |
+| `SECRET_DELIVERY_UNSUPPORTED` | サーバーがリンクではなく生のキーを返した | リンクに対応したサーバーを使います。キーをファイルに書くことはありません |
 
 ---
 
@@ -95,7 +91,7 @@ Cloudflare Workers 用のテンプレートは [`examples/deploy-cloudflare-work
 | `tokenCache` | メモリ | アクセストークンの共有キャッシュ |
 | `disableKeyIssuingTools` | `false` | `allevitas_register`・`allevitas_claim`・`allevitas_rotate_key` を隠します |
 
-第1引数には、クライアントの基本オプション（`apiUrl`・`secretStore`・`extraHeaders` など）を指定します。`extraHeaders` は、すべての API リクエストにヘッダーを付けます。
+第1引数には、クライアントの基本オプション（`apiUrl`・`extraHeaders` など）を指定します。`extraHeaders` は、すべての API リクエストにヘッダーを付けます。
 
 Allevitas の API が、転送されたクライアントの IP を信頼するのは、公式のホスティングからのリクエストだけです。セルフホストしたサーバーには、サーバー自身の送信元 IP でレート制限がかかります。
 
@@ -111,24 +107,3 @@ AI がリンクを人間に伝えるので、リンクは LLM のコンテキス
 
 - **リカバリーキーのとき:** `/recover/agent` でリカバリーします。すべてのキーが失効します。
 - **ローテーションで発行されたエージェントキーのとき:** 今のキーはまだ使えます。資格情報を保存できる環境でもう一度ローテーションし、`allevitas key list` で使われ方を確認します。
-
----
-
-## 4. SecretStoreProvider
-
-プロバイダーは、秘密情報をどこかに保存してリンクを返します。SDK がプロバイダーを使うのは、サーバーがリンクを返さなかったときだけです。組み込みのプロバイダーはありません。
-
-```ts
-interface SecretStoreProvider {
-  name: string;
-  check?(): Promise<boolean>; // 登録の前に呼ばれる
-  store(secret: string, opts: { ttlSec: number; kind: "recovery_key" | "agent_key" }): Promise<{ url: string; expiresAt?: string }>;
-}
-```
-
-- **SDK:** `new AllevitasClient({ secretStore: provider })`
-- **CLI と stdio MCP:** `ALLEVITAS_SECRET_STORE_MODULE=<ファイルまたはパッケージ>`。モジュールの default export は factory で、`{ ttlSec, options, fetch }` を受け取ります。
-- **`ALLEVITAS_SECRET_STORE_OPT_<NAME>`:** camelCase にして `options.<name>` に入ります。値はログでマスクされます。
-- **`ALLEVITAS_SECRET_STORE_TTL`:** リンクの有効期間の秒数（既定は 86400）。
-
-モジュールは SDK のプロセスの中で実行されるので、`ALLEVITAS_SECRET_STORE_MODULE` は信頼できる設定からだけ指定してください。保存に失敗すると3回まで再試行し、それでも失敗したときは、リカバリーキーをファイルに保存します。最小の見本は [`examples/secret-store-provider`](../examples/secret-store-provider/) にあります。

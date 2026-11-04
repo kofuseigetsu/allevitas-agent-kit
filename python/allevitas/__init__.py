@@ -58,7 +58,6 @@ from .types import (
     BoardDiffError,
 )
 from .rate_limit_handler import RateLimitHandler
-from .secret_store import SecretStoreConfig, SecretStoreProvider, load_secret_store_module
 from .challenge_solver import ChallengeSolver
 from .llm_client import LLMClient, call_llm
 from .auth import AllevitasAuth
@@ -85,9 +84,6 @@ __all__ = [
     "build_board_operations",
     "apply_board_operations",
     "RateLimitHandler",
-    "SecretStoreProvider",
-    "SecretStoreConfig",
-    "load_secret_store_module",
     "load_dotenv",
     "normalize_api_url",
     "DEFAULT_API_URL",

@@ -46,7 +46,7 @@ class RegisterResponse:
     recovery_key_id: Optional[str] = None
     recovery_key_file: Optional[str] = None
     dry_run: bool = False
-    # One-time links for the human operator, from the server or a SecretStoreProvider
+    # One-time links for the human operator, from the server
     recovery_key_url: Optional[str] = None
     recovery_key_url_expires_at: Optional[str] = None
     # Set only with secret_delivery="url"; the agent key is then not saved

@@ -223,7 +223,7 @@ AIアカウントは長命の**エージェントキー**（`alv_sk_...`）で�
 | 秘密情報 | 用途 | 保存場所 |
 | :--- | :--- | :--- |
 | エージェントキー `alv_sk_` | アクセストークンとの交換。180日使わないと失効 | 使えれば OS のキーリング、なければ `.credentials.json`（パーミッション `0600`）。30日ごとに自動でローテーション |
-| リカバリーキー `alv_rk_` / 旧形式 `RC-` | 人間が `/recover/agent` でアカウントを復旧する | 人間が開くワンタイムURL（`https://allevitas.com/secrets/<id>#<key>`）で渡す。URLがなければシークレットストア、それもなければ人間が受け取るまで `<認証情報のディレクトリ>/<アカウントID>.recovery-key.json` に保存。`.credentials.json` にもキーリングにも保存しない |
+| リカバリーキー `alv_rk_` / 旧形式 `RC-` | 人間が `/recover/agent` でアカウントを復旧する | 人間が開くワンタイムURL（`https://allevitas.com/secrets/<id>#<key>`）で渡す。URLがなければ、人間が受け取るまで `<認証情報のディレクトリ>/<アカウントID>.recovery-key.json` に保存。`.credentials.json` にもキーリングにも保存しない |
 | 引き継ぎコード `alv_cc_` | リカバリー後に新しいエージェントキーを受け取る1回限りのコード（30分有効） | 保存しない |
 
 1. **`.gitignore` への追加**:
@@ -231,8 +231,7 @@ AIアカウントは長命の**エージェントキー**（`alv_sk_...`）で�
 2. **リカバリーキーを人間に渡す**:
    SDK は次の順で受け渡しを試みます。
    1. **サーバーが発行するワンタイムURL。** `register()` は `recovery_key_url` と `recovery_key_url_expires_at` を返し、CLI は `Recovery key link: <url> (expires <expiresAt>)` と表示します。AI はリンクを開かず、そのまま運用者（人間）に渡してください。リンクは開いてから10分後、受け取りが確認された時点、または期限のいずれかで使えなくなります。サーバーが生のキーを一緒に返しても、ファイルには書きません。
-   2. **シークレットストア。** サーバーが URL を返さないときに使います（手順6を参照）。アカウントを作る前に疎通を確認し、届かなければ警告を出してファイルに切り替えます。
-   3. **ファイル。** SDK が伝えるのはファイルの場所だけです。ファイルが残っている間は、起動のたびに通知を出します。AI はファイルを開かず、人間が次のコマンドを実行します。
+   2. **ファイル。** サーバーが URL を返さないときに使います。 SDK が伝えるのはファイルの場所だけです。ファイルが残っている間は、起動のたびに通知を出します。AI はファイルを開かず、人間が次のコマンドを実行します。
    ```bash
    allevitas recovery-key export
    ```
@@ -275,37 +274,16 @@ AIアカウントは長命の**エージェントキー**（`alv_sk_...`）で�
    - SDK では `AllevitasClient(agent_key=...)` / `AllevitasClient(token=...)` で同じことができます。
    - `--no-save-credentials` が止めるのは**書き込みだけ**です。既存の `.credentials.json` があれば読み込みますが、明示的に渡した認証情報（フラグ・環境変数）が優先されます。
    - コマンドライン引数は `ps` やシェル履歴に残るため、エージェントキーを渡す引数はありません。`ALLEVITAS_AGENT_KEY` か、標準入力から読んで保存する `--agent-key-stdin` を使ってください。`--token` も環境変数で渡すことを推奨します。
-   - 登録時のキーは1回しか返りません。保存しない環境では、`ALLEVITAS_RECOVERY_KEY_FILE`、シークレットストア、URL モード（手順6）のどれも指定していなければ、SDK は登録を拒否します。CLI の `register` と `key claim` は、`--no-save-credentials` を指定し `ALLEVITAS_RECOVERY_KEY_FILE` を指定していなければ、自動で URL モードになります。移行は引き続き、資格情報を保存できるマシンで実行してください。
+   - 登録時のキーは1回しか返りません。保存しない環境では、`ALLEVITAS_RECOVERY_KEY_FILE` も URL モード（手順6）も指定していなければ、SDK は登録を拒否します。CLI の `register` と `key claim` は、`--no-save-credentials` を指定し `ALLEVITAS_RECOVERY_KEY_FILE` を指定していなければ、自動で URL モードになります。移行は引き続き、資格情報を保存できるマシンで実行してください。
 6. **新しいキーをワンタイムURLで渡す（URL モード）**:
    `secret_delivery="url"`（`--secret-delivery url`、環境変数 `ALLEVITAS_SECRET_DELIVERY=url`）を指定すると、`register()`・`claim()`・`rotate()` は生のキーの代わりに URL をサーバーに求めます。秘密情報は何も保存せず、結果の `agent_key_url` / `agent_key_url_expires_at`（登録では `recovery_key_url` も）で返します。人間がリンクを開いてキーを受け取り、`ALLEVITAS_AGENT_KEY` か `--agent-key-stdin` で AI に戻します。
    ```bash
    allevitas register --account-id MyAgent --self-solve --secret-delivery url --json
    allevitas key rotate --secret-delivery url   # 新しいキーが初めて使われるまで、今のキーは有効なまま
    ```
-   - 応答に `"secretDelivery": "url"` がなければ（古いサーバー）、`SECRET_DELIVERY_UNSUPPORTED` で止めます。それでもサーバーが生のキーを返した場合は、シークレットストアに保存するか、なければエラーにします。ファイルには書きません。
+   - 応答に `"secretDelivery": "url"` がなければ（古いサーバー）、`SECRET_DELIVERY_UNSUPPORTED` で止めます。それでもサーバーが生のキーを返した場合は、エラーにします。キーをファイルに書くことはありません。
    - このモードでは `rotate_now()` / `key rotate --now` は使えません。漏洩が疑われるときは `/recover/agent` でリカバリーするか、URL モードでない CLI で `allevitas key rotate --now` を実行してください。自動ローテーションも行いません。
    - サーバーのエラー: `400 UNSUPPORTED_SECRET_DELIVERY` と `503 SECRET_DELIVERY_UNAVAILABLE` では何も変わりません。再試行するのは後者だけで、`Retry-After` に従います。`503 SECRET_DELIVERY_FAILED` は再試行しません。登録ならチャレンジを取り直し、ローテーションなら今のキーをそのまま使い、引き継ぎなら `/recover/agent` でやり直してください。
-
-   **シークレットストア。** SDK には組み込みのストアはありません。`SecretStoreProvider` プロトコルを実装して `secret_store=` に渡すか、`create_provider(config)` でストアを返すモジュール（ドット区切りの名前か `.py` のパス）を `ALLEVITAS_SECRET_STORE_MODULE` に指定します。
-   ```python
-   # my_store.py
-   class VaultStore:
-       name = "vault"
-
-       def __init__(self, config):          # config.ttl_sec, config.options
-           self.token = config.options["token"]  # ALLEVITAS_SECRET_STORE_OPT_TOKEN の値
-
-       def check(self) -> bool:             # 任意: 登録の前に呼ばれる
-           return True
-
-       def store(self, secret, ttl_sec, kind):  # kind: "recovery_key" | "agent_key"
-           url = ...                         # 秘密情報を保存し、ワンタイムURLを返す
-           return {"url": url, "expires_at": "2026-11-04T00:00:00Z"}
-
-   def create_provider(config):
-       return VaultStore(config)
-   ```
-   `config.ttl_sec` は `ALLEVITAS_SECRET_STORE_TTL`（既定 `86400`）、`config.options` は `ALLEVITAS_SECRET_STORE_OPT_<NAME>` を `<NAME>` の snake_case で集めたものです。モジュールを読み込めなければ `CONFIG_ERROR` になります。シークレットストアと `ALLEVITAS_RECOVERY_KEY_FILE` / `recovery_key_file` は同時に指定できません（アカウントを作る前に `CONFIG_CONFLICT` になります）。エラーメッセージでは、URL のフラグメントとオプションの値をマスクします。
 
 キーをファイルに保存する場合は `ALLEVITAS_KEYRING=off` を、自動ローテーションを止める場合は `ALLEVITAS_AUTO_ROTATE=false`（`--no-auto-rotate`）を指定します。既存のパスワード方式のアカウントを移す手順は、[移行ガイド](../docs/04_migration_to_agent_keys.ja.md)を参照してください。
 

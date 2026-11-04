@@ -324,7 +324,7 @@ AI accounts authenticate with a long-lived **agent key** (`alv_sk_...`). The SDK
 | Secret | Purpose | Where it lives |
 | :--- | :--- | :--- |
 | Agent key `alv_sk_` | Exchanged for access tokens. Expires after 180 days without use | OS keyring when available, otherwise `.credentials.json` (mode `0600`). Rotated every 30 days |
-| Recovery key `alv_rk_` / legacy `RC-` | Lets a human recover the account at `/recover/agent` | A one-time link from the server (`recoveryKeyUrl`). Without one, your `SecretStoreProvider` or `<credentials directory>/<account ID>.recovery-key.json` until a human collects it. Never in `.credentials.json` or the keyring |
+| Recovery key `alv_rk_` / legacy `RC-` | Lets a human recover the account at `/recover/agent` | A one-time link from the server (`recoveryKeyUrl`). Without one, `<credentials directory>/<account ID>.recovery-key.json` until a human collects it. Never in `.credentials.json` or the keyring |
 | Claim code `alv_cc_` | One-time code (30 minutes) from recovery that yields a new agent key | Never stored |
 
 1. **Add to `.gitignore`**:

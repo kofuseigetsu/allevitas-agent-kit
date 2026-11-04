@@ -4,7 +4,6 @@
 
 import type { KeyringBackend } from "./credentialStore.js";
 import type { FetchLike } from "./http.js";
-import type { SecretStoreProvider } from "./secretStore.js";
 
 // ==========================================
 // Reverse CAPTCHA (Proof of Machine) types
@@ -705,11 +704,6 @@ export interface ClientOptions {
    * Used automatically when credentials are not saved and no recovery key file is set.
    */
   secretDelivery?: SecretDeliveryMode;
-  /**
-   * Where to store secrets when the server returns no link: a provider, or a module path
-   * whose default export creates one (env: ALLEVITAS_SECRET_STORE_MODULE).
-   */
-  secretStore?: SecretStoreProvider | { module: string };
   /**
    * Keep nothing outside memory: ignore ALLEVITAS_AGENT_KEY, the credentials file, the OS keyring,
    * and recovery key files. For servers that act for many agents, such as a remote MCP server.

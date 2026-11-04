@@ -42,10 +42,6 @@ ENV_KEYS = (
     "ALLEVITAS_DRY_RUN",
     "ALLEVITAS_PASSWORD",
     "ALLEVITAS_SECRET_DELIVERY",
-    "ALLEVITAS_SECRET_STORE_MODULE",
-    "ALLEVITAS_SECRET_STORE_TTL",
-    "ALLEVITAS_SECRET_STORE_OPT_LOG_PATH",
-    "ALLEVITAS_SECRET_STORE_OPT_API_TOKEN",
 )
 ACCOUNT_ID = "key_bot"
 STORED_KEY = "alv_sk_storedkeyvalue"
@@ -1225,63 +1221,7 @@ class TestCli(AgentKeyTestCase):
             self.assertIn("No recovery key is stored", result.stderr)
 
 
-PROVIDER_MODULE_SOURCE = """
-import json
-
-
-class _LoggingStore:
-    name = "module-store"
-
-    def __init__(self, config):
-        self.config = config
-
-    def store(self, secret, ttl_sec, kind):
-        with open(self.config.options["log_path"], "a", encoding="utf-8") as f:
-            f.write(json.dumps({"kind": kind, "ttl": ttl_sec, "options": sorted(self.config.options)}) + "\\n")
-        return {"url": "https://vault.example/secrets/m1#modulekey", "expires_at": "2026-11-05T00:00:00Z"}
-
-
-def create_provider(config):
-    return _LoggingStore(config)
-"""
-
-
-class RecordingStore:
-    name = "recording"
-
-    def __init__(self, reachable=True, fail=False):
-        self.reachable = reachable
-        self.fail = fail
-        self.checks = 0
-        self.stored = []
-
-    def check(self):
-        self.checks += 1
-        if not self.reachable:
-            raise ConnectionError("store is down")
-        return True
-
-    def store(self, secret, ttl_sec, kind):
-        if self.fail:
-            raise RuntimeError("store rejected the write")
-        self.stored.append((secret, ttl_sec, kind))
-        n = len(self.stored)
-        return {"url": f"https://vault.example/secrets/v{n}#vaultkey{n}", "expires_at": "2026-11-05T00:00:00Z"}
-
-
-class SecretDeliveryTestCase(AgentKeyTestCase):
-    def write_provider_module(self, name="allevitas_test_store"):
-        path = os.path.join(self.tmp_dir, f"{name}.py")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(PROVIDER_MODULE_SOURCE)
-        return path
-
-    def read_provider_log(self):
-        with open(os.path.join(self.tmp_dir, "store.log"), "r", encoding="utf-8") as f:
-            return [json.loads(line) for line in f]
-
-
-class TestRecoveryKeyHandover(SecretDeliveryTestCase):
+class TestRecoveryKeyHandover(AgentKeyTestCase):
     def test_server_link_replaces_the_recovery_key_file(self):
         self.state.register_extra = {
             "recoveryKeyUrl": "https://allevitas.com/secrets/r1#serverkey",
@@ -1295,117 +1235,16 @@ class TestRecoveryKeyHandover(SecretDeliveryTestCase):
         self.assertRegex(self.read_credentials()["agentKey"], r"^alv_sk_")
         self.assertNotIn("secretDelivery", self.state.register_requests[0])
 
-    def test_server_link_wins_over_the_secret_store(self):
-        self.state.register_extra = {"recoveryKeyUrl": "https://allevitas.com/secrets/r1#serverkey"}
-        store = RecordingStore()
-        res = self.registering_client(secret_store=store).register(ACCOUNT_ID)
-        self.assertEqual(res.recovery_key_url, "https://allevitas.com/secrets/r1#serverkey")
-        self.assertEqual(store.stored, [])
 
-    def test_secret_store_keeps_the_key_when_the_server_gives_no_link(self):
-        store = RecordingStore()
-        res = self.registering_client(secret_store=store).register(ACCOUNT_ID)
-        self.assertEqual(store.checks, 1)
-        self.assertEqual(store.stored, [("alv_rk_registered", 86400, "recovery_key")])
-        self.assertEqual(res.recovery_key_url, "https://vault.example/secrets/v1#vaultkey1")
-        self.assertEqual(res.recovery_key_url_expires_at, "2026-11-05T00:00:00Z")
-        self.assertIsNone(res.recovery_key_file)
-        self.assertFalse(os.path.exists(self.recovery_path))
-
-    def test_secret_store_allows_stateless_registration(self):
-        res = self.registering_client(save_credentials=False, secret_store=RecordingStore()).register(ACCOUNT_ID)
-        self.assertEqual(res.recovery_key_url, "https://vault.example/secrets/v1#vaultkey1")
-        self.assertFalse(os.path.exists(self.cred_path))
-
-    def test_unreachable_store_falls_back_to_the_file(self):
-        store = RecordingStore(reachable=False)
-        res = self.registering_client(secret_store=store).register(ACCOUNT_ID)
-        self.assertIn("not reachable", self.stderr.getvalue())
-        self.assertEqual(res.recovery_key_file, self.recovery_path)
-        self.assertIsNone(res.recovery_key_url)
-        self.assertEqual(store.stored, [])
-
-    def test_unreachable_store_without_a_file_refuses_before_creating_the_account(self):
-        with self.assertRaises(AllevitasAuthError) as ctx:
-            self.registering_client(save_credentials=False, secret_store=RecordingStore(reachable=False)).register(ACCOUNT_ID)
-        self.assertEqual(ctx.exception.code, "CREDENTIALS_NOT_PERSISTABLE")
-        self.assertEqual(self.state.register_requests, [])
-
-    def test_failed_store_write_falls_back_to_the_file(self):
-        res = self.registering_client(secret_store=RecordingStore(fail=True)).register(ACCOUNT_ID)
-        self.assertEqual(res.recovery_key_file, self.recovery_path)
-        self.assertIn("could not store the recovery key", self.stderr.getvalue())
-
-    def test_store_and_explicit_file_conflict_before_creating_the_account(self):
-        target = os.path.join(self.tmp_dir, "rk.json")
-        with self.assertRaises(AllevitasAuthError) as ctx:
-            self.registering_client(secret_store=RecordingStore(), recovery_key_file=target).register(ACCOUNT_ID)
-        self.assertEqual(ctx.exception.code, "CONFIG_CONFLICT")
-
-        os.environ["ALLEVITAS_RECOVERY_KEY_FILE"] = target
-        os.environ["ALLEVITAS_SECRET_STORE_MODULE"] = self.write_provider_module()
-        with self.assertRaises(AllevitasAuthError) as ctx:
-            self.registering_client().register(ACCOUNT_ID)
-        self.assertEqual(ctx.exception.code, "CONFIG_CONFLICT")
-        self.assertEqual(self.state.register_requests, [])
-        self.assertEqual(self.state.keys, {})
-
-
-class TestSecretStoreModule(SecretDeliveryTestCase):
-    def setUp(self):
-        super().setUp()
-        os.environ["ALLEVITAS_SECRET_STORE_OPT_LOG_PATH"] = os.path.join(self.tmp_dir, "store.log")
-        os.environ["ALLEVITAS_SECRET_STORE_OPT_API_TOKEN"] = "tok_supersecret"
-
-    def test_loads_a_py_file_with_ttl_and_options(self):
-        os.environ["ALLEVITAS_SECRET_STORE_MODULE"] = self.write_provider_module()
-        os.environ["ALLEVITAS_SECRET_STORE_TTL"] = "600"
-        res = self.registering_client().register(ACCOUNT_ID)
-        self.assertEqual(res.recovery_key_url, "https://vault.example/secrets/m1#modulekey")
-        self.assertEqual(self.read_provider_log(), [{"kind": "recovery_key", "ttl": 600, "options": ["api_token", "log_path"]}])
-
-    def test_loads_a_dotted_module_name(self):
-        self.write_provider_module("allevitas_dotted_store")
-        with mock.patch.object(sys, "path", [self.tmp_dir, *sys.path]):
-            os.environ["ALLEVITAS_SECRET_STORE_MODULE"] = "allevitas_dotted_store"
-            res = self.registering_client().register(ACCOUNT_ID)
-        sys.modules.pop("allevitas_dotted_store", None)
-        self.assertEqual(res.recovery_key_url, "https://vault.example/secrets/m1#modulekey")
-
-    def test_load_failures_are_config_errors_before_creating_the_account(self):
-        broken = os.path.join(self.tmp_dir, "broken.py")
-        with open(broken, "w", encoding="utf-8") as f:
-            f.write("raise ImportError('missing dependency')\n")
-        no_factory = os.path.join(self.tmp_dir, "no_factory.py")
-        with open(no_factory, "w", encoding="utf-8") as f:
-            f.write("x = 1\n")
-        for spec in (broken, no_factory, "allevitas_no_such_module", os.path.join(self.tmp_dir, "missing.py")):
-            os.environ["ALLEVITAS_SECRET_STORE_MODULE"] = spec
-            with self.assertRaises(AllevitasAuthError) as ctx:
-                self.registering_client().register(ACCOUNT_ID)
-            self.assertEqual(ctx.exception.code, "CONFIG_ERROR", spec)
-        self.assertEqual(self.state.register_requests, [])
-
-    def test_rejects_an_invalid_ttl(self):
-        os.environ["ALLEVITAS_SECRET_STORE_MODULE"] = self.write_provider_module()
-        os.environ["ALLEVITAS_SECRET_STORE_TTL"] = "soon"
-        with self.assertRaises(AllevitasAuthError) as ctx:
-            self.registering_client().register(ACCOUNT_ID)
-        self.assertEqual(ctx.exception.code, "CONFIG_ERROR")
-
-    def test_masks_links_and_option_values(self):
-        text = mask_secrets(
-            "link https://allevitas.com/secrets/abc#fragmentkey and ALLEVITAS_SECRET_STORE_OPT_API_TOKEN=tok_value1 "
-            "echoed tok_supersecret"
-        )
+class TestSecretMasking(AgentKeyTestCase):
+    def test_masks_link_fragments(self):
+        text = mask_secrets("link https://allevitas.com/secrets/abc#fragmentkey")
         self.assertIn("/secrets/abc#[FILTERED]", text)
         self.assertNotIn("fragmentkey", text)
-        self.assertNotIn("tok_value1", text)
-        self.assertNotIn("tok_supersecret", text)
         self.assertEqual(mask_secrets("see /secrets/ and #anchors"), "see /secrets/ and #anchors")
 
 
-class TestUrlDelivery(SecretDeliveryTestCase):
+class TestUrlDelivery(AgentKeyTestCase):
     def test_register_sends_secret_delivery_and_keeps_nothing(self):
         os.environ["ALLEVITAS_SECRET_DELIVERY"] = "url"
         res = self.registering_client().register(ACCOUNT_ID)
@@ -1439,16 +1278,7 @@ class TestUrlDelivery(SecretDeliveryTestCase):
         self.assertFalse(os.path.exists(self.cred_path))
         self.assertFalse(os.path.exists(self.recovery_path))
 
-    def test_raw_keys_go_to_the_secret_store(self):
-        self.state.url_delivery_raw_keys = True
-        store = RecordingStore()
-        res = self.registering_client(secret_delivery="url", secret_store=store).register(ACCOUNT_ID)
-        self.assertEqual([kind for _, _, kind in store.stored], ["recovery_key", "agent_key"])
-        self.assertEqual(res.recovery_key_url, "https://vault.example/secrets/v1#vaultkey1")
-        self.assertEqual(res.agent_key_url, "https://vault.example/secrets/v2#vaultkey2")
-        self.assertFalse(os.path.exists(self.cred_path))
-
-    def test_raw_keys_without_a_store_are_not_written_anywhere(self):
+    def test_raw_keys_are_not_written_anywhere(self):
         self.state.url_delivery_raw_keys = True
         with self.assertRaises(AllevitasAuthError) as ctx:
             self.registering_client(secret_delivery="url").register(ACCOUNT_ID)
@@ -1514,7 +1344,7 @@ class TestUrlDelivery(SecretDeliveryTestCase):
         self.assertFalse(os.path.exists(self.cred_path))
 
 
-class TestSecretDeliveryErrors(SecretDeliveryTestCase):
+class TestSecretDeliveryErrors(AgentKeyTestCase):
     def test_unavailable_is_retried_after_retry_after_even_for_register(self):
         self.state.delivery_errors = [(503, "SECRET_DELIVERY_UNAVAILABLE", "7")]
         with mock.patch("allevitas.rate_limit_handler.time.sleep") as sleep, contextlib.redirect_stdout(io.StringIO()):
@@ -1574,7 +1404,7 @@ class TestSecretDeliveryErrors(SecretDeliveryTestCase):
         self.assertEqual(len(self.state.token_requests), 1)
 
 
-class TestSecretDeliveryCli(SecretDeliveryTestCase):
+class TestSecretDeliveryCli(AgentKeyTestCase):
     run_cli = TestCli.run_cli
     REGISTER = ("register", "--account-id", ACCOUNT_ID, "--challenge-id", "c1", "--answer", '{"matchCount": 1}')
 
@@ -1619,15 +1449,6 @@ class TestSecretDeliveryCli(SecretDeliveryTestCase):
         result = self.run_cli(*self.REGISTER)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"Recovery key was saved to {self.recovery_path}.", result.stdout)
-
-    def test_register_through_a_store_module(self):
-        result = self.run_cli(*self.REGISTER, env={
-            "ALLEVITAS_SECRET_STORE_MODULE": self.write_provider_module(),
-            "ALLEVITAS_SECRET_STORE_OPT_LOG_PATH": os.path.join(self.tmp_dir, "store.log"),
-        })
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Recovery key link: https://vault.example/secrets/m1#modulekey (expires 2026-11-05T00:00:00Z)", result.stdout)
-        self.assertEqual(self.read_provider_log()[0]["kind"], "recovery_key")
 
     def test_no_save_credentials_switches_to_url_delivery(self):
         result = self.run_cli(*self.REGISTER, "--no-save-credentials", "--json")
@@ -1705,7 +1526,6 @@ class TestSecretDeliveryCli(SecretDeliveryTestCase):
     def test_help_documents_url_delivery(self):
         result = self.run_cli("--help")
         self.assertIn("--secret-delivery url", result.stdout)
-        self.assertIn("ALLEVITAS_SECRET_STORE_MODULE", result.stdout)
 
 
 if __name__ == "__main__":

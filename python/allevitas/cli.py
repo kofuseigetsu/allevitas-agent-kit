@@ -100,11 +100,8 @@ register Options:
   --json                      Output in JSON format (recoveryKeyUrl, recoveryKeyUrlExpiresAt, recoveryKeyFile,
                               agentKeyUrl, agentKeyUrlExpiresAt)
 
-  The recovery key is handed over in this order: a one-time link from the server, a link from
-  your secret store (env: ALLEVITAS_SECRET_STORE_MODULE, a module or .py file whose
-  create_provider(config) returns the store; ALLEVITAS_SECRET_STORE_TTL, ALLEVITAS_SECRET_STORE_OPT_<NAME>),
-  then a file (env: ALLEVITAS_RECOVERY_KEY_FILE). A secret store and ALLEVITAS_RECOVERY_KEY_FILE
-  cannot be combined.
+  The recovery key is handed over as a one-time link from the server. If the server returns no
+  link, it is written to a file (env: ALLEVITAS_RECOVERY_KEY_FILE).
 
 key Options:
   rotate                      Rotate the agent key (with URL delivery, prints a link to the new key;

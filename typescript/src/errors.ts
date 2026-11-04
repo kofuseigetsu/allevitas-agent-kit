@@ -7,27 +7,11 @@ const SECRET_VALUE_PATTERN = /alv_(?:sk|rk|cc)_[0-9A-Za-z]+|\b[Rr][Cc]-[0-9a-fA-
 // The fragment of a one-time link is its decryption key
 const LINK_FRAGMENT_PATTERN = /(https?:\/\/[^\s"'<>#]+)#[^\s"'<>]+/g;
 
-// Values that only become known at runtime, such as secret store options
-const registeredSecrets = new Set<string>();
-
 /**
- * Mask this value from now on, wherever maskSecrets is applied.
- */
-export function registerSecretValue(value: string): void {
-  if (value.length >= 8) {
-    registeredSecrets.add(value);
-  }
-}
-
-/**
- * Replace agent keys, recovery keys, claim codes, link fragments, and registered values with [FILTERED].
+ * Replace agent keys, recovery keys, claim codes, and link fragments with [FILTERED].
  */
 export function maskSecrets(text: string): string {
-  let masked = text.replace(SECRET_VALUE_PATTERN, "[FILTERED]").replace(LINK_FRAGMENT_PATTERN, "$1#[FILTERED]");
-  for (const value of registeredSecrets) {
-    masked = masked.split(value).join("[FILTERED]");
-  }
-  return masked;
+  return text.replace(SECRET_VALUE_PATTERN, "[FILTERED]").replace(LINK_FRAGMENT_PATTERN, "$1#[FILTERED]");
 }
 
 function parseErrorCode(body: string): string | undefined {

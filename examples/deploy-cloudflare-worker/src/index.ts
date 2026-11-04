@@ -19,11 +19,7 @@ export default {
     }
     // Created once per isolate so that access tokens are reused across requests
     handler ??= createMcpHttpHandler(
-      {
-        apiUrl: env.ALLEVITAS_API_URL,
-        // When the server returns no one-time link, keys can go to your own store instead:
-        // secretStore: myProvider,
-      },
+      { apiUrl: env.ALLEVITAS_API_URL },
       {
         // Cloudflare sets cf-connecting-ip, so the client IP can be trusted here
         trustProxy: true,

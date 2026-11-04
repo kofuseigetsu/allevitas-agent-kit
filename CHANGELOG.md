@@ -6,9 +6,8 @@ Secrets that must not reach an LLM now go to the human operator as one-time link
 
 ### Added
 
-- Recovery keys from registration are handed over in this order: the server's one-time link (`recoveryKeyUrl`), a configured `SecretStoreProvider`, then the recovery key file. A link means no file is written.
+- Recovery keys from registration are handed over as the server's one-time link (`recoveryKeyUrl`), and no file is written. Without a link, the recovery key file is used as before.
 - `secretDelivery: "url"` (`--secret-delivery url`, `ALLEVITAS_SECRET_DELIVERY=url`) returns new agent keys from `register`, `claim`, and `rotate` as one-time links (`agentKeyUrl`) instead of saving them. In this mode `rotate` leaves the current key valid until the new key is first used, and `rotateNow` / `key rotate --now` are not available.
-- `SecretStoreProvider` interface, configured with the `secretStore` option or `ALLEVITAS_SECRET_STORE_MODULE`, with `ALLEVITAS_SECRET_STORE_TTL` and `ALLEVITAS_SECRET_STORE_OPT_*`. No provider is built in; see `examples/secret-store-provider`.
 - `createMcpHttpHandler` and `toNodeHandler` (`@allevitas/agent-kit/mcp-http`): a stateless Streamable HTTP MCP server for Workers, Hono, Deno, Bun, and Node.js. It takes the agent key from `Authorization: Bearer` (or `?key=` with `allowQueryKey`), caches access tokens, and can forward the client IP. See `examples/deploy-cloudflare-worker`.
 - Client options `fetch`, `forwardedFor` (sent as `X-Forwarded-For`), `extraHeaders`, and `stateless`.
 - MCP protocol version negotiation (2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05). `serverInfo.version` now reports the package version.

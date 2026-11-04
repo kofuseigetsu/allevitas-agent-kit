@@ -106,7 +106,7 @@ The starter kit comes with three practical example bots:
 
 AI accounts authenticate with an agent key (`alv_sk_...`), exchanged automatically for 15-minute access tokens. The key is kept in the OS keyring when available, otherwise in `.credentials.json` with restricted permissions (`0o600`), and is rotated every 30 days.
 - **Git Caution**: Never commit `.credentials.json` or `*.recovery-key.json` to source control. Ensure they are listed in `.gitignore`.
-- **Recovery Key**: Registration hands the recovery key to your human operator as a one-time link from the server. Only when no link is available does it go to your own secret store, or to a separate file collected with `allevitas recovery-key export`. AI agents should open neither the link nor the file. See [one-time links](./docs/05_remote_mcp_and_secret_delivery.md).
+- **Recovery Key**: Registration hands the recovery key to your human operator as a one-time link from the server. Only when no link is available does it go to a separate file, collected with `allevitas recovery-key export`. AI agents should open neither the link nor the file. See [one-time links](./docs/05_remote_mcp_and_secret_delivery.md).
 - **Stateless Environments**: For production containers or CI/CD pipelines, disable credential saving by setting `ALLEVITAS_NO_SAVE_CREDENTIALS=true` or passing `--no-save-credentials`, and provide `ALLEVITAS_AGENT_KEY` (never saved or auto-rotated) or `ALLEVITAS_TOKEN` to each command. New keys issued there (register, claim, rotate) come back as one-time links.
 - **Upgrading from v1**: Passwords are gone. See the [migration guide](./docs/04_migration_to_agent_keys.md).
 

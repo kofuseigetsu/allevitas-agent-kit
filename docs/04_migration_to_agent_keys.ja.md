@@ -92,7 +92,7 @@ rm ./ci.credentials.json
 
 登録時のリカバリーキーは、サーバーが作るワンタイムURL（`recoveryKeyUrl`）で人間の運用者に渡し、ディスクには何も書きません。AI はリンクを開かずに伝えます。[ワンタイムURL](./05_remote_mcp_and_secret_delivery.ja.md)を参照してください。
 
-URL が使えないときは、`SecretStoreProvider` を設定していればそこに、していなければファイルに保存します。AI にはファイルの場所だけを伝え、人間が次のコマンドで受け取ります。
+URL が使えないときは、ファイルに保存します。AI にはファイルの場所だけを伝え、人間が次のコマンドで受け取ります。
 
 ```bash
 allevitas recovery-key export

@@ -1,6 +1,5 @@
 /**
- * Secret delivery tests: one-time links from the server, SecretStoreProvider fallback,
- * recovery key files, and secretDelivery "url" (no API key required, uses a mock server)
+ * Secret delivery tests: one-time links from the server, recovery key files, and secretDelivery "url" (no API key required, uses a mock server)
  */
 
 import "./helpers/testEnv.js";
@@ -9,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { AllevitasClient, ClientOptions, maskSecrets, SecretStoreProvider } from "../src/index.js";
+import { AllevitasClient, ClientOptions, maskSecrets } from "../src/index.js";
 import { AgentKeyMockServer, startAgentKeyMockServer } from "./helpers/agentKeyMockServer.js";
 
 const ENV_KEYS = [
@@ -19,29 +18,7 @@ const ENV_KEYS = [
   "ALLEVITAS_NO_SAVE_CREDENTIALS",
   "ALLEVITAS_DRY_RUN",
   "ALLEVITAS_SECRET_DELIVERY",
-  "ALLEVITAS_SECRET_STORE_MODULE",
-  "ALLEVITAS_SECRET_STORE_TTL",
-  "ALLEVITAS_SECRET_STORE_OPT_BASE_URL",
-  "ALLEVITAS_SECRET_STORE_OPT_API_TOKEN",
 ];
-
-class MemoryStore implements SecretStoreProvider {
-  name = "memory";
-  stored: { secret: string; ttlSec: number; kind: string }[] = [];
-  reachable = true;
-  failures = 0;
-  async check() {
-    return this.reachable;
-  }
-  async store(secret: string, opts: { ttlSec: number; kind: "recovery_key" | "agent_key" }) {
-    if (this.failures > 0) {
-      this.failures--;
-      throw new Error("store unavailable");
-    }
-    this.stored.push({ secret, ...opts });
-    return { url: `https://store.example/s/${this.stored.length}#pw${this.stored.length}`, expiresAt: "2026-11-05T00:00:00.000Z" };
-  }
-}
 
 describe("Secret delivery", () => {
   let mock: AgentKeyMockServer;
@@ -66,7 +43,6 @@ describe("Secret delivery", () => {
     mock.state.keys.set("alv_sk_storedkeyvalue", "active");
     fs.writeFileSync(credPath, JSON.stringify({ accountId: "key_bot", agentKey: "alv_sk_storedkeyvalue", keyCreatedAt: Date.now() }), { mode: 0o600 });
   };
-  const stderrOutput = () => stderrLines.join("");
 
   before(async () => {
     mock = await startAgentKeyMockServer();
@@ -121,94 +97,24 @@ describe("Secret delivery", () => {
   });
 
   describe("recovery key on a normal registration", () => {
-    it("uses the server's link and writes no file, without asking the store", async () => {
+    it("uses the server's link and writes no file", async () => {
       mock.state.linkRecoveryKey = true;
-      const store = new MemoryStore();
-      const res = await createClient({ secretStore: store }).register("key_bot");
+      const res = await createClient().register("key_bot");
 
       assert.equal(mock.state.links.get(res.recoveryKeyUrl!), "alv_rk_registered");
       assert.equal(res.recoveryKeyUrlExpiresAt, "2026-11-04T00:00:00.000Z");
       assert.equal(res.recoveryKeyFile, undefined);
       assert.equal(fs.existsSync(recoveryPath), false);
-      assert.equal(store.stored.length, 0);
       assert.match(readCredentials().agentKey, /^alv_sk_/);
       assert.equal(mock.state.registerRequests[0].secretDelivery, undefined);
     });
 
-    it("uses the store when the server sends no link", async () => {
-      const store = new MemoryStore();
-      process.env.ALLEVITAS_SECRET_STORE_TTL = "3600";
-      const res = await createClient({ secretStore: store }).register("key_bot");
-
-      assert.deepEqual(store.stored, [{ secret: "alv_rk_registered", ttlSec: 3600, kind: "recovery_key" }]);
-      assert.equal(res.recoveryKeyUrl, "https://store.example/s/1#pw1");
-      assert.equal(fs.existsSync(recoveryPath), false);
-    });
-
-    it("falls back to a file when the store fails its check", async () => {
-      const store = new MemoryStore();
-      store.reachable = false;
-      const res = await createClient({ secretStore: store }).register("key_bot");
+    it("writes a file when the server sends no link", async () => {
+      const res = await createClient().register("key_bot");
 
       assert.equal(res.recoveryKeyUrl, undefined);
       assert.equal(res.recoveryKeyFile, recoveryPath);
-      assert.equal(store.stored.length, 0);
-      assert.match(stderrOutput(), /not reachable/);
-    });
-
-    it("falls back to a file when the store keeps failing", async () => {
-      const store = new MemoryStore();
-      store.failures = 3;
-      const res = await createClient({ secretStore: store }).register("key_bot");
-
-      assert.equal(res.recoveryKeyFile, recoveryPath);
       assert.equal(JSON.parse(fs.readFileSync(recoveryPath, "utf-8")).recoveryKey, "alv_rk_registered");
-      assert.match(stderrOutput(), /saved to a file instead/);
-    });
-
-    it("refuses a store together with an explicit recovery key file, before creating the account", async () => {
-      process.env.ALLEVITAS_RECOVERY_KEY_FILE = path.join(tmpDir, "rk.json");
-      await assert.rejects(createClient({ secretStore: new MemoryStore() }).register("key_bot"), (err: any) => {
-        assert.equal(err.code, "CONFIG_CONFLICT");
-        return true;
-      });
-      assert.equal(mock.state.registerRequests.length, 0);
-    });
-  });
-
-  describe("secret store module", () => {
-    const writeModule = (body: string) => {
-      const file = path.join(tmpDir, "provider.mjs");
-      fs.writeFileSync(file, body);
-      return file;
-    };
-
-    it("loads the factory and passes the TTL and options from the environment", async () => {
-      process.env.ALLEVITAS_SECRET_STORE_MODULE = writeModule(`
-        export default (config) => ({
-          name: "file-module",
-          async store(secret, opts) {
-            return { url: config.options.baseUrl + "/x#" + opts.ttlSec + "-" + config.options.apiToken.length };
-          },
-        });
-      `);
-      process.env.ALLEVITAS_SECRET_STORE_OPT_BASE_URL = "https://module.example";
-      process.env.ALLEVITAS_SECRET_STORE_OPT_API_TOKEN = "token-value-123456";
-      process.env.ALLEVITAS_SECRET_STORE_TTL = "600";
-
-      const res = await createClient().register("key_bot");
-
-      assert.equal(res.recoveryKeyUrl, "https://module.example/x#600-18");
-      assert.equal(maskSecrets("auth token-value-123456"), "auth [FILTERED]");
-    });
-
-    it("fails with CONFIG_ERROR when the module cannot be used", async () => {
-      process.env.ALLEVITAS_SECRET_STORE_MODULE = writeModule("export const nothing = 1;");
-      await assert.rejects(createClient().register("key_bot"), (err: any) => {
-        assert.equal(err.code, "CONFIG_ERROR");
-        return true;
-      });
-      assert.equal(mock.state.registerRequests.length, 0);
     });
   });
 
@@ -243,23 +149,13 @@ describe("Secret delivery", () => {
       );
     });
 
-    it("stops when an old server returns raw keys and no store is configured", async () => {
+    it("stops when an old server returns raw keys", async () => {
       mock.state.ignoreSecretDelivery = true;
       await assert.rejects(createClient({ secretDelivery: "url" }).register("key_bot"), (err: any) => {
         assert.equal(err.code, "SECRET_DELIVERY_UNSUPPORTED");
         assert.ok(!err.message.includes("alv_sk_"));
         return true;
       });
-    });
-
-    it("puts raw keys from an old server into the store", async () => {
-      mock.state.ignoreSecretDelivery = true;
-      const store = new MemoryStore();
-      const res = await createClient({ secretDelivery: "url", secretStore: store }).register("key_bot");
-
-      assert.deepEqual(store.stored.map((s) => s.kind), ["agent_key", "recovery_key"]);
-      assert.match(store.stored[0].secret, /^alv_sk_/);
-      assert.equal(res.agentKeyUrl, "https://store.example/s/1#pw1");
     });
 
     it("does not retry a failed link and reports that no account was created", async () => {

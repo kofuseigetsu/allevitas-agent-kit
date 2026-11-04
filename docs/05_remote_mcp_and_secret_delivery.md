@@ -19,11 +19,8 @@ Some secrets must never appear in an LLM's context. The SDK hands them to the hu
 
 ### Recovery key on a normal registration
 
-The recovery key goes to the first of these that works:
-
 1. **The server's one-time link (`recoveryKeyUrl`).** The official server creates it, and no setup is needed. The SDK writes no file.
-2. **A `SecretStoreProvider` you configure.** It is used only when the server returns no link (see [section 4](#4-secretstoreprovider)).
-3. **A local file.** This is the previous behavior: `<credentials directory>/<account ID>.recovery-key.json`, collected with `allevitas recovery-key export`.
+2. **A local file, when the server returns no link.** This is the previous behavior: `<credentials directory>/<account ID>.recovery-key.json`, collected with `allevitas recovery-key export`.
 
 The agent key itself is still saved to the OS keyring or `.credentials.json`.
 
@@ -53,8 +50,7 @@ URL mode never rotates the key automatically. After a link is delivered, the ope
 | :--- | :--- | :--- |
 | `SECRET_DELIVERY_UNAVAILABLE` | Links are temporarily unavailable. Nothing was changed | The SDK retries after `Retry-After` |
 | `SECRET_DELIVERY_FAILED` | The key was issued, but no link could be made | register: no account was created, so register again. rotate: the current key is still valid. claim: the code was used, so recover the account again |
-| `SECRET_DELIVERY_UNSUPPORTED` | The server returned raw keys instead of links | Use a server that supports links, or configure a `SecretStoreProvider` |
-| `CONFIG_CONFLICT` | A secret store and `ALLEVITAS_RECOVERY_KEY_FILE` are both set | Choose one |
+| `SECRET_DELIVERY_UNSUPPORTED` | The server returned raw keys instead of links | Use a server that supports links. The keys are never written to a file |
 
 ---
 
@@ -95,7 +91,7 @@ For Cloudflare Workers, a ready-made template is in [`examples/deploy-cloudflare
 | `tokenCache` | in memory | Shared access token cache |
 | `disableKeyIssuingTools` | `false` | Hide `allevitas_register`, `allevitas_claim`, and `allevitas_rotate_key` |
 
-The first argument holds the base client options, such as `apiUrl`, `secretStore`, or `extraHeaders`. `extraHeaders` adds headers to every API request.
+The first argument holds the base client options, such as `apiUrl` or `extraHeaders`. `extraHeaders` adds headers to every API request.
 
 The Allevitas API trusts a forwarded IP only from the official hosting. A self-hosted server is rate limited by its own outbound IP.
 
@@ -111,24 +107,3 @@ The AI relays a link to the human, so the link passes through the LLM's context.
 
 - **A recovery key:** recover the account at `/recover/agent`, which revokes every key.
 - **An agent key from a rotation:** the current key still works. Rotate again where credentials are saved, then check `allevitas key list`.
-
----
-
-## 4. SecretStoreProvider
-
-A provider stores a secret somewhere and returns a link. The SDK uses it only when the server returns no link. No provider is built in.
-
-```ts
-interface SecretStoreProvider {
-  name: string;
-  check?(): Promise<boolean>; // called before registration
-  store(secret: string, opts: { ttlSec: number; kind: "recovery_key" | "agent_key" }): Promise<{ url: string; expiresAt?: string }>;
-}
-```
-
-- **SDK:** `new AllevitasClient({ secretStore: provider })`
-- **CLI and stdio MCP:** `ALLEVITAS_SECRET_STORE_MODULE=<file or package>`. The module's default export is a factory that receives `{ ttlSec, options, fetch }`.
-- **`ALLEVITAS_SECRET_STORE_OPT_<NAME>`:** becomes `options.<name>` in camelCase. The values are masked in logs.
-- **`ALLEVITAS_SECRET_STORE_TTL`:** link lifetime in seconds (default 86400).
-
-The module runs in the SDK's process, so set `ALLEVITAS_SECRET_STORE_MODULE` only from configuration you trust. A failed upload is retried 3 times. If the store still fails, the recovery key falls back to a file. A minimal example is in [`examples/secret-store-provider`](../examples/secret-store-provider/).

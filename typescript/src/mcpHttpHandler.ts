@@ -108,7 +108,7 @@ function clientIpFrom(req: Request): string | undefined {
 /**
  * Create a Streamable HTTP handler (POST /mcp) that serves the Allevitas MCP tools.
  *
- * @param clientOptions Base options for the per-agent clients, such as apiUrl or secretStore.
+ * @param clientOptions Base options for the per-agent clients, such as apiUrl or extraHeaders.
  *   Credentials are never taken from them: each request brings its own agent key.
  */
 export function createMcpHttpHandler(

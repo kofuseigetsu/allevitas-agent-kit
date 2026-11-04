@@ -40,13 +40,6 @@ import {
   writeFileAtomic,
   writeRecoveryKeyFile,
 } from "./credentialStore.js";
-import {
-  loadSecretStoreModule,
-  SecretKind,
-  SecretStoreProvider,
-  SecretStoreResult,
-  secretStoreSettingsFromEnv,
-} from "./secretStore.js";
 import { createApiFetch, FetchLike } from "./http.js";
 
 const ACCESS_TOKEN_LIFETIME_SEC = 15 * 60;
@@ -55,7 +48,6 @@ const ROTATION_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // Rotate every 30 days
 const AGENT_KEY_PREFIX = "alv_sk_";
 const CLAIM_CODE_PREFIX = "alv_cc_";
 const KEY_DISPLAY_PREFIX_LENGTH = AGENT_KEY_PREFIX.length + 8;
-const SECRET_STORE_ATTEMPTS = 3;
 
 type KeySource = "store" | "external";
 
@@ -95,9 +87,6 @@ export class AllevitasAuth {
   private fatalAuthError: { error: AllevitasAuthError; agentKey: string | null } | null = null;
   private warnedRecoveryAccountMismatch = false;
   private inFlight: Promise<void> | null = null;
-  private secretStorePromise: Promise<SecretStoreProvider | null> | null = null;
-  // False when the configured store failed its check, so the recovery key goes to a file
-  private secretStoreUsable = true;
 
   constructor(apiUrl: string, challengeSolver: ChallengeSolver, options: ClientOptions = {}) {
     const { agentKey, token, ...safeOptions } = options;
@@ -188,7 +177,6 @@ export class AllevitasAuth {
     const isDryRun = options.dryRun ?? this.dryRun;
     if (!isDryRun) {
       this.assertRegistrationCanPersist(accountId);
-      await this.checkSecretStore();
     }
 
     // If direct answer is provided, submit directly without retrying or self-correction
@@ -323,18 +311,10 @@ export class AllevitasAuth {
       warn("The agent key was not saved and will be lost when this process exits. Recover the account at " + this.recoveryUrl + " to get a new key.");
     }
 
-    // 1. The server's one-time link, 2. the configured store, 3. a file for the operator
-    let link: SecretStoreResult | null = res.recoveryKeyUrl
-      ? { url: res.recoveryKeyUrl, expiresAt: res.recoveryKeyUrlExpiresAt ?? undefined }
+    // The server's one-time link, else a file for the operator
+    const link = res.recoveryKeyUrl
+      ? { url: res.recoveryKeyUrl as string, expiresAt: (res.recoveryKeyUrlExpiresAt ?? undefined) as string | undefined }
       : null;
-    const store = !link && res.recoveryKey && this.secretStoreUsable ? await this.getSecretStore() : null;
-    if (store) {
-      try {
-        link = await this.storeSecret(store, res.recoveryKey, "recovery_key");
-      } catch (err: unknown) {
-        warn(`Could not store the recovery key in ${store.name}, so it is saved to a file instead: ${String(err)}`);
-      }
-    }
 
     let recoveryKeyFile: string | undefined;
     const targetPath = this.recoveryKeyPath;
@@ -367,19 +347,10 @@ export class AllevitasAuth {
   private async completeRegistrationAsLinks(res: any, requestedAccountId: string): Promise<RegisterResponse> {
     const accountId: string = res.accountId || requestedAccountId;
     const lost = `Account ${accountId} was created, but its keys could not be handed over as one-time links and were discarded. Register a new account.`;
-    if (res.secretDelivery !== "url" && !(await this.getSecretStore())) {
+    if (res.secretDelivery !== "url") {
       throw new AllevitasAuthError("SECRET_DELIVERY_UNSUPPORTED", `The server returned raw keys instead of one-time links. ${lost}`);
     }
-
-    let agentKeyLink: SecretStoreResult | null;
-    let recoveryKeyLink: SecretStoreResult | null;
-    try {
-      agentKeyLink = await this.linkFor("agent_key", res.agentKeyUrl, res.agentKeyUrlExpiresAt, res.agentKey);
-      recoveryKeyLink = await this.linkFor("recovery_key", res.recoveryKeyUrl, res.recoveryKeyUrlExpiresAt, res.recoveryKey);
-    } catch (err: unknown) {
-      throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", `${lost} (${String(err)})`);
-    }
-    if (!agentKeyLink || !recoveryKeyLink) {
+    if (!res.agentKeyUrl || !res.recoveryKeyUrl) {
       throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", lost);
     }
 
@@ -390,10 +361,10 @@ export class AllevitasAuth {
       accountId,
       token: res.token,
       recoveryKeyId: res.recoveryKeyId,
-      agentKeyUrl: agentKeyLink.url,
-      agentKeyUrlExpiresAt: agentKeyLink.expiresAt,
-      recoveryKeyUrl: recoveryKeyLink.url,
-      recoveryKeyUrlExpiresAt: recoveryKeyLink.expiresAt,
+      agentKeyUrl: res.agentKeyUrl,
+      agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
+      recoveryKeyUrl: res.recoveryKeyUrl,
+      recoveryKeyUrlExpiresAt: res.recoveryKeyUrlExpiresAt,
     };
   }
 
@@ -408,81 +379,8 @@ export class AllevitasAuth {
     return !this.shouldSaveCredentials() && !this.explicitRecoveryKeyFile ? "url" : null;
   }
 
-  private get hasSecretStoreConfig(): boolean {
-    return Boolean(this.options.secretStore || process.env.ALLEVITAS_SECRET_STORE_MODULE);
-  }
-
   /**
-   * The configured secret store, loaded once. Null when none is configured.
-   */
-  async getSecretStore(): Promise<SecretStoreProvider | null> {
-    if (!this.secretStorePromise) {
-      this.secretStorePromise = this.loadSecretStore();
-    }
-    return await this.secretStorePromise;
-  }
-
-  private async loadSecretStore(): Promise<SecretStoreProvider | null> {
-    const configured = this.options.secretStore;
-    if (configured && "store" in configured) {
-      return configured;
-    }
-    const specifier = configured?.module || process.env.ALLEVITAS_SECRET_STORE_MODULE;
-    if (!specifier) {
-      return null;
-    }
-    const { ttlSec, options } = secretStoreSettingsFromEnv();
-    return await loadSecretStoreModule(specifier, { ttlSec, options, fetch: this.http });
-  }
-
-  /**
-   * Check the store before an account exists, so a dead store falls back to a file in time.
-   */
-  private async checkSecretStore(): Promise<void> {
-    const store = await this.getSecretStore();
-    if (!store?.check) {
-      return;
-    }
-    this.secretStoreUsable = await store.check().catch(() => false);
-    if (!this.secretStoreUsable) {
-      warn(`The secret store ${store.name} is not reachable. If the server returns no one-time link, the recovery key is saved to a file.`);
-    }
-  }
-
-  private async storeSecret(store: SecretStoreProvider, secret: string, kind: SecretKind): Promise<SecretStoreResult> {
-    const { ttlSec } = secretStoreSettingsFromEnv();
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= SECRET_STORE_ATTEMPTS; attempt++) {
-      try {
-        return await store.store(secret, { ttlSec, kind });
-      } catch (err: unknown) {
-        lastError = err;
-        if (attempt < SECRET_STORE_ATTEMPTS) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-        }
-      }
-    }
-    throw new Error(maskSecrets(`The secret store ${store.name} failed: ${String(lastError)}`));
-  }
-
-  /**
-   * A link for a newly issued secret: the server's link, else the configured store. Never the raw value.
-   */
-  private async linkFor(
-    kind: SecretKind,
-    serverUrl: string | undefined,
-    serverExpiresAt: string | undefined,
-    rawSecret: string | undefined
-  ): Promise<SecretStoreResult | null> {
-    if (serverUrl) {
-      return { url: serverUrl, expiresAt: serverExpiresAt };
-    }
-    const store = rawSecret ? await this.getSecretStore() : null;
-    return store ? await this.storeSecret(store, rawSecret!, kind) : null;
-  }
-
-  /**
-   * A dry run cannot fall back to a store, so the server must confirm it supports links.
+   * A dry run returns no keys, so the server must confirm it supports links.
    */
   private assertLinksSupported(res: { secretDelivery?: string }, operation: "register" | "rotate" | "claim"): void {
     if (res.secretDelivery !== "url") {
@@ -519,12 +417,6 @@ export class AllevitasAuth {
    * Refuse before the account is created when its one-time secrets could not be kept.
    */
   private assertRegistrationCanPersist(accountId: string): void {
-    if (this.hasSecretStoreConfig && this.explicitRecoveryKeyFile) {
-      throw new AllevitasAuthError(
-        "CONFIG_CONFLICT",
-        "Both a secret store and a recovery key file are set. Choose one: unset ALLEVITAS_SECRET_STORE_MODULE / secretStore, or ALLEVITAS_RECOVERY_KEY_FILE / recoveryKeyFile."
-      );
-    }
     if (this.secretDelivery === "url") {
       return; // Nothing is saved locally
     }
@@ -1086,23 +978,17 @@ export class AllevitasAuth {
     }
 
     const notDelivered = "The new key could not be delivered as a one-time link. The current key is still valid. Run the rotation again.";
-    if (res.secretDelivery !== "url" && !(await this.getSecretStore())) {
+    if (res.secretDelivery !== "url") {
       throw new AllevitasAuthError("SECRET_DELIVERY_UNSUPPORTED", `The server returned the new key instead of a one-time link. ${notDelivered}`);
     }
-    let link: SecretStoreResult | null;
-    try {
-      link = await this.linkFor("agent_key", res.agentKeyUrl, res.agentKeyUrlExpiresAt, res.agentKey);
-    } catch (err: unknown) {
-      throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", `${notDelivered} (${String(err)})`);
-    }
-    if (!link) {
+    if (!res.agentKeyUrl) {
       throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", notDelivered);
     }
     return {
       rotated: true,
       committed: false,
-      agentKeyUrl: link.url,
-      agentKeyUrlExpiresAt: link.expiresAt,
+      agentKeyUrl: res.agentKeyUrl,
+      agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
     };
   }
 
@@ -1132,19 +1018,13 @@ export class AllevitasAuth {
     }
 
     const lost = `The claim code was used, but the new key could not be delivered as a one-time link. Ask your human operator to run the recovery again at ${this.recoveryUrl}.`;
-    if (res.secretDelivery !== "url" && !(await this.getSecretStore())) {
+    if (res.secretDelivery !== "url") {
       throw new AllevitasAuthError("SECRET_DELIVERY_UNSUPPORTED", `The server returned the new key instead of a one-time link. ${lost}`);
     }
-    let link: SecretStoreResult | null;
-    try {
-      link = await this.linkFor("agent_key", res.agentKeyUrl, res.agentKeyUrlExpiresAt, res.agentKey);
-    } catch (err: unknown) {
-      throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", `${lost} (${String(err)})`);
-    }
-    if (!link) {
+    if (!res.agentKeyUrl) {
       throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", lost);
     }
-    return { claimed: true, accountId: res.accountId, agentKeyUrl: link.url, agentKeyUrlExpiresAt: link.expiresAt };
+    return { claimed: true, accountId: res.accountId, agentKeyUrl: res.agentKeyUrl, agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt };
   }
 
   /**

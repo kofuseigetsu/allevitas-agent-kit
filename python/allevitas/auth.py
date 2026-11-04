@@ -39,16 +39,6 @@ from .credential_store import (
 )
 from .errors import AllevitasApiError, AllevitasAuthError, mask_secrets
 from .rate_limit_handler import RateLimitHandler
-from .secret_store import (
-    SECRET_STORE_MODULE_ENV,
-    SecretKind,
-    SecretStoreProvider,
-    check_provider,
-    load_secret_store_module,
-    provider_name,
-    secret_store_config_from_env,
-    store_secret,
-)
 from .utils import normalize_api_url
 
 ACCESS_TOKEN_LIFETIME_SEC = 15 * 60
@@ -86,7 +76,6 @@ class AllevitasAuth:
         keyring: Union[bool, KeyringBackend, None] = None,
         recovery_key_file: Optional[str] = None,
         recovery_key_notice: bool = True,
-        secret_store: Optional[SecretStoreProvider] = None,
         secret_delivery: Optional[str] = None,
     ):
         self.api_url = normalize_api_url(api_url)
@@ -95,8 +84,6 @@ class AllevitasAuth:
         self._save_credentials_opt = save_credentials
         self._auto_rotate_opt = auto_rotate
         self._recovery_key_file_opt = recovery_key_file
-        self._secret_store_opt = secret_store
-        self._loaded_secret_store: Optional[SecretStoreProvider] = None
         self._secret_delivery_opt = secret_delivery
         self._resolve_secret_delivery()  # Reject an unknown mode up front
         self.dry_run = (
@@ -209,28 +196,6 @@ class AllevitasAuth:
     def _delivery_fields(self) -> Dict[str, Any]:
         return {"secretDelivery": SECRET_DELIVERY_URL} if self.url_delivery else {}
 
-    @property
-    def _secret_store_configured(self) -> bool:
-        return self._secret_store_opt is not None or bool(os.environ.get(SECRET_STORE_MODULE_ENV, "").strip())
-
-    def _get_secret_store(self) -> Optional[SecretStoreProvider]:
-        if self._secret_store_opt is not None:
-            return self._secret_store_opt
-        spec = os.environ.get(SECRET_STORE_MODULE_ENV, "").strip()
-        if not spec:
-            return None
-        if self._loaded_secret_store is None:
-            self._loaded_secret_store = load_secret_store_module(spec)
-        return self._loaded_secret_store
-
-    def _store_in_secret_store(
-        self,
-        provider: SecretStoreProvider,
-        secret: str,
-        kind: SecretKind,
-    ) -> Tuple[str, Optional[str]]:
-        return store_secret(provider, secret, secret_store_config_from_env().ttl_sec, kind)
-
     def _assert_url_delivery_confirmed(self, res: Any, after_effect: str) -> None:
         """
         A server without URL delivery ignores secretDelivery and answers with raw keys.
@@ -247,12 +212,10 @@ class AllevitasAuth:
         self,
         res: Dict[str, Any],
         field_name: str,
-        kind: SecretKind,
-        provider: Optional[SecretStoreProvider],
         lost_hint: str,
     ) -> Tuple[Optional[str], Optional[str]]:
         """
-        Return the link for a secret in URL mode. A raw secret goes to the secret store, never to a file.
+        Return the link for a secret in URL mode. A raw secret is discarded, never written to a file.
         """
         url = res.get(f"{field_name}Url")
         if url:
@@ -260,20 +223,12 @@ class AllevitasAuth:
         raw = res.get(field_name)
         if not raw:
             return None, None
-        label = "agent key" if kind == "agent_key" else "recovery key"
-        if provider is None:
-            raise AllevitasAuthError(
-                "SECRET_NOT_DELIVERABLE",
-                f"The server returned the {label} without a link and no secret store is configured, "
-                f"so it was discarded instead of being written to disk. {lost_hint}",
-            )
-        try:
-            return self._store_in_secret_store(provider, raw, kind)
-        except Exception as e:
-            raise AllevitasAuthError(
-                "SECRET_STORE_FAILED",
-                f"{provider_name(provider)} could not store the {label}: {e}. {lost_hint}",
-            ) from None
+        label = "agent key" if field_name == "agentKey" else "recovery key"
+        raise AllevitasAuthError(
+            "SECRET_NOT_DELIVERABLE",
+            f"The server returned the {label} without a link, so it was discarded instead of being "
+            f"written to disk. {lost_hint}",
+        )
 
     def _secret_delivery_error(self, err: AllevitasApiError, operation: str) -> Optional[AllevitasAuthError]:
         """
@@ -313,7 +268,8 @@ class AllevitasAuth:
         Register a new account (solving reverse CAPTCHA automatically or via direct answer).
         """
         effective_dry_run = dry_run if dry_run is not None else self.dry_run
-        provider = self._prepare_registration_secret_store(account_id, effective_dry_run)
+        if not effective_dry_run:
+            self._assert_registration_can_persist(account_id)
 
         if direct_challenge:
             challenge_id, answer = direct_challenge
@@ -324,7 +280,7 @@ class AllevitasAuth:
             }
             if invitation_key:
                 req_body["invitationKey"] = invitation_key
-            return self._execute_register_request(req_body, effective_dry_run, provider)
+            return self._execute_register_request(req_body, effective_dry_run)
 
         max_attempts = 3
         last_error = None
@@ -352,7 +308,7 @@ class AllevitasAuth:
                 req_body["invitationKey"] = invitation_key
 
             try:
-                return self._execute_register_request(req_body, effective_dry_run, provider)
+                return self._execute_register_request(req_body, effective_dry_run)
             except AllevitasAuthError:
                 raise  # Carries its own guidance; never answered by solving again
             except Exception as e:
@@ -373,7 +329,7 @@ class AllevitasAuth:
                         )
                         retry_body = dict(req_body)
                         retry_body["challengeAnswer"] = corrected_answer
-                        return self._execute_register_request(retry_body, effective_dry_run, provider)
+                        return self._execute_register_request(retry_body, effective_dry_run)
                     except AllevitasAuthError:
                         raise
                     except Exception as retry_err:
@@ -397,7 +353,6 @@ class AllevitasAuth:
         self,
         req_body: Dict[str, Any],
         effective_dry_run: bool,
-        provider: Optional[SecretStoreProvider] = None,
     ) -> RegisterResponse:
         headers = {"X-Dry-Run": "true"} if effective_dry_run else None
         try:
@@ -416,7 +371,7 @@ class AllevitasAuth:
         account_id = res.get("accountId", req_body["accountId"])
 
         if self.url_delivery:
-            return self._finish_url_registration(res, account_id, effective_dry_run, provider)
+            return self._finish_url_registration(res, account_id, effective_dry_run)
 
         if effective_dry_run or not res.get("agentKey"):
             return RegisterResponse(
@@ -442,9 +397,7 @@ class AllevitasAuth:
                 f"Recover the account at {self._recovery_url} to get a new key."
             )
 
-        recovery_key_url, recovery_key_url_expires_at, recovery_key_file = self._deliver_recovery_key(
-            res, account_id, provider
-        )
+        recovery_key_url, recovery_key_url_expires_at, recovery_key_file = self._deliver_recovery_key(res, account_id)
         return RegisterResponse(
             success=res.get("success", True),
             message=res.get("message", "Registered successfully"),
@@ -460,10 +413,9 @@ class AllevitasAuth:
         self,
         res: Dict[str, Any],
         account_id: str,
-        provider: Optional[SecretStoreProvider],
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
-        Hand the recovery key over: the server's link, then the secret store, then a file.
+        Hand the recovery key over: the server's link, else a file.
         Returns (url, url_expires_at, file_path).
         """
         if res.get("recoveryKeyUrl"):
@@ -473,18 +425,11 @@ class AllevitasAuth:
         if not recovery_key:
             return None, None, None
 
-        if provider is not None:
-            try:
-                url, expires_at = self._store_in_secret_store(provider, recovery_key, "recovery_key")
-                return url, expires_at, None
-            except Exception as e:
-                _warn(f"{provider_name(provider)} could not store the recovery key, so it goes to a file instead: {e}")
-
         target_path = self.recovery_key_path
         if not target_path:
             _warn(
-                "The recovery key could not be handed over and is lost. Set ALLEVITAS_RECOVERY_KEY_FILE "
-                f"or fix the secret store, then renew the recovery key at {self._recovery_url}."
+                "The recovery key could not be handed over and is lost. Set ALLEVITAS_RECOVERY_KEY_FILE, "
+                f"then renew the recovery key at {self._recovery_url}."
             )
             return None, None, None
         write_recovery_key_file(target_path, {
@@ -501,7 +446,6 @@ class AllevitasAuth:
         res: Dict[str, Any],
         account_id: str,
         effective_dry_run: bool,
-        provider: Optional[SecretStoreProvider],
     ) -> RegisterResponse:
         if effective_dry_run:
             self._assert_url_delivery_confirmed(res, "Nothing was created (dry run).")
@@ -524,9 +468,9 @@ class AllevitasAuth:
             "agentKey": f"Recover the account at {self._recovery_url} with the recovery key to get a new agent key.",
             "recoveryKey": f"Renew the recovery key at {self._recovery_url}.",
         }
-        for field_name, kind in (("recoveryKey", "recovery_key"), ("agentKey", "agent_key")):
+        for field_name in ("recoveryKey", "agentKey"):
             try:
-                links[field_name] = self._deliver_by_url(res, field_name, kind, provider, lost_hints[field_name])
+                links[field_name] = self._deliver_by_url(res, field_name, lost_hints[field_name])
             except AllevitasAuthError as e:
                 links[field_name] = (None, None)
                 failures.append(str(e))
@@ -563,49 +507,13 @@ class AllevitasAuth:
             agent_key_url_expires_at=agent_key_url_expires_at,
         )
 
-    def _prepare_registration_secret_store(
-        self,
-        account_id: str,
-        effective_dry_run: bool,
-    ) -> Optional[SecretStoreProvider]:
-        """
-        Validate how the one-time secrets will be handed over, before the account is created.
-        Returns the secret store to use, or None.
-        """
-        if self._secret_store_configured and self._explicit_recovery_key_file:
-            raise AllevitasAuthError(
-                "CONFIG_CONFLICT",
-                "Both a secret store and a recovery key file (ALLEVITAS_RECOVERY_KEY_FILE / recovery_key_file) "
-                "are configured. Choose one.",
-            )
-        provider = self._get_secret_store()
-        if effective_dry_run:
-            return provider
-
-        if provider is not None:
-            reachable, reason = check_provider(provider)
-            if not reachable:
-                fallback = (
-                    "Keys the server returns without a link cannot be delivered."
-                    if self.url_delivery
-                    else "The recovery key goes to a file unless the server returns a link."
-                )
-                _warn(f"The secret store {provider_name(provider)} is not reachable ({reason}). {fallback}")
-                provider = None
-        self._assert_registration_can_persist(account_id, provider)
-        return provider
-
-    def _assert_registration_can_persist(
-        self,
-        account_id: str,
-        provider: Optional[SecretStoreProvider] = None,
-    ) -> None:
+    def _assert_registration_can_persist(self, account_id: str) -> None:
         """
         Refuse before the account is created when its one-time secrets could not be kept.
         """
         if self.url_delivery:
             return  # Nothing secret is written here
-        if not self._should_save_credentials() and not self._explicit_recovery_key_file and provider is None:
+        if not self._should_save_credentials() and not self._explicit_recovery_key_file:
             raise AllevitasAuthError(
                 "CREDENTIALS_NOT_PERSISTABLE",
                 "Registration returns the agent key and recovery key only once. Enable credential "
@@ -1101,9 +1009,7 @@ class AllevitasAuth:
             res, "The new key was not kept, and the current agent key is still valid."
         )
 
-        url, expires_at = self._deliver_by_url(
-            res, "agentKey", "agent_key", self._get_secret_store(), "The current agent key is still valid."
-        )
+        url, expires_at = self._deliver_by_url(res, "agentKey", "The current agent key is still valid.")
         if not url:
             raise AllevitasAuthError(
                 "SECRET_NOT_DELIVERABLE",
@@ -1146,7 +1052,7 @@ class AllevitasAuth:
             rerun = f"Ask your human operator to run the recovery again at {self._recovery_url}."
             self._assert_url_delivery_confirmed(res, f"The claim code was consumed, but the new key was not kept. {rerun}")
 
-            url, expires_at = self._deliver_by_url(res, "agentKey", "agent_key", self._get_secret_store(), rerun)
+            url, expires_at = self._deliver_by_url(res, "agentKey", rerun)
             if not url:
                 raise AllevitasAuthError(
                     "SECRET_NOT_DELIVERABLE", f"The server returned no link for the new key. {rerun}"

@@ -92,7 +92,7 @@ Agent keys expire after 180 days without use, so a key that runs regularly stays
 
 Registration hands the recovery key to the human operator as a one-time link from the server (`recoveryKeyUrl`), and nothing is written to disk. The AI passes the link on without opening it. See [one-time links](./05_remote_mcp_and_secret_delivery.md).
 
-When no link is available, the key goes to your `SecretStoreProvider` if you configured one, otherwise to a file. The AI is told only where the file is, and a human collects it:
+When no link is available, the key goes to a file. The AI is told only where the file is, and a human collects it:
 
 ```bash
 allevitas recovery-key export
