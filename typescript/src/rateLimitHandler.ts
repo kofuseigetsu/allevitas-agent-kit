@@ -102,12 +102,27 @@ export class RateLimitHandler {
 
       // 5xx Server Error retry
       if (response.status >= 500 && response.status <= 599) {
-        // If 503 Service Unavailable is specifically due to BOARD_API_DISABLED, fail immediately without waiting
         if (response.status === 503) {
           const errClone = response.clone();
           const errText = await errClone.text().catch(() => "");
+          // If 503 Service Unavailable is specifically due to BOARD_API_DISABLED, fail immediately without waiting
           if (errText.includes("BOARD_API_DISABLED") || errText.includes("board_api_disabled")) {
             throw new Error(maskSecrets(`Server error 503: ${errText}`));
+          }
+          // Keys were issued but no link could be made; a retry would issue another key
+          if (errText.includes("SECRET_DELIVERY_FAILED")) {
+            throw new AllevitasApiError(response.status, response.statusText, errText);
+          }
+          // Refused before any change, so even a one-time request is safe to retry
+          if (errText.includes("SECRET_DELIVERY_UNAVAILABLE")) {
+            if (attempt > this.maxRetries) {
+              throw new AllevitasApiError(response.status, response.statusText, errText);
+            }
+            const seconds = parseInt(response.headers.get("retry-after") || "", 10);
+            const delay = Math.min(isNaN(seconds) ? this.calculateBackoff(attempt) : seconds * 1000, this.maxDelayMs);
+            this.notifyRetry(attempt, delay, "One-time links are temporarily unavailable");
+            await this.sleep(delay);
+            continue;
           }
         }
 

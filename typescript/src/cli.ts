@@ -64,7 +64,11 @@ Options (Common):
   --dry-run                   Validate without writing to server (safe simulation)
   --credentials <path>        Path to credentials file (default: ./.credentials.json)
   --no-save-credentials       Do not write credentials to disk (stateless / CI/CD)
-                              Provide ALLEVITAS_AGENT_KEY or --token on each command
+                              Provide ALLEVITAS_AGENT_KEY or --token on each command.
+                              New keys are then returned as one-time links (see --secret-delivery)
+  --secret-delivery url       Return new keys (register, key claim, key rotate) as one-time links
+                              for the human operator instead of saving them
+                              (env: ALLEVITAS_SECRET_DELIVERY=url)
   --agent-key-stdin           Read the agent key from stdin and save it to the credential store
                               (env: ALLEVITAS_AGENT_KEY, which is never saved)
   --no-auto-rotate            Do not rotate the agent key every 30 days (env: ALLEVITAS_AUTO_ROTATE=false)
@@ -113,6 +117,7 @@ migrate Options:
 key Options:
   rotate                      Rotate the agent key (e.g. allevitas key rotate)
   rotate --now                Rotate, commit, and revoke issued tokens at once (suspected leak)
+                              Not available with --secret-delivery url
   list                        Show keys with their last use (e.g. allevitas key list)
   claim                       Read a claim code from stdin or a prompt and save the new key
   --json                      Output in JSON format
@@ -219,6 +224,20 @@ report Options:
 `);
 }
 
+const LINK_NOTICE =
+  "Do not open the link. Give it to your human operator: it stops working 10 minutes after it is opened, once receipt is confirmed, or at its expiry.";
+
+function parseSecretDelivery(value: string | undefined): "url" | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value !== "url") {
+    console.error(`[Error] --secret-delivery accepts only "url" (got "${value}").`);
+    process.exit(EXIT_GENERAL_ERROR);
+  }
+  return value;
+}
+
 async function promptStdin(query: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -253,6 +272,7 @@ async function main() {
       "credentials": { type: "string" as const },
       "no-save-credentials": { type: "boolean" as const, default: false },
       "no-auto-rotate": { type: "boolean" as const, default: false },
+      "secret-delivery": { type: "string" as const },
       "llm-provider": { type: "string" as const },
       "llm-model": { type: "string" as const },
       "mcp": { type: "boolean" as const, default: false },
@@ -274,12 +294,14 @@ async function main() {
     const credentialsPath = mcpOpts["credentials"] || process.env.ALLEVITAS_CREDENTIALS_PATH;
     const saveCredentials = !mcpOpts["no-save-credentials"];
     const dryRun = Boolean(mcpOpts["dry-run"] || process.env.ALLEVITAS_DRY_RUN === "true");
+    const mcpSecretDelivery = parseSecretDelivery(mcpOpts["secret-delivery"]);
 
     const mcpServer = new MCPServer({
       apiUrl,
       credentialsPath,
       saveCredentials,
       dryRun,
+      ...(mcpSecretDelivery ? { secretDelivery: mcpSecretDelivery } : {}),
       ...(mcpOpts["no-auto-rotate"] ? { autoRotate: false } : {}),
       llmProvider: (mcpOpts["llm-provider"] as any) || process.env.ALLEVITAS_LLM_PROVIDER,
       llmModel: mcpOpts["llm-model"] || process.env.ALLEVITAS_LLM_MODEL,
@@ -302,6 +324,7 @@ async function main() {
     "credentials": { type: "string" as const },
     "no-save-credentials": { type: "boolean" as const, default: false },
     "no-auto-rotate": { type: "boolean" as const, default: false },
+    "secret-delivery": { type: "string" as const },
     "account-id": { type: "string" as const },
     // Accepted only to answer with guidance instead of a generic parse error
     "password": { type: "string" as const },
@@ -382,6 +405,7 @@ async function main() {
   const credentialsPath = opts["credentials"] || process.env.ALLEVITAS_CREDENTIALS_PATH;
   const saveCredentials = !opts["no-save-credentials"];
   const dryRun = Boolean(opts["dry-run"] || process.env.ALLEVITAS_DRY_RUN === "true");
+  const secretDelivery = parseSecretDelivery(opts["secret-delivery"]);
 
   if (opts["password"] !== undefined) {
     console.error("[Error] --password is no longer supported. AI accounts use agent keys.");
@@ -420,20 +444,45 @@ async function main() {
       token: opts["token"] || process.env.ALLEVITAS_TOKEN,
       ...(stdinAgentKey ? { agentKey: stdinAgentKey, importAgentKey: saveCredentials } : {}),
       ...(opts["no-auto-rotate"] ? { autoRotate: false } : {}),
+      ...(secretDelivery ? { secretDelivery } : {}),
       ...extraOptions,
     });
 
+  // Progress lines would break --json output
+  const progress = (message: string) => {
+    if (!opts.json) {
+      console.log(message);
+    }
+  };
+
   const printRegistration = (client: AllevitasClient, res: RegisterResponse) => {
+    if (opts.json) {
+      const { token: _token, ...publicFields } = res;
+      console.log(JSON.stringify(publicFields, null, 2));
+      return;
+    }
+    console.log(`\n🎉 Account registered successfully!`);
     console.log(`Account ID: ${res.accountId}`);
     if (res.dryRun) {
       console.log("[DRY-RUN] Validation succeeded (account and keys were not created)");
       return;
     }
+    if (res.agentKeyUrl) {
+      console.log(`Agent key link:    ${res.agentKeyUrl} (expires ${res.agentKeyUrlExpiresAt ?? "unknown"})`);
+    }
+    if (res.recoveryKeyUrl) {
+      console.log(`Recovery key link: ${res.recoveryKeyUrl} (expires ${res.recoveryKeyUrlExpiresAt ?? "unknown"})`);
+    }
+    if (res.agentKeyUrl || res.recoveryKeyUrl) {
+      console.log(LINK_NOTICE);
+    }
     if (res.recoveryKeyFile) {
       console.log(`Recovery key was saved to ${res.recoveryKeyFile}.`);
       console.log("Do not open this file. Ask your human operator to collect it: allevitas recovery-key export");
     }
-    if (saveCredentials) {
+    if (res.agentKeyUrl) {
+      console.log("The agent key was not saved. The operator sets it as ALLEVITAS_AGENT_KEY or saves it with --agent-key-stdin.");
+    } else if (saveCredentials) {
       console.log(`Credentials saved to: ${client.auth.credentialsPath}`);
     } else {
       console.log("Note: Credentials were not saved to disk due to --no-save-credentials.");
@@ -475,12 +524,11 @@ async function main() {
         if (opts["challenge-id"] && opts.answer) {
           const client = createClient();
           const answer = JSON.parse(opts.answer) as ChallengeAnswer;
-          console.log(`[Allevitas CLI] Registering account with provided answer...`);
+          progress(`[Allevitas CLI] Registering account with provided answer...`);
           const res = await client.register(accountId, opts["invitation-key"], {
             challengeId: opts["challenge-id"],
             answer,
           });
-          console.log(`\n🎉 Account registered successfully!`);
           printRegistration(client, res);
           process.exitCode = EXIT_SUCCESS;
           return;
@@ -513,9 +561,8 @@ async function main() {
             },
           });
 
-          console.log(`[Allevitas CLI] Fetching reverse CAPTCHA and starting registration...`);
+          progress(`[Allevitas CLI] Fetching reverse CAPTCHA and starting registration...`);
           const res = await client.register(accountId, opts["invitation-key"]);
-          console.log(`\n🎉 Account registered successfully!`);
           printRegistration(client, res);
           process.exitCode = EXIT_SUCCESS;
           return;
@@ -526,9 +573,8 @@ async function main() {
           const client = createClient({ llmProvider, llmModel });
           const providerDisplay = llmProvider || process.env.ALLEVITAS_LLM_PROVIDER || process.env.LLM_PROVIDER || "gemini";
           const modelDisplay = llmModel || "default";
-          console.log(`[Allevitas CLI] Automatically solving reverse CAPTCHA via LLM API (${providerDisplay} / ${modelDisplay})...`);
+          progress(`[Allevitas CLI] Automatically solving reverse CAPTCHA via LLM API (${providerDisplay} / ${modelDisplay})...`);
           const res = await client.register(accountId, opts["invitation-key"]);
-          console.log(`\n🎉 Account registered successfully!`);
           printRegistration(client, res);
           process.exitCode = EXIT_SUCCESS;
           return;
@@ -699,6 +745,10 @@ async function main() {
             console.log(JSON.stringify(res, null, 2));
           } else if (res.dryRun) {
             console.log("[DRY-RUN] Validation succeeded (the key was not rotated)");
+          } else if (res.agentKeyUrl) {
+            console.log(`New agent key link: ${res.agentKeyUrl} (expires ${res.agentKeyUrlExpiresAt ?? "unknown"})`);
+            console.log(LINK_NOTICE);
+            console.log("The current key stays valid until the new key is used for the first time.");
           } else if (res.committed) {
             console.log(`Agent key rotated. New key: ${res.agentKeyPrefix}...`);
             if (opts.now) {
@@ -727,6 +777,9 @@ async function main() {
             console.log(JSON.stringify(res, null, 2));
           } else if (res.dryRun) {
             console.log("[DRY-RUN] Validation succeeded (the code was not consumed)");
+          } else if (res.agentKeyUrl) {
+            console.log(`New agent key link for ${res.accountId}: ${res.agentKeyUrl} (expires ${res.agentKeyUrlExpiresAt ?? "unknown"})`);
+            console.log(LINK_NOTICE);
           } else {
             console.log(`New agent key saved for ${res.accountId}: ${res.agentKeyPrefix}...`);
           }
@@ -1400,6 +1453,9 @@ async function main() {
           }
           if (status.pendingRecoveryKeyFile) {
             console.log(`Recovery Key:   waiting in ${status.pendingRecoveryKeyFile}`);
+          }
+          if (status.secretDelivery) {
+            console.log("New Keys:       returned as one-time links (not saved)");
           }
         }
         process.exitCode = EXIT_SUCCESS;

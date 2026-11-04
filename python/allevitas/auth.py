@@ -47,6 +47,8 @@ ROTATION_INTERVAL_SEC = 30 * 24 * 60 * 60  # Rotate every 30 days
 AGENT_KEY_PREFIX = "alv_sk_"
 CLAIM_CODE_PREFIX = "alv_cc_"
 KEY_DISPLAY_PREFIX_LENGTH = len(AGENT_KEY_PREFIX) + 8
+SECRET_DELIVERY_URL = "url"
+SECRET_DELIVERY_ERROR_CODES = ("UNSUPPORTED_SECRET_DELIVERY", "SECRET_DELIVERY_UNAVAILABLE", "SECRET_DELIVERY_FAILED")
 
 
 def _key_display_prefix(agent_key: Optional[str]) -> Optional[str]:
@@ -74,6 +76,7 @@ class AllevitasAuth:
         keyring: Union[bool, KeyringBackend, None] = None,
         recovery_key_file: Optional[str] = None,
         recovery_key_notice: bool = True,
+        secret_delivery: Optional[str] = None,
     ):
         self.api_url = normalize_api_url(api_url)
         self.challenge_solver = challenge_solver
@@ -81,6 +84,8 @@ class AllevitasAuth:
         self._save_credentials_opt = save_credentials
         self._auto_rotate_opt = auto_rotate
         self._recovery_key_file_opt = recovery_key_file
+        self._secret_delivery_opt = secret_delivery
+        self._resolve_secret_delivery()  # Reject an unknown mode up front
         self.dry_run = (
             dry_run
             if dry_run is not None
@@ -170,6 +175,88 @@ class AllevitasAuth:
         """True when an issued agent key can outlive this process."""
         return self._should_save_credentials()
 
+    def _resolve_secret_delivery(self) -> Optional[str]:
+        raw = self._secret_delivery_opt
+        if raw is None:
+            raw = os.environ.get("ALLEVITAS_SECRET_DELIVERY", "")
+        mode = raw.strip().lower()
+        if not mode:
+            return None
+        if mode != SECRET_DELIVERY_URL:
+            raise AllevitasAuthError(
+                "CONFIG_ERROR", f'Unknown secret delivery mode {raw!r}. The only supported value is "url".'
+            )
+        return mode
+
+    @property
+    def url_delivery(self) -> bool:
+        """True when new secrets are handed over as one-time URLs instead of being saved."""
+        return self._resolve_secret_delivery() == SECRET_DELIVERY_URL
+
+    def _delivery_fields(self) -> Dict[str, Any]:
+        return {"secretDelivery": SECRET_DELIVERY_URL} if self.url_delivery else {}
+
+    def _assert_url_delivery_confirmed(self, res: Any, after_effect: str) -> None:
+        """
+        A server without URL delivery ignores secretDelivery and answers with raw keys.
+        """
+        if isinstance(res, dict) and res.get("secretDelivery") == SECRET_DELIVERY_URL:
+            return
+        raise AllevitasAuthError(
+            "SECRET_DELIVERY_UNSUPPORTED",
+            'The server did not confirm secretDelivery "url", so it does not seem to support URL delivery. '
+            f"{after_effect}".strip(),
+        )
+
+    def _deliver_by_url(
+        self,
+        res: Dict[str, Any],
+        field_name: str,
+        lost_hint: str,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Return the link for a secret in URL mode. A raw secret is discarded, never written to a file.
+        """
+        url = res.get(f"{field_name}Url")
+        if url:
+            return url, res.get(f"{field_name}UrlExpiresAt")
+        raw = res.get(field_name)
+        if not raw:
+            return None, None
+        label = "agent key" if field_name == "agentKey" else "recovery key"
+        raise AllevitasAuthError(
+            "SECRET_NOT_DELIVERABLE",
+            f"The server returned the {label} without a link, so it was discarded instead of being "
+            f"written to disk. {lost_hint}",
+        )
+
+    def _secret_delivery_error(self, err: AllevitasApiError, operation: str) -> Optional[AllevitasAuthError]:
+        """
+        Guidance for the server's secret delivery errors. operation is register, rotate, or claim.
+        """
+        if err.code not in SECRET_DELIVERY_ERROR_CODES:
+            return None
+        next_step = {
+            "register": "Fetch a new challenge and register again.",
+            "rotate": "The current agent key is still valid.",
+            "claim": f"Ask your human operator to run the recovery again at {self._recovery_url}.",
+        }[operation]
+        if err.code == "UNSUPPORTED_SECRET_DELIVERY":
+            return AllevitasAuthError(
+                err.code,
+                "This server does not support secret delivery by URL. Nothing was changed. "
+                "Run without secret_delivery=\"url\" (ALLEVITAS_SECRET_DELIVERY).",
+            )
+        if err.code == "SECRET_DELIVERY_UNAVAILABLE":
+            if operation == "claim":
+                next_step = "The claim code was not used, so claim again later."
+            elif operation == "rotate":
+                next_step = "The current agent key is still valid; rotate again later."
+            return AllevitasAuthError(
+                err.code, f"Secret delivery by URL is unavailable right now. Nothing was changed. {next_step}"
+            )
+        return AllevitasAuthError(err.code, f"The server could not create the secret link. {next_step}")
+
     def register(
         self,
         account_id: str,
@@ -222,6 +309,8 @@ class AllevitasAuth:
 
             try:
                 return self._execute_register_request(req_body, effective_dry_run)
+            except AllevitasAuthError:
+                raise  # Carries its own guidance; never answered by solving again
             except Exception as e:
                 last_error = e
                 err_msg = str(e)
@@ -241,6 +330,8 @@ class AllevitasAuth:
                         retry_body = dict(req_body)
                         retry_body["challengeAnswer"] = corrected_answer
                         return self._execute_register_request(retry_body, effective_dry_run)
+                    except AllevitasAuthError:
+                        raise
                     except Exception as retry_err:
                         last_error = retry_err
                         retry_msg = str(retry_err)
@@ -264,14 +355,23 @@ class AllevitasAuth:
         effective_dry_run: bool,
     ) -> RegisterResponse:
         headers = {"X-Dry-Run": "true"} if effective_dry_run else None
-        res = self.rate_limit_handler.request(
-            f"{self.api_url}/auth/register",
-            method="POST",
-            headers=headers,
-            json_data=req_body,
-            idempotent=False,
-        )
+        try:
+            res = self.rate_limit_handler.request(
+                f"{self.api_url}/auth/register",
+                method="POST",
+                headers=headers,
+                json_data={**req_body, **self._delivery_fields()},
+                idempotent=False,
+            )
+        except AllevitasApiError as err:
+            delivery_error = self._secret_delivery_error(err, "register")
+            if delivery_error:
+                raise delivery_error from None
+            raise
         account_id = res.get("accountId", req_body["accountId"])
+
+        if self.url_delivery:
+            return self._finish_url_registration(res, account_id, effective_dry_run)
 
         if effective_dry_run or not res.get("agentKey"):
             return RegisterResponse(
@@ -297,18 +397,7 @@ class AllevitasAuth:
                 f"Recover the account at {self._recovery_url} to get a new key."
             )
 
-        recovery_key_file = None
-        target_path = self.recovery_key_path
-        if res.get("recoveryKey") and target_path:
-            write_recovery_key_file(target_path, {
-                "accountId": account_id,
-                "recoveryKey": res["recoveryKey"],
-                "recoveryKeyId": res.get("recoveryKeyId", ""),
-                "format": detect_recovery_key_format(res["recoveryKey"]),
-                "createdAt": datetime.now(timezone.utc).isoformat(),
-            })
-            recovery_key_file = target_path
-
+        recovery_key_url, recovery_key_url_expires_at, recovery_key_file = self._deliver_recovery_key(res, account_id)
         return RegisterResponse(
             success=res.get("success", True),
             message=res.get("message", "Registered successfully"),
@@ -316,17 +405,120 @@ class AllevitasAuth:
             token=res.get("token"),
             recovery_key_id=res.get("recoveryKeyId"),
             recovery_key_file=recovery_key_file,
+            recovery_key_url=recovery_key_url,
+            recovery_key_url_expires_at=recovery_key_url_expires_at,
+        )
+
+    def _deliver_recovery_key(
+        self,
+        res: Dict[str, Any],
+        account_id: str,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Hand the recovery key over: the server's link, else a file.
+        Returns (url, url_expires_at, file_path).
+        """
+        if res.get("recoveryKeyUrl"):
+            # The raw key may come along for older clients; the link replaces the file
+            return res["recoveryKeyUrl"], res.get("recoveryKeyUrlExpiresAt"), None
+        recovery_key = res.get("recoveryKey")
+        if not recovery_key:
+            return None, None, None
+
+        target_path = self.recovery_key_path
+        if not target_path:
+            _warn(
+                "The recovery key could not be handed over and is lost. Set ALLEVITAS_RECOVERY_KEY_FILE, "
+                f"then renew the recovery key at {self._recovery_url}."
+            )
+            return None, None, None
+        write_recovery_key_file(target_path, {
+            "accountId": account_id,
+            "recoveryKey": recovery_key,
+            "recoveryKeyId": res.get("recoveryKeyId", ""),
+            "format": detect_recovery_key_format(recovery_key),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        })
+        return None, None, target_path
+
+    def _finish_url_registration(
+        self,
+        res: Dict[str, Any],
+        account_id: str,
+        effective_dry_run: bool,
+    ) -> RegisterResponse:
+        if effective_dry_run:
+            self._assert_url_delivery_confirmed(res, "Nothing was created (dry run).")
+            return RegisterResponse(
+                success=res.get("success", True),
+                message=res.get("message", ""),
+                account_id=account_id,
+                dry_run=True,
+            )
+        self._assert_url_delivery_confirmed(
+            res,
+            f"The account {account_id} may have been created, but its keys were not kept. "
+            f"Check with your human operator, or register under another account ID without URL delivery.",
+        )
+
+        # Deliver both before failing, so one lost secret does not take the other with it
+        links: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        failures: List[str] = []
+        lost_hints = {
+            "agentKey": f"Recover the account at {self._recovery_url} with the recovery key to get a new agent key.",
+            "recoveryKey": f"Renew the recovery key at {self._recovery_url}.",
+        }
+        for field_name in ("recoveryKey", "agentKey"):
+            try:
+                links[field_name] = self._deliver_by_url(res, field_name, lost_hints[field_name])
+            except AllevitasAuthError as e:
+                links[field_name] = (None, None)
+                failures.append(str(e))
+
+        self.current_account_id = account_id
+        self._fatal_auth_error = None
+        if res.get("token"):
+            self.current_token = res["token"]
+            self.token_expires_at = int(time.time()) + ACCESS_TOKEN_LIFETIME_SEC
+        if failures:
+            delivered = [
+                f"{label}: {links[name][0]}"
+                for name, label in (("recoveryKey", "recovery key link"), ("agentKey", "agent key link"))
+                if links[name][0]
+            ]
+            raise AllevitasAuthError(
+                "SECRET_NOT_DELIVERABLE",
+                f"Account {account_id} was created, but not every key could be handed over. "
+                + " ".join(failures)
+                + (" Delivered: " + "; ".join(delivered) if delivered else ""),
+            )
+
+        agent_key_url, agent_key_url_expires_at = links["agentKey"]
+        recovery_key_url, recovery_key_url_expires_at = links["recoveryKey"]
+        return RegisterResponse(
+            success=res.get("success", True),
+            message=res.get("message", "Registered successfully"),
+            account_id=account_id,
+            token=res.get("token"),
+            recovery_key_id=res.get("recoveryKeyId"),
+            recovery_key_url=recovery_key_url,
+            recovery_key_url_expires_at=recovery_key_url_expires_at,
+            agent_key_url=agent_key_url,
+            agent_key_url_expires_at=agent_key_url_expires_at,
         )
 
     def _assert_registration_can_persist(self, account_id: str) -> None:
         """
         Refuse before the account is created when its one-time secrets could not be kept.
         """
+        if self.url_delivery:
+            return  # Nothing secret is written here
         if not self._should_save_credentials() and not self._explicit_recovery_key_file:
             raise AllevitasAuthError(
                 "CREDENTIALS_NOT_PERSISTABLE",
                 "Registration returns the agent key and recovery key only once. Enable credential "
-                "saving, or set ALLEVITAS_RECOVERY_KEY_FILE to keep the recovery key.",
+                "saving, set ALLEVITAS_RECOVERY_KEY_FILE to keep the recovery key, or use "
+                "ALLEVITAS_SECRET_DELIVERY=url to receive one-time links.",
             )
         if self._store_belongs_to_other_account(self.credentials_path, account_id):
             raise AllevitasAuthError(
@@ -470,7 +662,14 @@ class AllevitasAuth:
 
     def _auto_rotate_if_due(self) -> None:
         # An external key cannot be replaced: the next start would only have the revoked one
-        if not self._auto_rotate_enabled or not self._can_persist_key or self.dry_run or not self._current_agent_key:
+        # In URL mode a new key reaches only the human, so this process could not commit it
+        if (
+            not self._auto_rotate_enabled
+            or not self._can_persist_key
+            or self.dry_run
+            or not self._current_agent_key
+            or self.url_delivery
+        ):
             return
         if self._key_created_at is None:
             self._key_created_at = int(time.time())
@@ -681,6 +880,9 @@ class AllevitasAuth:
         """
         Rotate the agent key: receive K2 (pending), save it, and exchange it once to commit.
         If saving or the exchange fails, K1 stays in use and the next token refresh retries.
+
+        With secret_delivery="url", K2 is not saved: the result carries agent_key_url for the
+        human operator, and K2 is committed when it is first used. K1 stays valid until then.
         """
         with self._lock:
             return self._rotate_key(False, dry_run if dry_run is not None else self.dry_run)
@@ -690,6 +892,13 @@ class AllevitasAuth:
         Rotate and commit immediately, also revoking issued access tokens. Use when a leak is suspected.
         """
         is_dry_run = dry_run if dry_run is not None else self.dry_run
+        if self.url_delivery:
+            raise AllevitasAuthError(
+                "ROTATE_NOW_NOT_AVAILABLE",
+                "rotate_now() cannot run with URL delivery: the new key would reach only the human operator, "
+                "so the current key could not be revoked now. If a leak is suspected, recover the account at "
+                f"{self._recovery_url}, or run `allevitas key rotate --now` from a CLI that does not use URL delivery.",
+            )
         with self._lock:
             result = self._rotate_key(True, is_dry_run)
         if not is_dry_run and not result.committed:
@@ -707,6 +916,9 @@ class AllevitasAuth:
     ) -> RotateResult:
         if not self._has_key:
             raise AllevitasAuthError("AGENT_KEY_MISSING", "No agent key to rotate.")
+
+        if self.url_delivery:
+            return self._rotate_by_url(is_dry_run)
 
         extra = {"revokeTokens": True} if revoke_tokens else {}
         if is_dry_run:
@@ -771,15 +983,105 @@ class AllevitasAuth:
                 agent_key_prefix=_key_display_prefix(self._current_agent_key),
             )
 
+    def _rotate_by_url(self, is_dry_run: bool) -> RotateResult:
+        """
+        Ask for K2 as a one-time link. K2 stays pending until the human brings it back.
+        """
+        body = {
+            "agentKey": self._current_agent_key or self._pending_agent_key,
+            "rotate": True,
+            **self._delivery_fields(),
+        }
+        try:
+            res = self._post_token(body, is_dry_run=is_dry_run)
+        except AllevitasApiError as err:
+            delivery_error = self._secret_delivery_error(err, "rotate")
+            if delivery_error:
+                raise delivery_error from None
+            fatal = self._fatal_error_for(err)
+            if fatal:
+                self._fail_fatally(fatal)
+            raise
+        if is_dry_run:
+            self._assert_url_delivery_confirmed(res, "Nothing was rotated (dry run).")
+            return RotateResult(rotated=False, committed=False, dry_run=True)
+        self._assert_url_delivery_confirmed(
+            res, "The new key was not kept, and the current agent key is still valid."
+        )
+
+        url, expires_at = self._deliver_by_url(res, "agentKey", "The current agent key is still valid.")
+        if not url:
+            raise AllevitasAuthError(
+                "SECRET_NOT_DELIVERABLE",
+                "The server returned no link for the new key. The current agent key is still valid.",
+            )
+        return RotateResult(
+            rotated=True,
+            committed=False,
+            agent_key_url=url,
+            agent_key_url_expires_at=expires_at,
+        )
+
+    def _claim_error(self, err: AllevitasApiError) -> Optional[AllevitasAuthError]:
+        rerun = f"Ask your human operator to run the recovery again at {self._recovery_url}."
+        if err.code == "CLAIM_CODE_USED":
+            return AllevitasAuthError(
+                err.code,
+                f"This claim code was already used. If you did not use it, the code may have been stolen. {rerun}",
+            )
+        if err.code == "CLAIM_CODE_EXPIRED":
+            return AllevitasAuthError(
+                err.code,
+                f"This claim code expired or was replaced by a newer recovery. {rerun}",
+            )
+        return self._secret_delivery_error(err, "claim") or self._fatal_error_for(err)
+
+    def _claim_by_url(self, claim_code: str, is_dry_run: bool) -> ClaimResult:
+        body = {"claimCode": claim_code, **self._delivery_fields()}
+        with self._lock:
+            try:
+                res = self._post_token(body, is_dry_run=is_dry_run, idempotent=False)
+            except AllevitasApiError as err:
+                guided = self._claim_error(err)
+                if guided:
+                    raise guided from None
+                raise
+            if is_dry_run:
+                self._assert_url_delivery_confirmed(res, "The code was not consumed (dry run).")
+                return ClaimResult(claimed=False, dry_run=True)
+            rerun = f"Ask your human operator to run the recovery again at {self._recovery_url}."
+            self._assert_url_delivery_confirmed(res, f"The claim code was consumed, but the new key was not kept. {rerun}")
+
+            url, expires_at = self._deliver_by_url(res, "agentKey", rerun)
+            if not url:
+                raise AllevitasAuthError(
+                    "SECRET_NOT_DELIVERABLE", f"The server returned no link for the new key. {rerun}"
+                )
+            if res.get("accountId"):
+                self.current_account_id = res["accountId"]
+            if res.get("token"):
+                self.current_token = res["token"]
+                self.token_expires_at = int(time.time()) + res.get("expiresIn", ACCESS_TOKEN_LIFETIME_SEC)
+            self._fatal_auth_error = None
+            return ClaimResult(
+                claimed=True,
+                account_id=res.get("accountId"),
+                agent_key_url=url,
+                agent_key_url_expires_at=expires_at,
+            )
+
     def claim(self, code: str, dry_run: Optional[bool] = None) -> ClaimResult:
         """
         Exchange a claim code from /recover/agent for a new agent key and save it.
-        The key is never returned.
+        The key is never returned. With secret_delivery="url" it is not saved either: the result
+        carries agent_key_url for the human operator.
         """
         is_dry_run = dry_run if dry_run is not None else self.dry_run
         claim_code = code.strip()
         if not claim_code.startswith(CLAIM_CODE_PREFIX):
             raise AllevitasAuthError("INVALID_CLAIM_CODE", f"A claim code starts with {CLAIM_CODE_PREFIX}.")
+        if self.url_delivery:
+            return self._claim_by_url(claim_code, is_dry_run)
 
         if is_dry_run:
             self._post_token({"claimCode": claim_code}, is_dry_run=True)
@@ -797,20 +1099,9 @@ class AllevitasAuth:
             try:
                 res = self._post_token({"claimCode": claim_code}, idempotent=False)
             except AllevitasApiError as err:
-                rerun = f"Ask your human operator to run the recovery again at {self._recovery_url}."
-                if err.code == "CLAIM_CODE_USED":
-                    raise AllevitasAuthError(
-                        err.code,
-                        f"This claim code was already used. If you did not use it, the code may have been stolen. {rerun}",
-                    ) from None
-                if err.code == "CLAIM_CODE_EXPIRED":
-                    raise AllevitasAuthError(
-                        err.code,
-                        f"This claim code expired or was replaced by a newer recovery. {rerun}",
-                    ) from None
-                fatal = self._fatal_error_for(err)
-                if fatal:
-                    raise fatal from None
+                guided = self._claim_error(err)
+                if guided:
+                    raise guided from None
                 raise
 
             if self._store_belongs_to_other_account(self.credentials_path, res.get("accountId")):
@@ -872,6 +1163,7 @@ class AllevitasAuth:
             needs_migration=self._needs_migration,
             credentials_path=self.credentials_path,
             pending_recovery_key_file=target_path if target_path and read_recovery_key_file(target_path) else None,
+            secret_delivery=SECRET_DELIVERY_URL if self.url_delivery else None,
         )
 
     def _store_belongs_to_other_account(self, file_path: str, account_id: Optional[str]) -> bool:

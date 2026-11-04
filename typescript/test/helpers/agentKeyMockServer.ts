@@ -1,6 +1,7 @@
 /**
  * In-process mock of the agent key endpoints, following the server's state rules:
- * a rotation stays pending until the new key is exchanged once.
+ * a rotation stays pending until the new key is exchanged once. One-time links follow
+ * the secretDelivery contract of the server (links instead of raw keys, echoed mode).
  */
 
 import http from "node:http";
@@ -21,6 +22,16 @@ export interface AgentKeyMockState {
   /** Answer protected endpoints with this error once */
   nextApiError: { status: number; code?: string } | null;
   dryRunHeaders: string[];
+  /** Behave like a server without secretDelivery support (ignore the field) */
+  ignoreSecretDelivery: boolean;
+  /** Also return recoveryKeyUrl from a plain registration */
+  linkRecoveryKey: boolean;
+  /** Fail the next url-mode request with this secret delivery error */
+  secretDeliveryError: "UNAVAILABLE" | "FAILED" | null;
+  /** Secret behind each issued link */
+  links: Map<string, string>;
+  registerRequests: Record<string, any>[];
+  forwardedFor: string[];
 }
 
 export interface AgentKeyMockServer {
@@ -48,8 +59,15 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
     failTokenRequests: 0,
     nextApiError: null,
     dryRunHeaders: [],
+    ignoreSecretDelivery: false,
+    linkRecoveryKey: false,
+    secretDeliveryError: null,
+    links: new Map(),
+    registerRequests: [],
+    forwardedFor: [],
   };
   let issued = 0;
+  let origin = "";
 
   const send = (res: http.ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { "Content-Type": "application/json" });
@@ -69,6 +87,26 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
     ...extra,
   });
   const dryRunBody = { status: "dry_run", dryRun: true, message: "[Dry Run] Validation successful." };
+  const link = (secret: string) => {
+    const url = `${origin}/secrets/s${++issued}#key${issued}fragment`;
+    state.links.set(url, secret);
+    return url;
+  };
+  const linkFields = (name: "agentKey" | "recoveryKey", secret: string) => ({
+    [`${name}Url`]: link(secret),
+    [`${name}UrlExpiresAt`]: "2026-11-04T00:00:00.000Z",
+  });
+  const asLinks = (body: Record<string, any>) => body.secretDelivery === "url" && !state.ignoreSecretDelivery;
+  // Mirrors the server: an unavailable store is refused before any change, a failed link after the key was issued
+  const deliveryFailure = (res: http.ServerResponse, stage: "before" | "after") => {
+    const failure = state.secretDeliveryError;
+    if ((failure === "UNAVAILABLE" && stage === "before") || (failure === "FAILED" && stage === "after")) {
+      state.secretDeliveryError = null;
+      send(res, 503, { error: "One-time links failed", code: `SECRET_DELIVERY_${failure}` });
+      return true;
+    }
+    return false;
+  };
 
   const handleToken = (res: http.ServerResponse, body: Record<string, any>, isDryRun: boolean) => {
     state.tokenRequests.push(body);
@@ -77,8 +115,22 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
       return send(res, 503, { error: "Unavailable" });
     }
     if (isDryRun) {
-      return send(res, 200, dryRunBody);
+      return send(res, 200, asLinks(body) ? { ...dryRunBody, secretDelivery: "url", validatedData: { secretDelivery: "url" } } : dryRunBody);
     }
+    const issuesKey = Boolean(body.claimCode || body.rotate);
+    if (asLinks(body) && issuesKey && deliveryFailure(res, "before")) {
+      return;
+    }
+    const respond = (payload: Record<string, any>) => {
+      if (!asLinks(body) || !payload.agentKey) {
+        return send(res, 200, asLinks(body) ? { ...payload, secretDelivery: "url" } : payload);
+      }
+      if (deliveryFailure(res, "after")) {
+        return;
+      }
+      const { agentKey, ...rest } = payload;
+      return send(res, 200, { ...rest, secretDelivery: "url", ...linkFields("agentKey", agentKey) });
+    };
 
     if (body.claimCode) {
       const code = state.claimCodes.get(body.claimCode);
@@ -89,7 +141,7 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
       for (const [key, status] of state.keys) {
         if (status === "active" || status === "pending") state.keys.set(key, "SUPERSEDED");
       }
-      return send(res, 200, access({ agentKey: issueKey("active"), keyStatus: "active" }));
+      return respond(access({ agentKey: issueKey("active"), keyStatus: "active" }));
     }
 
     const status = state.keys.get(body.agentKey);
@@ -110,7 +162,7 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
       }
       const next = issueKey("pending");
       (state as any).revokeOnCommit = Boolean(body.revokeTokens);
-      return send(res, 200, access({ agentKey: next, keyStatus: "pending" }));
+      return respond(access({ agentKey: next, keyStatus: "pending" }));
     }
 
     if (status === "pending") {
@@ -122,7 +174,7 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
         state.tokenVersion++;
       }
     }
-    return send(res, 200, access());
+    return respond(access());
   };
 
   const server = http.createServer(async (req, res) => {
@@ -132,6 +184,9 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
     }
     const body = raw ? JSON.parse(raw) : {};
     const isDryRun = req.headers["x-dry-run"] === "true";
+    if (req.headers["x-forwarded-for"]) {
+      state.forwardedFor.push(String(req.headers["x-forwarded-for"]));
+    }
     if (isDryRun) {
       state.dryRunHeaders.push(req.url || "");
     }
@@ -153,19 +208,39 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
     }
 
     if (req.url === "/auth/register" && req.method === "POST") {
+      state.registerRequests.push(body);
+      if (body.secretDelivery !== undefined && body.secretDelivery !== "url" && !state.ignoreSecretDelivery) {
+        return send(res, 400, { error: "Unsupported secretDelivery", code: "UNSUPPORTED_SECRET_DELIVERY" });
+      }
       if (isDryRun) {
-        return send(res, 200, dryRunBody);
+        return send(res, 200, asLinks(body) ? { ...dryRunBody, secretDelivery: "url", validatedData: { secretDelivery: "url" } } : dryRunBody);
       }
       if (body.password !== undefined) {
         return send(res, 400, { error: "AI accounts no longer use passwords.", code: "AGENT_KEY_REQUIRED" });
       }
-      return send(res, 201, {
+      if (asLinks(body) && (deliveryFailure(res, "before") || deliveryFailure(res, "after"))) {
+        return; // The server creates no account when links fail
+      }
+      const agentKey = issueKey("active");
+      const created = {
         message: "Account created successfully",
         accountId: body.accountId,
-        agentKey: issueKey("active"),
         token: `jwt_v${state.tokenVersion}_register`,
-        recoveryKey: "alv_rk_registered",
         recoveryKeyId: state.recoveryKeyId,
+      };
+      if (asLinks(body)) {
+        return send(res, 201, {
+          ...created,
+          secretDelivery: "url",
+          ...linkFields("agentKey", agentKey),
+          ...linkFields("recoveryKey", "alv_rk_registered"),
+        });
+      }
+      return send(res, 201, {
+        ...created,
+        agentKey,
+        recoveryKey: "alv_rk_registered",
+        ...(state.linkRecoveryKey ? linkFields("recoveryKey", "alv_rk_registered") : {}),
       });
     }
 
@@ -204,6 +279,7 @@ export async function startAgentKeyMockServer(): Promise<AgentKeyMockServer> {
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
   const { port } = server.address() as { port: number };
+  origin = `http://127.0.0.1:${port}`;
 
   return {
     url: `http://127.0.0.1:${port}`,

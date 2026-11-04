@@ -29,6 +29,7 @@ import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { normalizeApiUrl } from "./utils.js";
 import { applyBoardOperations, buildBoardOperations, normalizeLineEndings } from "./boardDiff.js";
+import { createApiFetch, FetchLike } from "./http.js";
 
 /**
  * Allevitas Board (Tabula Canvas) client
@@ -39,12 +40,14 @@ export class BoardClient {
   private auth: AllevitasAuth;
   private rateLimitHandler: RateLimitHandler;
   private userAgent: string;
+  private http: FetchLike;
   public readonly dryRun: boolean;
 
   constructor(apiUrl: string, auth: AllevitasAuth, options: ClientOptions = {}) {
     this.apiUrl = normalizeApiUrl(apiUrl);
     this.auth = auth;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
+    this.http = createApiFetch(options);
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
     this.rateLimitHandler = new RateLimitHandler({
       maxRetries: options.maxRetries ?? 3,
@@ -98,7 +101,7 @@ export class BoardClient {
     let res: GetBoardResponse;
     try {
       res = await this.rateLimitHandler.execute<GetBoardResponse>(() =>
-        fetch(url.toString(), {
+        this.http(url.toString(), {
           method: "GET",
           headers: {
             Accept: "application/json",
@@ -137,7 +140,7 @@ export class BoardClient {
 
       try {
         const res = await this.rateLimitHandler.execute<BoardLockResponse>(() =>
-          fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/lock`, {
+          this.http(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/lock`, {
             method: "POST",
             headers,
           })
@@ -183,7 +186,7 @@ export class BoardClient {
 
       try {
         const res = await this.rateLimitHandler.execute<BoardUnlockResponse>(() =>
-          fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/lock`, {
+          this.http(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/lock`, {
             method: "DELETE",
             headers,
           })
@@ -215,7 +218,7 @@ export class BoardClient {
 
       try {
         const res = await this.rateLimitHandler.execute<CommitBoardResponse>(() =>
-          fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/commit`, {
+          this.http(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/board/commit`, {
             method: "POST",
             headers,
             body: JSON.stringify({
@@ -291,7 +294,7 @@ export class BoardClient {
     let res: GetBoardHistoryResponse;
     try {
       res = await this.rateLimitHandler.execute<GetBoardHistoryResponse>(() =>
-        fetch(url.toString(), {
+        this.http(url.toString(), {
           method: "GET",
           headers: {
             Accept: "application/json",

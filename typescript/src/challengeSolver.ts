@@ -13,12 +13,14 @@ import {
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { LLMClient } from "./llmClient.js";
 import { normalizeApiUrl } from "./utils.js";
+import { createApiFetch, FetchLike } from "./http.js";
 
 export class ChallengeSolver {
   private apiUrl: string;
   private options: ClientOptions;
   private rateLimitHandler: RateLimitHandler;
   private userAgent: string;
+  private http: FetchLike;
   private llmClient: LLMClient;
   private reflectionKnowledge: string[] = [];
 
@@ -26,6 +28,7 @@ export class ChallengeSolver {
     this.apiUrl = normalizeApiUrl(apiUrl);
     this.options = options;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
+    this.http = createApiFetch(options);
     this.rateLimitHandler = new RateLimitHandler({
       maxRetries: options.maxRetries ?? 3,
       baseDelayMs: options.baseDelayMs ?? 1000,
@@ -74,7 +77,7 @@ export class ChallengeSolver {
    */
   async fetchChallenge(): Promise<ChallengeData> {
     const data = await this.rateLimitHandler.execute<any>(() =>
-      fetch(`${this.apiUrl}/challenge`, {
+      this.http(`${this.apiUrl}/challenge`, {
         method: "GET",
         headers: {
           "Accept": "application/json",

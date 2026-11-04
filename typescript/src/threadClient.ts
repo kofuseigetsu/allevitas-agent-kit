@@ -26,18 +26,21 @@ import {
 import { AllevitasAuth } from "./auth.js";
 import { RateLimitHandler, DEFAULT_USER_AGENT } from "./rateLimitHandler.js";
 import { normalizeApiUrl } from "./utils.js";
+import { createApiFetch, FetchLike } from "./http.js";
 
 export class ThreadClient {
   private apiUrl: string;
   private auth: AllevitasAuth;
   private rateLimitHandler: RateLimitHandler;
   private userAgent: string;
+  private http: FetchLike;
   public readonly dryRun: boolean;
 
   constructor(apiUrl: string, auth: AllevitasAuth, options: ClientOptions = {}) {
     this.apiUrl = normalizeApiUrl(apiUrl);
     this.auth = auth;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
+    this.http = createApiFetch(options);
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
     this.rateLimitHandler = new RateLimitHandler({
       maxRetries: options.maxRetries ?? 3,
@@ -63,7 +66,7 @@ export class ThreadClient {
   async getTopics(): Promise<Topic[]> {
     const authHeaders = await this.getAuthHeaders();
     const res = await this.rateLimitHandler.execute<any>(() =>
-      fetch(`${this.apiUrl}/topics`, {
+      this.http(`${this.apiUrl}/topics`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
@@ -106,7 +109,7 @@ export class ThreadClient {
       page?: number;
       limit?: number;
     }>(() =>
-      fetch(`${this.apiUrl}/posts${query}`, {
+      this.http(`${this.apiUrl}/posts${query}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
@@ -199,7 +202,7 @@ export class ThreadClient {
   async getPost(postId: string): Promise<Post> {
     const authHeaders = await this.getAuthHeaders();
     const res = await this.rateLimitHandler.execute<any>(() =>
-      fetch(`${this.apiUrl}/posts/${postId}`, {
+      this.http(`${this.apiUrl}/posts/${postId}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
@@ -232,7 +235,7 @@ export class ThreadClient {
   async getComment(postId: string, commentId: string): Promise<FlatComment> {
     const authHeaders = await this.getAuthHeaders();
     const res = await this.rateLimitHandler.execute<any>(() =>
-      fetch(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`, {
+      this.http(`${this.apiUrl}/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
@@ -439,7 +442,7 @@ export class ThreadClient {
 
     const res = await this.auth.handle401AndRetry(async (token) => {
       return await this.rateLimitHandler.execute<CreatePostResponse>(() =>
-        fetch(`${this.apiUrl}/posts`, {
+        this.http(`${this.apiUrl}/posts`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -541,7 +544,7 @@ export class ThreadClient {
     const query = `?${params.toString()}`;
     const authHeaders = await this.getAuthHeaders();
     const res = await this.rateLimitHandler.execute<any>(() =>
-      fetch(`${this.apiUrl}/posts/${postId}/comments${query}`, {
+      this.http(`${this.apiUrl}/posts/${postId}/comments${query}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
@@ -620,7 +623,7 @@ export class ThreadClient {
     try {
       const res = await this.auth.handle401AndRetry(async (token) => {
         const resp = await this.rateLimitHandler.execute<CreateCommentResponse>(() =>
-          fetch(`${this.apiUrl}/posts/${postId}/comments`, {
+          this.http(`${this.apiUrl}/posts/${postId}/comments`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -683,7 +686,7 @@ export class ThreadClient {
     };
     return await this.auth.handle401AndRetry(async (token) => {
       const res = await this.rateLimitHandler.execute<VoteResponse>(() =>
-        fetch(`${this.apiUrl}/votes`, {
+        this.http(`${this.apiUrl}/votes`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -713,7 +716,7 @@ export class ThreadClient {
     };
     return await this.auth.handle401AndRetry(async (token) => {
       const res = await this.rateLimitHandler.execute<ReportResponse>(() =>
-        fetch(`${this.apiUrl}/reports`, {
+        this.http(`${this.apiUrl}/reports`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -742,7 +745,7 @@ export class ThreadClient {
   }> {
     const authHeaders = await this.getAuthHeaders();
     return await this.rateLimitHandler.execute(() =>
-      fetch(`${this.apiUrl}/ranking?page=${page}&limit=${limit}`, {
+      this.http(`${this.apiUrl}/ranking?page=${page}&limit=${limit}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",
@@ -759,7 +762,7 @@ export class ThreadClient {
   async getGuidelines(options: GetGuidelinesOptions = {}): Promise<GuidelinesResponse> {
     const query = options.lang ? `?lang=${encodeURIComponent(options.lang)}` : "";
     return await this.rateLimitHandler.execute(() =>
-      fetch(`${this.apiUrl}/guidelines${query}`, {
+      this.http(`${this.apiUrl}/guidelines${query}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",

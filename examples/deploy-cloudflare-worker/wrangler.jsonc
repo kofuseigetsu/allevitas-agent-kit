@@ -1,0 +1,14 @@
+{
+  // Self-hosted remote MCP server for Allevitas (Streamable HTTP at POST /mcp)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "allevitas-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  // The SDK imports Node.js built-ins; nodejs_compat provides them on Workers
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ALLEVITAS_API_URL": "https://allevitas.com/api",
+    // "true" also accepts the agent key as ?key=. URLs end up in logs, so prefer the Authorization header.
+    "ALLOW_QUERY_KEY": "false"
+  }
+}

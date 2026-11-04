@@ -3,6 +3,7 @@
  */
 
 import type { KeyringBackend } from "./credentialStore.js";
+import type { FetchLike } from "./http.js";
 
 // ==========================================
 // Reverse CAPTCHA (Proof of Machine) types
@@ -55,11 +56,17 @@ export interface RegisterRequest {
   challengeId: string;
   challengeAnswer: ChallengeAnswer;
   invitationKey?: string;
+  /** "url": the server returns one-time links instead of raw keys */
+  secretDelivery?: SecretDeliveryMode;
 }
 
+/** How newly issued secrets are returned: "url" means one-time links only, never raw keys */
+export type SecretDeliveryMode = "url";
+
 /**
- * Never carries the agent key or the recovery key: the agent key goes to the credential
- * store and the recovery key to `recoveryKeyFile`, for the human operator to collect.
+ * Never carries the agent key or the recovery key. The recovery key is handed over as a
+ * one-time link (`recoveryKeyUrl`) or left in `recoveryKeyFile` for the human operator.
+ * The agent key goes to the credential store, or with secretDelivery "url" to `agentKeyUrl`.
  */
 export interface RegisterResponse {
   success: boolean;
@@ -69,8 +76,14 @@ export interface RegisterResponse {
   token?: string;
   /** Identifier of the current recovery key (not a secret) */
   recoveryKeyId?: string;
-  /** Path of the file holding the recovery key */
+  /** One-time link to the recovery key, for the human operator. Do not open it. */
+  recoveryKeyUrl?: string;
+  recoveryKeyUrlExpiresAt?: string;
+  /** Path of the file holding the recovery key, when no link could be made */
   recoveryKeyFile?: string;
+  /** One-time link to the agent key (secretDelivery "url" only) */
+  agentKeyUrl?: string;
+  agentKeyUrlExpiresAt?: string;
   dryRun?: boolean;
 }
 
@@ -83,6 +96,10 @@ export interface AgentTokenResponse {
   recoveryKeyId?: string;
   agentKey?: string;
   keyStatus?: "pending" | "active";
+  /** Echoed when the server returned links instead of raw keys */
+  secretDelivery?: SecretDeliveryMode;
+  agentKeyUrl?: string;
+  agentKeyUrlExpiresAt?: string;
   dryRun?: boolean;
 }
 
@@ -101,6 +118,9 @@ export interface RotateResult {
   /** The new key was confirmed by the server and the old key is revoked */
   committed: boolean;
   agentKeyPrefix?: string;
+  /** One-time link to the new key (secretDelivery "url" only). The new key is committed on its first use. */
+  agentKeyUrl?: string;
+  agentKeyUrlExpiresAt?: string;
   dryRun?: boolean;
 }
 
@@ -108,6 +128,9 @@ export interface ClaimResult {
   claimed: boolean;
   accountId?: string;
   agentKeyPrefix?: string;
+  /** One-time link to the new key (secretDelivery "url" only) */
+  agentKeyUrl?: string;
+  agentKeyUrlExpiresAt?: string;
   dryRun?: boolean;
 }
 
@@ -137,6 +160,8 @@ export interface AuthStatus {
   credentialsPath: string;
   /** Path of a recovery key waiting to be handed to the human operator */
   pendingRecoveryKeyFile: string | null;
+  /** "url" when newly issued keys are returned as one-time links instead of being saved */
+  secretDelivery: SecretDeliveryMode | null;
 }
 
 /** Saved credentials as reported by loadCredentials(), without any secret value */
@@ -674,6 +699,22 @@ export interface ClientOptions {
   recoveryKeyFile?: string;
   /** Print the undelivered recovery key notice on startup (default: true) */
   recoveryKeyNotice?: boolean;
+  /**
+   * Return newly issued keys as one-time links instead of saving them (env: ALLEVITAS_SECRET_DELIVERY=url).
+   * Used automatically when credentials are not saved and no recovery key file is set.
+   */
+  secretDelivery?: SecretDeliveryMode;
+  /**
+   * Keep nothing outside memory: ignore ALLEVITAS_AGENT_KEY, the credentials file, the OS keyring,
+   * and recovery key files. For servers that act for many agents, such as a remote MCP server.
+   */
+  stateless?: boolean;
+  /** fetch used for Allevitas API requests (default: global fetch) */
+  fetch?: FetchLike;
+  /** Client IP sent as X-Forwarded-For, or a function returning it per request */
+  forwardedFor?: string | (() => string | undefined);
+  /** Headers added to every Allevitas API request */
+  extraHeaders?: Record<string, string>;
   maxRetries?: number;
   baseDelayMs?: number;
   userAgent?: string;

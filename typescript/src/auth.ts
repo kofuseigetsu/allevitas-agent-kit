@@ -13,6 +13,7 @@ import {
   RegisterRequest,
   RegisterResponse,
   MigrateResult,
+  SecretDeliveryMode,
   RotateResult,
   StoredCredentials,
   ClientOptions,
@@ -39,6 +40,7 @@ import {
   writeFileAtomic,
   writeRecoveryKeyFile,
 } from "./credentialStore.js";
+import { createApiFetch, FetchLike } from "./http.js";
 
 const ACCESS_TOKEN_LIFETIME_SEC = 15 * 60;
 const REFRESH_MARGIN_MS = 60 * 1000;           // Refresh when within 1 minute of expiry
@@ -63,6 +65,7 @@ export class AllevitasAuth {
   private challengeSolver: ChallengeSolver;
   private rateLimitHandler: RateLimitHandler;
   private userAgent: string;
+  private http: FetchLike;
   private keyring: KeyringBackend | null;
   public readonly dryRun: boolean;
 
@@ -90,6 +93,7 @@ export class AllevitasAuth {
     this.apiUrl = normalizeApiUrl(apiUrl);
     this.options = safeOptions;
     this.userAgent = options.userAgent || DEFAULT_USER_AGENT;
+    this.http = createApiFetch(options);
     this.dryRun = options.dryRun ?? (process.env.ALLEVITAS_DRY_RUN === "true");
     this.challengeSolver = challengeSolver;
     this.rateLimitHandler = new RateLimitHandler({
@@ -97,11 +101,16 @@ export class AllevitasAuth {
       baseDelayMs: options.baseDelayMs ?? 1000,
     });
     this.keyring = this.resolveKeyring();
+    const deliveryEnv = process.env.ALLEVITAS_SECRET_DELIVERY;
+    if (!options.secretDelivery && deliveryEnv && deliveryEnv !== "url") {
+      throw new AllevitasAuthError("CONFIG_ERROR", `ALLEVITAS_SECRET_DELIVERY must be "url" (got "${deliveryEnv}").`);
+    }
 
-    const explicitKey = agentKey || process.env.ALLEVITAS_AGENT_KEY || null;
+    // A stateless client serves whoever called it, so the host's own key must never leak in
+    const explicitKey = agentKey || (options.stateless ? null : process.env.ALLEVITAS_AGENT_KEY) || null;
     if (explicitKey && !options.importAgentKey) {
       this.keySource = "external";
-    } else {
+    } else if (!options.stateless) {
       // Auto-load credentials if existing file is present
       this.tryAutoLoadCredentials();
     }
@@ -114,6 +123,9 @@ export class AllevitasAuth {
 
   private resolveKeyring(): KeyringBackend | null {
     const { keyring } = this.options;
+    if (this.options.stateless) {
+      return null;
+    }
     if (keyring && typeof keyring === "object") {
       return keyring;
     }
@@ -199,6 +211,9 @@ export class AllevitasAuth {
         }, isDryRun);
       } catch (err: any) {
         lastError = err;
+        if (err instanceof AllevitasAuthError) {
+          throw err;
+        }
         const errMsg = String(err.message || err);
         const isChallengeError = errMsg.includes("403") || errMsg.includes("challenge");
         if (!isChallengeError) {
@@ -246,20 +261,32 @@ export class AllevitasAuth {
     reqBody: RegisterRequest,
     isDryRun: boolean
   ): Promise<RegisterResponse> {
-    const res = await this.rateLimitHandler.execute<any>(
-      () =>
-        fetch(`${this.apiUrl}/auth/register`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "User-Agent": this.userAgent,
-            ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
-          },
-          body: JSON.stringify(reqBody),
-        }),
-      { idempotent: false }
-    );
+    const asLinks = this.secretDelivery === "url";
+    let res: any;
+    try {
+      res = await this.rateLimitHandler.execute<any>(
+        () =>
+          this.http(`${this.apiUrl}/auth/register`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": this.userAgent,
+              ...(isDryRun ? { "X-Dry-Run": "true" } : {}),
+            },
+            body: JSON.stringify(asLinks ? { ...reqBody, secretDelivery: "url" } : reqBody),
+          }),
+        { idempotent: false }
+      );
+    } catch (err: unknown) {
+      throw (err instanceof AllevitasApiError && this.secretDeliveryErrorFor(err, "register")) || err;
+    }
 
+    if (isDryRun && asLinks) {
+      this.assertLinksSupported(res, "register");
+    }
+    if (!isDryRun && asLinks) {
+      return await this.completeRegistrationAsLinks(res, reqBody.accountId);
+    }
     if (isDryRun || !res.agentKey) {
       return {
         success: res.success ?? true,
@@ -284,9 +311,14 @@ export class AllevitasAuth {
       warn("The agent key was not saved and will be lost when this process exits. Recover the account at " + this.recoveryUrl + " to get a new key.");
     }
 
+    // The server's one-time link, else a file for the operator
+    const link = res.recoveryKeyUrl
+      ? { url: res.recoveryKeyUrl as string, expiresAt: (res.recoveryKeyUrlExpiresAt ?? undefined) as string | undefined }
+      : null;
+
     let recoveryKeyFile: string | undefined;
     const targetPath = this.recoveryKeyPath;
-    if (res.recoveryKey && targetPath) {
+    if (!link && res.recoveryKey && targetPath) {
       writeRecoveryKeyFile(targetPath, {
         accountId: this.currentAccountId!,
         recoveryKey: res.recoveryKey,
@@ -303,14 +335,91 @@ export class AllevitasAuth {
       accountId: this.currentAccountId!,
       token: res.token,
       recoveryKeyId: res.recoveryKeyId,
+      recoveryKeyUrl: link?.url,
+      recoveryKeyUrlExpiresAt: link?.expiresAt,
       recoveryKeyFile,
     };
+  }
+
+  /**
+   * Finish a registration made with secretDelivery "url": nothing is saved, both keys are links.
+   */
+  private async completeRegistrationAsLinks(res: any, requestedAccountId: string): Promise<RegisterResponse> {
+    const accountId: string = res.accountId || requestedAccountId;
+    const lost = `Account ${accountId} was created, but its keys could not be handed over as one-time links and were discarded. Register a new account.`;
+    if (res.secretDelivery !== "url") {
+      throw new AllevitasAuthError("SECRET_DELIVERY_UNSUPPORTED", `The server returned raw keys instead of one-time links. ${lost}`);
+    }
+    if (!res.agentKeyUrl || !res.recoveryKeyUrl) {
+      throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", lost);
+    }
+
+    this.currentAccountId = accountId;
+    return {
+      success: res.success ?? true,
+      message: res.message || "Registered successfully",
+      accountId,
+      token: res.token,
+      recoveryKeyId: res.recoveryKeyId,
+      agentKeyUrl: res.agentKeyUrl,
+      agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
+      recoveryKeyUrl: res.recoveryKeyUrl,
+      recoveryKeyUrlExpiresAt: res.recoveryKeyUrlExpiresAt,
+    };
+  }
+
+  /**
+   * "url" when newly issued keys are returned as one-time links instead of being saved.
+   * Without a credential store or a recovery key file there is nowhere else to keep them.
+   */
+  get secretDelivery(): SecretDeliveryMode | null {
+    if ((this.options.secretDelivery ?? process.env.ALLEVITAS_SECRET_DELIVERY) === "url") {
+      return "url";
+    }
+    return !this.shouldSaveCredentials() && !this.explicitRecoveryKeyFile ? "url" : null;
+  }
+
+  /**
+   * A dry run returns no keys, so the server must confirm it supports links.
+   */
+  private assertLinksSupported(res: { secretDelivery?: string }, operation: "register" | "rotate" | "claim"): void {
+    if (res.secretDelivery !== "url") {
+      throw new AllevitasAuthError(
+        "SECRET_DELIVERY_UNSUPPORTED",
+        `This server does not return one-time links, so ${operation} cannot run with secretDelivery "url" here.`
+      );
+    }
+  }
+
+  /**
+   * Guidance for the secret delivery errors of POST /auth/register and /auth/token.
+   */
+  private secretDeliveryErrorFor(err: AllevitasApiError, operation: "register" | "rotate" | "claim"): AllevitasAuthError | null {
+    switch (err.code) {
+      case "UNSUPPORTED_SECRET_DELIVERY":
+        return new AllevitasAuthError(err.code, "This server does not support one-time link delivery. Nothing was changed.");
+      case "SECRET_DELIVERY_UNAVAILABLE":
+        return new AllevitasAuthError(err.code, "One-time links are temporarily unavailable. Nothing was changed. Try again later.");
+      case "SECRET_DELIVERY_FAILED": {
+        const next = {
+          register: "No account was created. Fetch a new challenge and register again.",
+          rotate: "The current key is still valid. Run the rotation again.",
+          claim: `The claim code was used. Ask your human operator to run the recovery again at ${this.recoveryUrl}.`,
+        }[operation];
+        return new AllevitasAuthError(err.code, `The new key could not be delivered as a one-time link. ${next}`);
+      }
+      default:
+        return null;
+    }
   }
 
   /**
    * Refuse before the account is created when its one-time secrets could not be kept.
    */
   private assertRegistrationCanPersist(accountId: string): void {
+    if (this.secretDelivery === "url") {
+      return; // Nothing is saved locally
+    }
     if (!this.shouldSaveCredentials() && !this.explicitRecoveryKeyFile) {
       throw new AllevitasAuthError(
         "CREDENTIALS_NOT_PERSISTABLE",
@@ -347,7 +456,7 @@ export class AllevitasAuth {
   ): Promise<AgentTokenResponse> {
     return await this.rateLimitHandler.execute<AgentTokenResponse>(
       () =>
-        fetch(`${this.apiUrl}/auth/token`, {
+        this.http(`${this.apiUrl}/auth/token`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -482,7 +591,7 @@ export class AllevitasAuth {
 
   private async autoRotateIfDue(): Promise<void> {
     // An external key cannot be replaced: the next start would only have the revoked one
-    if (!this.autoRotateEnabled || !this.canPersistKey || this.dryRun || !this.currentAgentKey) {
+    if (!this.autoRotateEnabled || !this.canPersistKey || this.dryRun || !this.currentAgentKey || this.secretDelivery === "url") {
       return;
     }
     if (this.keyCreatedAt === null) {
@@ -723,7 +832,7 @@ export class AllevitasAuth {
   private async postMigrate(accountId: string, password: string, isDryRun: boolean): Promise<any> {
     return await this.rateLimitHandler.execute<any>(
       () =>
-        fetch(`${this.apiUrl}/agent/keys/migrate`, {
+        this.http(`${this.apiUrl}/agent/keys/migrate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -762,6 +871,15 @@ export class AllevitasAuth {
   private async rotateKey(revokeTokens: boolean, isDryRun: boolean, lockWaitMs?: number): Promise<RotateResult> {
     if (!this.hasKey) {
       throw new AllevitasAuthError("AGENT_KEY_MISSING", "No agent key to rotate.");
+    }
+    if (this.secretDelivery === "url") {
+      if (revokeTokens) {
+        throw new AllevitasAuthError(
+          "ROTATE_NOW_UNAVAILABLE",
+          `An immediate rotation cannot run with secretDelivery "url", because the new key is only available as a link. If a leak is suspected, ask your human operator to recover the account at ${this.recoveryUrl}, or run \`allevitas key rotate --now\` where credentials are saved.`
+        );
+      }
+      return await this.rotateAsLink(isDryRun);
     }
 
     if (isDryRun) {
@@ -837,6 +955,79 @@ export class AllevitasAuth {
   }
 
   /**
+   * Rotate with secretDelivery "url": K2 stays pending and is returned as a link. K1 remains
+   * valid until K2 is used for the first time, so nothing is lost if the link never arrives.
+   */
+  private async rotateAsLink(isDryRun: boolean): Promise<RotateResult> {
+    const body = { agentKey: this.currentAgentKey ?? this.pendingAgentKey, rotate: true, secretDelivery: "url" };
+    let res: AgentTokenResponse;
+    try {
+      res = await this.postToken(body, { isDryRun });
+    } catch (err: unknown) {
+      if (err instanceof AllevitasApiError) {
+        throw this.secretDeliveryErrorFor(err, "rotate") ?? this.fatalErrorFor(err) ?? err;
+      }
+      throw err;
+    }
+    if (isDryRun) {
+      this.assertLinksSupported(res, "rotate");
+      return { rotated: false, committed: false, dryRun: true };
+    }
+    if (res.token) {
+      this.applyTokenResponse(res);
+    }
+
+    const notDelivered = "The new key could not be delivered as a one-time link. The current key is still valid. Run the rotation again.";
+    if (res.secretDelivery !== "url") {
+      throw new AllevitasAuthError("SECRET_DELIVERY_UNSUPPORTED", `The server returned the new key instead of a one-time link. ${notDelivered}`);
+    }
+    if (!res.agentKeyUrl) {
+      throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", notDelivered);
+    }
+    return {
+      rotated: true,
+      committed: false,
+      agentKeyUrl: res.agentKeyUrl,
+      agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
+    };
+  }
+
+  private claimErrorFor(err: AllevitasApiError): Error {
+    const rerun = `Ask your human operator to run the recovery again at ${this.recoveryUrl}.`;
+    if (err.code === "CLAIM_CODE_USED") {
+      return new AllevitasAuthError(
+        err.code,
+        `This claim code was already used. If you did not use it, the code may have been stolen. ${rerun}`
+      );
+    }
+    if (err.code === "CLAIM_CODE_EXPIRED") {
+      return new AllevitasAuthError(err.code, `This claim code expired or was replaced by a newer recovery. ${rerun}`);
+    }
+    return this.secretDeliveryErrorFor(err, "claim") ?? this.fatalErrorFor(err) ?? err;
+  }
+
+  /**
+   * Claim with secretDelivery "url": the new key is returned as a link and nothing is saved.
+   */
+  private async claimAsLink(claimCode: string): Promise<ClaimResult> {
+    let res: AgentTokenResponse;
+    try {
+      res = await this.postToken({ claimCode, secretDelivery: "url" }, { idempotent: false });
+    } catch (err: unknown) {
+      throw err instanceof AllevitasApiError ? this.claimErrorFor(err) : err;
+    }
+
+    const lost = `The claim code was used, but the new key could not be delivered as a one-time link. Ask your human operator to run the recovery again at ${this.recoveryUrl}.`;
+    if (res.secretDelivery !== "url") {
+      throw new AllevitasAuthError("SECRET_DELIVERY_UNSUPPORTED", `The server returned the new key instead of a one-time link. ${lost}`);
+    }
+    if (!res.agentKeyUrl) {
+      throw new AllevitasAuthError("SECRET_DELIVERY_FAILED", lost);
+    }
+    return { claimed: true, accountId: res.accountId, agentKeyUrl: res.agentKeyUrl, agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt };
+  }
+
+  /**
    * Exchange a claim code from /recover/agent for a new agent key and save it.
    * The key is never returned.
    */
@@ -847,9 +1038,16 @@ export class AllevitasAuth {
       throw new AllevitasAuthError("INVALID_CLAIM_CODE", `A claim code starts with ${CLAIM_CODE_PREFIX}.`);
     }
 
+    const asLink = this.secretDelivery === "url";
     if (isDryRun) {
-      await this.postToken({ claimCode }, { isDryRun: true });
+      const res = await this.postToken({ claimCode, ...(asLink ? { secretDelivery: "url" } : {}) }, { isDryRun: true });
+      if (asLink) {
+        this.assertLinksSupported(res, "claim");
+      }
       return { claimed: false, dryRun: true };
+    }
+    if (asLink) {
+      return await this.exclusive(() => this.claimAsLink(claimCode));
     }
 
     if (!this.shouldSaveCredentials()) {
@@ -865,20 +1063,7 @@ export class AllevitasAuth {
       try {
         res = await this.postToken({ claimCode }, { idempotent: false });
       } catch (err: unknown) {
-        if (err instanceof AllevitasApiError) {
-          const rerun = `Ask your human operator to run the recovery again at ${this.recoveryUrl}.`;
-          if (err.code === "CLAIM_CODE_USED") {
-            throw new AllevitasAuthError(
-              err.code,
-              `This claim code was already used. If you did not use it, the code may have been stolen. ${rerun}`
-            );
-          }
-          if (err.code === "CLAIM_CODE_EXPIRED") {
-            throw new AllevitasAuthError(err.code, `This claim code expired or was replaced by a newer recovery. ${rerun}`);
-          }
-          throw this.fatalErrorFor(err) ?? err;
-        }
-        throw err;
+        throw err instanceof AllevitasApiError ? this.claimErrorFor(err) : err;
       }
 
       if (this.storeBelongsToOtherAccount(this.credentialsPath, res.accountId)) {
@@ -913,7 +1098,7 @@ export class AllevitasAuth {
   async listAgentKeys(): Promise<AgentKeyInfo[]> {
     const res = await this.handle401AndRetry((token) =>
       this.rateLimitHandler.execute<{ keys: AgentKeyInfo[] }>(() =>
-        fetch(`${this.apiUrl}/agent/keys`, {
+        this.http(`${this.apiUrl}/agent/keys`, {
           method: "GET",
           headers: {
             "Accept": "application/json",
@@ -944,7 +1129,13 @@ export class AllevitasAuth {
       needsMigration: this.needsMigration,
       credentialsPath: this.credentialsPath,
       pendingRecoveryKeyFile: targetPath && readRecoveryKeyFile(targetPath) ? targetPath : null,
+      secretDelivery: this.secretDelivery,
     };
+  }
+
+  /** The authentication failure that retrying will not fix, if one happened for the current key. */
+  get fatalError(): AllevitasAuthError | null {
+    return this.fatalAuthError && this.fatalAuthError.agentKey === this.currentAgentKey ? this.fatalAuthError.error : null;
   }
 
   /** True when an issued agent key can outlive this process. */
@@ -953,6 +1144,9 @@ export class AllevitasAuth {
   }
 
   private shouldSaveCredentials(): boolean {
+    if (this.options.stateless) {
+      return false;
+    }
     if (this.options.saveCredentials !== undefined) {
       return this.options.saveCredentials;
     }
@@ -1131,6 +1325,9 @@ export class AllevitasAuth {
   }
 
   private get explicitRecoveryKeyFile(): string | undefined {
+    if (this.options.stateless) {
+      return undefined;
+    }
     return this.options.recoveryKeyFile || process.env.ALLEVITAS_RECOVERY_KEY_FILE || undefined;
   }
 
@@ -1225,7 +1422,7 @@ export class AllevitasAuth {
     const isDryRun = options.dryRun ?? this.dryRun;
     return await this.handle401AndRetry((token) =>
       this.rateLimitHandler.execute<LinkProducerResponse>(() =>
-        fetch(`${this.apiUrl}/ai/producer-link`, {
+        this.http(`${this.apiUrl}/ai/producer-link`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1245,7 +1442,7 @@ export class AllevitasAuth {
   async getProfile(): Promise<UserProfile> {
     return await this.handle401AndRetry((token) =>
       this.rateLimitHandler.execute<UserProfile>(() =>
-        fetch(`${this.apiUrl}/users/profile`, {
+        this.http(`${this.apiUrl}/users/profile`, {
           method: "GET",
           headers: {
             "Accept": "application/json",
@@ -1278,7 +1475,7 @@ export class AllevitasAuth {
 
     return await this.handle401AndRetry((token) =>
       this.rateLimitHandler.execute<UserProfile>(() =>
-        fetch(`${this.apiUrl}/users/profile`, {
+        this.http(`${this.apiUrl}/users/profile`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -1297,7 +1494,7 @@ export class AllevitasAuth {
    */
   async getUserProfile(username: string): Promise<UserProfile> {
     return await this.rateLimitHandler.execute<UserProfile>(() =>
-      fetch(`${this.apiUrl}/users/${encodeURIComponent(username)}`, {
+      this.http(`${this.apiUrl}/users/${encodeURIComponent(username)}`, {
         method: "GET",
         headers: {
           "Accept": "application/json",

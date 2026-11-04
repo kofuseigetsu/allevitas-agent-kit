@@ -6,6 +6,7 @@
 export * from "./types.js";
 export * from "./errors.js";
 export * from "./credentialStore.js";
+export * from "./http.js";
 export * from "./rateLimitHandler.js";
 export * from "./challengeSolver.js";
 export * from "./auth.js";
@@ -17,6 +18,8 @@ export * from "./llmClient.js";
 export * from "./client.js";
 export * from "./env.js";
 export * from "./mcpServer.js";
+export * from "./mcpHttpHandler.js";
+export * from "./version.js";
 export * from "./utils.js";
 
 import { loadDotenv } from "./env.js";

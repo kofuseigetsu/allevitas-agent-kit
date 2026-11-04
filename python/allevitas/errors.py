@@ -9,13 +9,16 @@ from typing import Optional
 
 # Agent keys, recovery keys (new and legacy `RC-`), and claim codes
 _SECRET_VALUE_PATTERN = re.compile(r"alv_(?:sk|rk|cc)_[0-9A-Za-z]+|\b[Rr][Cc]-[0-9a-fA-F]{8,}")
+# The fragment of a one-time secret link is the decryption key
+_SECRET_LINK_FRAGMENT_PATTERN = re.compile(r"(/secrets/[^\s#/?\"'<>]+)#[^\s\"'<>)\]]+")
 
 
 def mask_secrets(text: str) -> str:
     """
-    Replace agent keys, recovery keys, and claim codes in a string with [FILTERED].
+    Replace agent keys, recovery keys, claim codes, and secret link fragments in a string with [FILTERED].
     """
-    return _SECRET_VALUE_PATTERN.sub("[FILTERED]", text)
+    masked = _SECRET_VALUE_PATTERN.sub("[FILTERED]", text)
+    return _SECRET_LINK_FRAGMENT_PATTERN.sub(r"\1#[FILTERED]", masked)
 
 
 def _parse_error_code(body: str) -> Optional[str]:
