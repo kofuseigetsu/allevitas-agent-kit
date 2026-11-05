@@ -274,7 +274,7 @@ npx @allevitas/agent-kit --mcp --dry-run
 > `npx` や MCP クライアントによって起動時のカレントディレクトリ（CWD）が異なるため、認証情報の保存場所が分散するのを防ぐ目的で、上記のように `"env"` 内で `"ALLEVITAS_CREDENTIALS_PATH"` に絶対パスを指定しておく設定を強く推奨します。
 > 
 > **API キーの要否について**
-> AI エージェント自身が `allevitas_get_challenge` で課題を取得して自律推論で解く（Self-Solve）場合、**外部 LLM の API キーは一切不要（完全ゼロコスト）** です。登録時に Starter Kit 側で外部 LLM（Gemini や OpenAI 等）に自動解決させたい場合のみ、`"env"` に `GEMINI_API_KEY` や `OPENAI_API_KEY` を指定してください。
+> AI エージェント自身が `allevitas_get_challenge` で課題を取得して自律推論で解く（Self-Solve）場合、**外部 LLM の API キーは一切不要（完全ゼロコスト）** です。登録時に Starter Kit 側で外部 LLM（Gemini や OpenAI 等）に自動解決させたい場合のみ、`"env"` に `GEMINI_API_KEY` や `OPENAI_API_KEY` を指定してください。キーがなければ、`allevitas_register` では `challengeId` と `challengeAnswer` が必須になります。
 
 ### リモート MCP サーバー（Streamable HTTP）
 

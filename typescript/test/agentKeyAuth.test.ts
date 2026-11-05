@@ -844,7 +844,7 @@ describe("Agent key authentication", () => {
 
     it("register returns neither key, only the recovery key file path", async () => {
       const server = new MCPServer(withoutSecrets(createClient()));
-      const result = await call(server, "allevitas_register", { accountId: "key_bot" });
+      const result = await call(server, "allevitas_register", { accountId: "key_bot", challengeId: "c1", challengeAnswer: { matchCount: 1 } });
 
       const text = result.content[0].text;
       assert.equal(result.isError, false);
@@ -857,7 +857,7 @@ describe("Agent key authentication", () => {
     it("register passes the server's recovery key link through unmasked and writes no file", async () => {
       mock.state.linkRecoveryKey = true;
       const server = new MCPServer(withoutSecrets(createClient()));
-      const result = await call(server, "allevitas_register", { accountId: "key_bot" });
+      const result = await call(server, "allevitas_register", { accountId: "key_bot", challengeId: "c1", challengeAnswer: { matchCount: 1 } });
 
       const data = JSON.parse(result.content[0].text);
       assert.equal(mock.state.links.get(data.recoveryKeyUrl), "alv_rk_registered");
@@ -869,8 +869,9 @@ describe("Agent key authentication", () => {
     it("register fails without credential saving, even with a recovery key file", async () => {
       process.env.ALLEVITAS_RECOVERY_KEY_FILE = path.join(tmpDir, "rk.json");
       const server = new MCPServer(withoutSecrets(createClient({ saveCredentials: false })));
-      const result = await call(server, "allevitas_register", { accountId: "key_bot" });
+      const result = await call(server, "allevitas_register", { accountId: "key_bot", challengeId: "c1", challengeAnswer: { matchCount: 1 } });
       assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /saving credentials/);
       assert.equal(mock.state.keys.size, 0);
     });
 

@@ -36,6 +36,15 @@ export interface LLMClientOptions {
   userAgent?: string;
 }
 
+// Provider-specific key variables, checked before ALLEVITAS_LLM_API_KEY
+const API_KEY_ENV: Record<string, string[]> = {
+  gemini: ["GEMINI_API_KEY"],
+  openai: ["OPENAI_API_KEY"],
+  anthropic: ["ANTHROPIC_API_KEY"],
+  xai: ["XAI_API_KEY", "GROK_API_KEY"],
+  grok: ["XAI_API_KEY", "GROK_API_KEY"],
+};
+
 export class LLMClient {
   private defaultProvider: LLMProvider;
   private defaultApiKey?: string;
@@ -59,7 +68,7 @@ export class LLMClient {
    * Call LLM and retrieve text response.
    */
   async call(options: LLMCallOptions): Promise<string> {
-    const provider = (options.provider || this.defaultProvider).toLowerCase() as LLMProvider;
+    const provider = this.resolveProvider(options.provider);
 
     let result: string;
     switch (provider) {
@@ -90,6 +99,30 @@ export class LLMClient {
   }
 
   /**
+   * The provider a call would use: the override, else the client's default.
+   */
+  resolveProvider(provider?: LLMProvider): LLMProvider {
+    return (provider || this.defaultProvider).toLowerCase() as LLMProvider;
+  }
+
+  /**
+   * The API key a call to this provider would use, or undefined. Ollama needs none.
+   */
+  resolveApiKey(provider: LLMProvider, apiKey?: string): string | undefined {
+    const envNames = API_KEY_ENV[provider.toLowerCase()];
+    if (!envNames) {
+      return undefined;
+    }
+    return (
+      apiKey ||
+      this.defaultApiKey ||
+      envNames.map((name) => process.env[name]).find(Boolean) ||
+      process.env.ALLEVITAS_LLM_API_KEY ||
+      undefined
+    );
+  }
+
+  /**
    * Simple prompt execution (shortcut)
    */
   async generate(prompt: string, systemPrompt?: string): Promise<string> {
@@ -97,11 +130,7 @@ export class LLMClient {
   }
 
   private async callGemini(options: LLMCallOptions): Promise<string> {
-    const apiKey =
-      options.apiKey ||
-      this.defaultApiKey ||
-      process.env.GEMINI_API_KEY ||
-      process.env.ALLEVITAS_LLM_API_KEY;
+    const apiKey = this.resolveApiKey("gemini", options.apiKey);
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY is not set.");
     }
@@ -184,11 +213,7 @@ export class LLMClient {
   }
 
   private async callOpenAI(options: LLMCallOptions): Promise<string> {
-    const apiKey =
-      options.apiKey ||
-      this.defaultApiKey ||
-      process.env.OPENAI_API_KEY ||
-      process.env.ALLEVITAS_LLM_API_KEY;
+    const apiKey = this.resolveApiKey("openai", options.apiKey);
     if (!apiKey) {
       throw new Error("OPENAI_API_KEY is not set.");
     }
@@ -239,11 +264,7 @@ export class LLMClient {
   }
 
   private async callAnthropic(options: LLMCallOptions): Promise<string> {
-    const apiKey =
-      options.apiKey ||
-      this.defaultApiKey ||
-      process.env.ANTHROPIC_API_KEY ||
-      process.env.ALLEVITAS_LLM_API_KEY;
+    const apiKey = this.resolveApiKey("anthropic", options.apiKey);
     if (!apiKey) {
       throw new Error("ANTHROPIC_API_KEY is not set.");
     }
@@ -326,12 +347,7 @@ export class LLMClient {
   }
 
   private async callXAI(options: LLMCallOptions): Promise<string> {
-    const apiKey =
-      options.apiKey ||
-      this.defaultApiKey ||
-      process.env.XAI_API_KEY ||
-      process.env.GROK_API_KEY ||
-      process.env.ALLEVITAS_LLM_API_KEY;
+    const apiKey = this.resolveApiKey("xai", options.apiKey);
     if (!apiKey) {
       throw new Error("XAI_API_KEY or GROK_API_KEY is not set.");
     }

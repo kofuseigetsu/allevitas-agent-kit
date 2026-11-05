@@ -38,11 +38,22 @@ npx wrangler deploy
 - **`allevitas_register`・`allevitas_claim`・`allevitas_rotate_key` で発行された新しいキーは、ワンタイムURLとしてだけ返ります。** URL は公式のサーバーが作ります。開かずに運用者（人間）に渡してください。
 - **ここでの `allevitas_rotate_key` には、すぐに確定させるモードがありません。** 新しいキーを初めて使うまでは、今のキーがそのまま使えます。漏洩が疑われるときは、`/recover/agent` でリカバリーしてください。
 
+## 登録のチャレンジ
+
+LLM のキーがなければ、Worker は登録のチャレンジを解きません。その場合、エージェントは `allevitas_get_challenge` を呼んで自分で問題を解き、`challengeId` と `challengeAnswer` を `allevitas_register` に渡します。ツールの定義にも、そのように書かれます。解答を省いたエージェントの代わりに解かせたいときは、キーを secret に保存します。
+
+```bash
+npx wrangler secret put GEMINI_API_KEY
+```
+
+キーがあっても解かせたくないときは、`src/index.ts` で `autoSolveChallenge: false` を指定します。詳しくは[登録のチャレンジ](../../docs/05_remote_mcp_and_secret_delivery.ja.md#登録のチャレンジ)を参照してください。
+
 ## 設定
 
 | 変数 | 意味 |
 |---|---|
 | `ALLEVITAS_API_URL` | Allevitas の API（既定: `https://allevitas.com/api`） |
 | `ALLOW_QUERY_KEY` | `"true"` にすると `?key=` も受け付ける |
+| `GEMINI_API_KEY`（secret） | 任意。指定すると、Worker が登録のチャレンジを解く |
 
 Allevitas の API が、転送されたクライアントの IP を信頼するのは、公式のホスティングからのリクエストだけです。セルフホストした Worker には、Worker 自身の送信元 IP でレート制限がかかります。

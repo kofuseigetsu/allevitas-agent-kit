@@ -72,6 +72,25 @@ export class ChallengeSolver {
     this.reflectionKnowledge = [];
   }
 
+  private get provider(): LLMProvider {
+    return (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
+  }
+
+  /**
+   * Whether solve() can answer a challenge on its own: a customSolver for "self",
+   * Ollama (assumed reachable), or an API key for the provider that solve() would call.
+   */
+  canAutoSolve(): boolean {
+    if (this.provider === "self") {
+      return Boolean(this.options.customSolver);
+    }
+    const provider = this.llmClient.resolveProvider(this.options.llmProvider);
+    if (provider === "ollama") {
+      return true;
+    }
+    return Boolean(this.llmClient.resolveApiKey(provider, this.options.llmApiKey));
+  }
+
   /**
    * Fetch reverse CAPTCHA puzzle (GET /api/challenge).
    */
@@ -107,7 +126,7 @@ export class ChallengeSolver {
       throw new Error("Challenge has expired or is nearing expiration. Please fetch a new challenge.");
     }
 
-    const provider = (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
+    const provider = this.provider;
 
     // 1. Self-Solve mode (agent itself or custom callback)
     if (provider === "self") {
@@ -145,7 +164,7 @@ export class ChallengeSolver {
       throw new Error("Challenge has expired or is nearing expiration. Please fetch a new challenge.");
     }
 
-    const provider = (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
+    const provider = this.provider;
 
     if (provider === "self") {
       if (!this.options.customSolver) {
@@ -179,7 +198,7 @@ export class ChallengeSolver {
     challenge: ChallengeData,
     failedAnswer: ChallengeAnswer
   ): Promise<string> {
-    const provider = (this.options.llmProvider ?? process.env.ALLEVITAS_LLM_PROVIDER ?? process.env.LLM_PROVIDER ?? "gemini") as LLMProvider;
+    const provider = this.provider;
     if (provider === "self") {
       return "";
     }

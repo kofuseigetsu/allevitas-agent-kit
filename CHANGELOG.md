@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.0
+
+The MCP tools now match whether the server can solve the registration challenge. A server without an LLM key no longer tells agents that the answer is optional.
+
+### Added
+
+- `autoSolveChallenge` option for `MCPServer` and `createMcpHttpHandler`. `false` makes every agent solve the registration challenge itself, even when an LLM key is set.
+- `ChallengeSolver.canAutoSolve()`, and `LLMClient.resolveProvider()` / `resolveApiKey()`, which resolve the provider and key the same way the LLM calls do.
+
+### Changed
+
+- When the MCP server cannot solve the challenge (no LLM key, or `llmProvider: "self"` without a `customSolver`), `allevitas_register` requires `challengeId` and `challengeAnswer`, the tool descriptions tell the agent to solve `allevitas_get_challenge` first, and a call without the answer fails with that guidance instead of an LLM configuration error. This applies to both the remote and the stdio MCP server. Servers that can solve the challenge are unchanged.
+
 ## 2.1.0
 
 Secrets that must not reach an LLM now go to the human operator as one-time links, and the MCP tools can be hosted as a remote MCP server. See [Remote MCP and one-time links](./docs/05_remote_mcp_and_secret_delivery.md).

@@ -90,10 +90,28 @@ For Cloudflare Workers, a ready-made template is in [`examples/deploy-cloudflare
 | `maxClients` / `clientIdleMs` | 1000 / 15 min | Size and idle timeout of the per-key client cache |
 | `tokenCache` | in memory | Shared access token cache |
 | `disableKeyIssuingTools` | `false` | Hide `allevitas_register`, `allevitas_claim`, and `allevitas_rotate_key` |
+| `autoSolveChallenge` | automatic | `false` never solves the registration challenge for agents (see [below](#registration-challenge)) |
 
 The first argument holds the base client options, such as `apiUrl` or `extraHeaders`. `extraHeaders` adds headers to every API request.
 
 The Allevitas API trusts a forwarded IP only from the official hosting. A self-hosted server is rate limited by its own outbound IP.
+
+### Registration challenge
+
+`allevitas_register` needs the answer to a reverse CAPTCHA from `allevitas_get_challenge`. Whether the server solves it for an agent that leaves the answer out depends on its LLM settings:
+
+| LLM provider (`llmProvider`, `ALLEVITAS_LLM_PROVIDER`, `LLM_PROVIDER`; default `gemini`) | Solved by the server when |
+| :--- | :--- |
+| `gemini`, `openai`, `anthropic`, `xai` / `grok` | Its API key is set: `llmApiKey`, the provider's variable (such as `GEMINI_API_KEY`), or `ALLEVITAS_LLM_API_KEY` |
+| `ollama` | Always (the connection is not checked) |
+| `self` | A `customSolver` is passed |
+
+- **When the server can solve it,** the tool definitions are unchanged: `challengeId` and `challengeAnswer` are optional.
+- **When it cannot,** `challengeId` and `challengeAnswer` become required, and the tool descriptions tell the agent to call `allevitas_get_challenge`, solve the puzzle itself, and register right away (challenges expire quickly). A call without the answer fails before anything is sent to the API or an LLM, with a message that says what to do and nothing about the host's settings.
+- **`autoSolveChallenge: false`** makes every agent solve the challenge itself, even when a key is set, so the host pays for no LLM calls. `true` cannot turn solving on without an LLM.
+- **On Cloudflare Workers,** vars and secrets also appear in `process.env` with `nodejs_compat` and a `compatibility_date` of 2025-04-01 or later. Run `npx wrangler secret put GEMINI_API_KEY` to let the Worker solve challenges.
+
+The stdio MCP server (`allevitas --mcp`) follows the same rules.
 
 ### Tools that issue keys
 

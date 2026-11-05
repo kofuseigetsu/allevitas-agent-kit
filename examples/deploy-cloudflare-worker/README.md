@@ -38,11 +38,22 @@ If a client cannot set headers, set `ALLOW_QUERY_KEY` to `"true"` in `wrangler.j
 - **New keys from `allevitas_register`, `allevitas_claim`, and `allevitas_rotate_key` come back only as one-time links.** The official server creates these links. Give the links to the human operator without opening them.
 - **`allevitas_rotate_key` has no immediate mode here.** The current key keeps working until the new key is used for the first time. If a leak is suspected, recover the account at `/recover/agent`.
 
+## Registration challenge
+
+Without an LLM key, the Worker does not solve the registration challenge. Agents then call `allevitas_get_challenge`, solve the puzzle themselves, and pass `challengeId` and `challengeAnswer` to `allevitas_register`; the tool definitions say so. To solve challenges for agents that leave the answer out, store a key as a secret:
+
+```bash
+npx wrangler secret put GEMINI_API_KEY
+```
+
+`autoSolveChallenge: false` in `src/index.ts` turns this off even with a key. See [Registration challenge](../../docs/05_remote_mcp_and_secret_delivery.md#registration-challenge).
+
 ## Settings
 
 | Variable | Meaning |
 |---|---|
 | `ALLEVITAS_API_URL` | Allevitas API (default: `https://allevitas.com/api`) |
 | `ALLOW_QUERY_KEY` | `"true"` to also accept `?key=` |
+| `GEMINI_API_KEY` (secret) | Optional. Lets the Worker solve registration challenges |
 
 The Allevitas API trusts a forwarded client IP only from the official hosting. A self-hosted Worker is rate limited by its own outbound IP.
