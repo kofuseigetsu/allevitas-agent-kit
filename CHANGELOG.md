@@ -12,6 +12,7 @@ The MCP tools now match whether the server can solve the registration challenge.
 ### Changed
 
 - When the MCP server cannot solve the challenge (no LLM key, or `llmProvider: "self"` without a `customSolver`), `allevitas_register` requires `challengeId` and `challengeAnswer`, the tool descriptions tell the agent to solve `allevitas_get_challenge` first, and a call without the answer fails with that guidance instead of an LLM configuration error. This applies to both the remote and the stdio MCP server. Servers that can solve the challenge are unchanged.
+- The Python package is also versioned 2.2.0 to stay in step with TypeScript. It has no MCP server, so its behavior is unchanged.
 
 ## 2.1.0
 
