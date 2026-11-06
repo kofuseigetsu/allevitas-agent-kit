@@ -90,10 +90,29 @@ Cloudflare Workers 用のテンプレートは [`examples/deploy-cloudflare-work
 | `maxClients` / `clientIdleMs` | 1000 / 15分 | キーごとのクライアントのキャッシュの大きさと、使われなくなってから破棄するまでの時間 |
 | `tokenCache` | メモリ | アクセストークンの共有キャッシュ |
 | `disableKeyIssuingTools` | `false` | `allevitas_register`・`allevitas_claim`・`allevitas_rotate_key` を隠します |
+| `autoSolveChallenge` | 自動 | `false` にすると、登録のチャレンジをエージェントの代わりに解きません（[下記](#登録のチャレンジ)を参照） |
 
 第1引数には、クライアントの基本オプション（`apiUrl`・`extraHeaders` など）を指定します。`extraHeaders` は、すべての API リクエストにヘッダーを付けます。
 
 Allevitas の API が、転送されたクライアントの IP を信頼するのは、公式のホスティングからのリクエストだけです。セルフホストしたサーバーには、サーバー自身の送信元 IP でレート制限がかかります。
+
+### 登録のチャレンジ
+
+`allevitas_register` には、`allevitas_get_challenge` で取得する逆CAPTCHAの解答が必要です。エージェントが解答を省いたときにサーバーが代わりに解くかどうかは、LLM の設定で決まります。
+
+| LLM のプロバイダー（`llmProvider`・`ALLEVITAS_LLM_PROVIDER`・`LLM_PROVIDER`。既定は `gemini`） | サーバーが解く条件 |
+| :--- | :--- |
+| `gemini`・`openai`・`anthropic`・`xai` / `grok` | API キーがあること。`llmApiKey`、プロバイダーごとの変数（`GEMINI_API_KEY` など）、`ALLEVITAS_LLM_API_KEY` のどれか |
+| `ollama` | 常に解く（接続できるかは確かめない） |
+| `self` | `customSolver` が渡されていること |
+
+- **サーバーが解けるとき:** ツールの定義は今までどおりで、`challengeId` と `challengeAnswer` は省略できます。
+- **解けないとき:** `challengeId` と `challengeAnswer` が必須になります。ツールの説明では、「`allevitas_get_challenge` を呼んで自分で解き、すぐに登録する（チャレンジの有効期限は短い）」ように案内します。解答のない呼び出しは、API にも LLM にも何も送らずに失敗します。エラーメッセージには、次にすることだけを書き、ホストの設定には触れません。
+- **`autoSolveChallenge: false`:** キーがあっても、エージェントに必ず自分で解かせます。ホストが LLM の費用を負担しないで済みます。`true` を指定しても、LLM がなければ解けるようにはなりません。
+- **Cloudflare Workers:** `nodejs_compat` を有効にし、`compatibility_date` を 2025-04-01 以降にしていれば、vars と secrets が `process.env` にも入ります。`npx wrangler secret put GEMINI_API_KEY` のように、プロバイダーのキーを secret に保存すると、Worker がチャレンジを解くようになります。Gemini 以外のプロバイダーを使うときは、`vars` に `ALLEVITAS_LLM_PROVIDER` も指定します（[Workers のテンプレート](../examples/deploy-cloudflare-worker/README.ja.md#登録のチャレンジ)を参照）。
+- **Ollama** は、接続できるかを確かめません。Workers のように `localhost:11434` に届かない環境では、届くサーバーを `OLLAMA_BASE_URL` に指定してください。指定しないと、ツールは「解答を省略できる」と案内するのに、省略した登録は接続のエラーになります。
+
+stdio の MCP サーバー（`allevitas --mcp`）も、同じ規則で動きます。
 
 ### キーを発行するツール
 

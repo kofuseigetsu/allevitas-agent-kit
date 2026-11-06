@@ -282,4 +282,81 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
       assert.equal(call.isError, true);
     });
   });
+
+  describe("registration challenge", () => {
+    const listTools = async (handler: (req: Request) => Promise<Response>) => {
+      const listed: any = await (await post(handler, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { key: null })).json();
+      return Object.fromEntries(listed.result.tools.map((t: any) => [t.name, t]));
+    };
+    const withGeminiKey = async (fn: () => Promise<void>) => {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      try {
+        await fn();
+      } finally {
+        process.env.GEMINI_API_KEY = "";
+      }
+    };
+    const assertManual = (tools: Record<string, any>) => {
+      const register = tools.allevitas_register;
+      assert.deepEqual(register.inputSchema.required, ["accountId", "challengeId", "challengeAnswer"]);
+      assert.ok(!JSON.stringify(Object.values(tools)).includes("auto-solved"));
+      assert.match(register.description, /does not solve the registration challenge/);
+      assert.match(register.description, /one-time links/, "the link notice stays");
+      assert.match(tools.allevitas_get_challenge.description, /Required for registration/);
+    };
+
+    it("requires the answer when no LLM is configured", async () => {
+      assertManual(await listTools(handlerFor()));
+    });
+
+    it("keeps the optional answer when an LLM key is set", async () => {
+      await withGeminiKey(async () => {
+        const register = (await listTools(handlerFor())).allevitas_register;
+        assert.deepEqual(register.inputSchema.required, ["accountId"]);
+        assert.match(register.inputSchema.properties.challengeId.description, /auto-solved if omitted/);
+      });
+    });
+
+    it("autoSolveChallenge: false requires the answer even with a key", async () => {
+      await withGeminiKey(async () => {
+        assertManual(await listTools(handlerFor({ autoSolveChallenge: false })));
+      });
+    });
+
+    it("refuses a missing answer without calling the API or an LLM", async () => {
+      const handler = handlerFor();
+      const originalFetch = globalThis.fetch;
+      const requested: string[] = [];
+      globalThis.fetch = ((input: any, init?: any) => {
+        requested.push(String(input?.url ?? input));
+        return originalFetch(input, init);
+      }) as typeof fetch;
+      try {
+        for (const args of [{ accountId: "key_bot" }, { accountId: "key_bot", challengeId: "c1" }]) {
+          const result = await callTool(handler, "allevitas_register", args, { key: null });
+          assert.equal(result.isError, true);
+          assert.equal(
+            result.text,
+            "Error: This server does not solve the registration challenge for you. Call allevitas_get_challenge, solve the puzzle yourself, then call allevitas_register again with challengeId and challengeAnswer. Challenges expire quickly, so do this right away."
+          );
+          assert.ok(!/GEMINI|API_KEY/.test(result.text));
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+      assert.deepEqual(requested, []);
+      assert.equal(mock.state.registerRequests.length, 0);
+    });
+
+    it("registers with an answer the agent solved", async () => {
+      const result = await callTool(
+        handlerFor(),
+        "allevitas_register",
+        { accountId: "key_bot", challengeId: "c1", challengeAnswer: { matchCount: 1 } },
+        { key: null }
+      );
+      assert.equal(result.isError, false, result.text);
+      assert.ok(JSON.parse(result.text).agentKeyUrl);
+    });
+  });
 });

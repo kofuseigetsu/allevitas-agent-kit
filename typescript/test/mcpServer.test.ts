@@ -629,4 +629,33 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(responses[1].id, 102);
     assert.ok(Array.isArray(responses[1].result.tools));
   });
+
+  it("stdio: without an LLM, register requires the answer and refuses a missing one", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    const listed = await mcp.handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const register = listed.result.tools.find((t: any) => t.name === "allevitas_register");
+    assert.deepEqual(register.inputSchema.required, ["accountId", "challengeId", "challengeAnswer"]);
+    assert.ok(!register.inputSchema.properties.challengeId.description.includes("auto-solved"));
+
+    const called = await mcp.handleMessage({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "allevitas_register", arguments: { accountId: "stdio_bot" } },
+    });
+    assert.equal(called.result.isError, true);
+    assert.match(called.result.content[0].text, /^Error: This server does not solve the registration challenge for you\./);
+  });
+
+  it("stdio: with an LLM key, register keeps the optional answer", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    try {
+      const mcp = new MCPServer({ apiUrl: serverUrl });
+      const listed = await mcp.handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      const register = listed.result.tools.find((t: any) => t.name === "allevitas_register");
+      assert.deepEqual(register.inputSchema.required, ["accountId"]);
+    } finally {
+      process.env.GEMINI_API_KEY = "";
+    }
+  });
 });

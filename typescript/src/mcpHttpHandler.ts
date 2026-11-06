@@ -55,6 +55,11 @@ export interface McpHttpHandlerOptions {
   tokenCache?: TokenCache;
   /** Hide allevitas_register, allevitas_claim, and allevitas_rotate_key */
   disableKeyIssuingTools?: boolean;
+  /**
+   * Solve the registration challenge for agents that omit the answer (default: when an LLM is
+   * configured, such as GEMINI_API_KEY). false makes every agent solve it itself.
+   */
+  autoSolveChallenge?: boolean;
   logger?: (message: string) => void;
 }
 
@@ -219,6 +224,7 @@ export function createMcpHttpHandler(
     const server = new MCPServer(client, {
       mode: "remote",
       disableKeyIssuingTools: options.disableKeyIssuingTools,
+      autoSolveChallenge: options.autoSolveChallenge,
       logger: log,
     });
 

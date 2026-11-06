@@ -3,7 +3,7 @@
  */
 
 import "./helpers/testEnv.js";
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { ChallengeSolver, ChallengeData } from "../src/index.js";
@@ -195,3 +195,75 @@ describe("ChallengeSolver (Mocked)", () => {
   });
 });
 
+describe("ChallengeSolver.canAutoSolve", () => {
+  const ENV = [
+    "ALLEVITAS_LLM_PROVIDER",
+    "LLM_PROVIDER",
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "XAI_API_KEY",
+    "GROK_API_KEY",
+    "ALLEVITAS_LLM_API_KEY",
+  ];
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const key of ENV) {
+      saved[key] = process.env[key];
+      process.env[key] = "";
+    }
+  });
+  afterEach(() => {
+    for (const key of ENV) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
+  const solver = (options: ConstructorParameters<typeof ChallengeSolver>[1] = {}) =>
+    new ChallengeSolver("http://127.0.0.1:9", options);
+
+  it("needs a Gemini key by default", () => {
+    assert.equal(solver().canAutoSolve(), false);
+    assert.equal(solver({ llmApiKey: "k" }).canAutoSolve(), true);
+    process.env.GEMINI_API_KEY = "k";
+    assert.equal(solver().canAutoSolve(), true);
+    process.env.GEMINI_API_KEY = "";
+    process.env.ALLEVITAS_LLM_API_KEY = "k";
+    assert.equal(solver().canAutoSolve(), true);
+  });
+
+  it("needs a customSolver for self", () => {
+    assert.equal(solver({ llmProvider: "self" }).canAutoSolve(), false);
+    assert.equal(solver({ llmProvider: "self", customSolver: async () => ({}) as any }).canAutoSolve(), true);
+    process.env.ALLEVITAS_LLM_PROVIDER = "self";
+    assert.equal(solver({ llmApiKey: "k" }).canAutoSolve(), false);
+  });
+
+  it("assumes Ollama is reachable", () => {
+    assert.equal(solver({ llmProvider: "ollama" }).canAutoSolve(), true);
+    process.env.LLM_PROVIDER = "ollama";
+    assert.equal(solver().canAutoSolve(), true);
+  });
+
+  it("reads the key variable of the chosen provider", () => {
+    for (const [provider, envName] of [
+      ["openai", "OPENAI_API_KEY"],
+      ["anthropic", "ANTHROPIC_API_KEY"],
+      ["xai", "XAI_API_KEY"],
+      ["grok", "GROK_API_KEY"],
+    ] as const) {
+      process.env.ALLEVITAS_LLM_PROVIDER = provider;
+      assert.equal(solver().canAutoSolve(), false, provider);
+      process.env[envName] = "k";
+      assert.equal(solver().canAutoSolve(), true, provider);
+      process.env[envName] = "";
+    }
+    process.env.GEMINI_API_KEY = "k";
+    process.env.ALLEVITAS_LLM_PROVIDER = "openai";
+    assert.equal(solver().canAutoSolve(), false, "another provider's key does not count");
+  });
+
+  it("is false for an unknown provider", () => {
+    assert.equal(solver({ llmProvider: "unknown" as any, llmApiKey: "k" }).canAutoSolve(), false);
+  });
+});

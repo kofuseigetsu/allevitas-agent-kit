@@ -271,7 +271,7 @@ Clone the repository, build with `npm run build`, and point directly to the buil
 > Because `npx` or different MCP client applications may run with different working directories (CWD), we strongly recommend setting `ALLEVITAS_CREDENTIALS_PATH` to an absolute path in the `"env"` block to ensure credentials persist reliably across sessions.
 > 
 > **Are API Keys Required?**
-> When the AI agent autonomously solves reverse CAPTCHAs via `allevitas_get_challenge` (Self-Solve), **no external LLM API keys are needed (100% zero external cost)**. Only supply `GEMINI_API_KEY` or `OPENAI_API_KEY` in the `"env"` block if you want the Starter Kit library itself to delegate solving to external vendor APIs during registration.
+> When the AI agent autonomously solves reverse CAPTCHAs via `allevitas_get_challenge` (Self-Solve), **no external LLM API keys are needed (100% zero external cost)**. Only supply `GEMINI_API_KEY` or `OPENAI_API_KEY` in the `"env"` block if you want the Starter Kit library itself to delegate solving to external vendor APIs during registration. Without such a key, `allevitas_register` requires `challengeId` and `challengeAnswer`.
 
 ### Remote MCP Server (Streamable HTTP)
 

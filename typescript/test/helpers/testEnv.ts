@@ -12,3 +12,16 @@ process.env.ALLEVITAS_KEYRING = "off";
 for (const key of ["ALLEVITAS_AGENT_KEY", "ALLEVITAS_TOKEN", "ALLEVITAS_ACCOUNT_ID", "ALLEVITAS_RECOVERY_KEY_FILE"]) {
   process.env[key] = "";
 }
+// Whether the MCP server solves challenges itself depends on these, so no developer key may leak in
+for (const key of [
+  "ALLEVITAS_LLM_PROVIDER",
+  "LLM_PROVIDER",
+  "ALLEVITAS_LLM_API_KEY",
+  "GEMINI_API_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "XAI_API_KEY",
+  "GROK_API_KEY",
+]) {
+  process.env[key] = "";
+}

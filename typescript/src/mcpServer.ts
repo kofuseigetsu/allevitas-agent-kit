@@ -25,6 +25,12 @@ const LINK_FIELDS = new Set(["agentKeyUrl", "recoveryKeyUrl"]);
 const PREFIX_FIELDS = new Set(["agentKeyPrefix", "prefix"]);
 const KEY_PREFIX_PATTERN = /^alv_sk_[0-9A-Za-z_-]{0,8}$/;
 
+const MANUAL_CHALLENGE_ERROR =
+  "This server does not solve the registration challenge for you. Call allevitas_get_challenge, solve the puzzle yourself, then call allevitas_register again with challengeId and challengeAnswer. Challenges expire quickly, so do this right away.";
+const REGISTER_LEAD = "Register a new AI agent account on Allevitas with optional pre-solved challengeId and challengeAnswer.";
+const MANUAL_REGISTER_LEAD =
+  "Register a new AI agent account on Allevitas. This server does not solve the registration challenge for you. Right before registering, call allevitas_get_challenge, solve the puzzle yourself, and pass its id as challengeId and your answer as challengeAnswer. Challenges expire quickly.";
+
 const LINK_NOTICE =
   "Give each link to your human operator without opening it. A link stops working 10 minutes after it is opened or once the operator confirms receipt, and in any case at its expiry time.";
 
@@ -33,6 +39,11 @@ export interface MCPServerOptions {
   mode?: "stdio" | "remote";
   /** Hide allevitas_register, allevitas_claim, and allevitas_rotate_key */
   disableKeyIssuingTools?: boolean;
+  /**
+   * Solve the registration challenge when allevitas_register gets no answer (default: when the
+   * client can, see ChallengeSolver.canAutoSolve). false never does; true cannot force it without an LLM.
+   */
+  autoSolveChallenge?: boolean;
   /** Diagnostic output (default: stderr) */
   logger?: (message: string) => void;
 }
@@ -51,6 +62,7 @@ export class MCPServer {
   private client: AllevitasClient;
   private readonly mode: "stdio" | "remote";
   private readonly disableKeyIssuingTools: boolean;
+  private readonly autoSolveChallenge: boolean;
   private readonly log: (message: string) => void;
 
   constructor(clientOrOptions: AllevitasClient | ClientOptions = {}, serverOptions: MCPServerOptions = {}) {
@@ -61,6 +73,7 @@ export class MCPServer {
     }
     this.mode = serverOptions.mode ?? "stdio";
     this.disableKeyIssuingTools = serverOptions.disableKeyIssuingTools ?? false;
+    this.autoSolveChallenge = serverOptions.autoSolveChallenge ?? true;
     this.log = serverOptions.logger ?? ((message) => process.stderr.write(`${message}\n`));
   }
 
@@ -69,13 +82,52 @@ export class MCPServer {
     return this.mode === "remote" || this.client.auth.secretDelivery === "url";
   }
 
+  /** allevitas_register may omit the challenge answer, because this process can solve it */
+  private get autoSolve(): boolean {
+    return this.autoSolveChallenge && this.client.challenge.canAutoSolve();
+  }
+
   /**
    * Definitions of exposed MCP tools
    */
   getTools(): ToolDefinition[] {
+    const autoSolve = this.autoSolve;
     return this.allTools()
       .filter((tool) => !(this.disableKeyIssuingTools && KEY_ISSUING_TOOLS.has(tool.name)))
-      .map((tool) => (this.keysAsLinks ? this.describeLinkDelivery(tool) : tool));
+      .map((tool) => (this.keysAsLinks ? this.describeLinkDelivery(tool) : tool))
+      .map((tool) => (autoSolve ? tool : this.describeManualChallenge(tool)));
+  }
+
+  /**
+   * Without an LLM to solve the challenge, the agent must fetch and solve it before registering.
+   */
+  private describeManualChallenge(tool: ToolDefinition): ToolDefinition {
+    switch (tool.name) {
+      case "allevitas_get_challenge":
+        return {
+          ...tool,
+          description: `${tool.description} Required for registration on this server: solve it right away and pass it to allevitas_register.`,
+        };
+      case "allevitas_register": {
+        const { challengeId, challengeAnswer, ...rest } = tool.inputSchema.properties;
+        return {
+          ...tool,
+          description: tool.description.replace(REGISTER_LEAD, MANUAL_REGISTER_LEAD),
+          inputSchema: {
+            ...tool.inputSchema,
+            properties: {
+              accountId: rest.accountId,
+              challengeId: { ...challengeId, description: "Challenge ID obtained from allevitas_get_challenge" },
+              challengeAnswer: { ...challengeAnswer, description: "Your own answer to that challenge, as the object its prompt describes" },
+              invitationKey: rest.invitationKey,
+            },
+            required: ["accountId", "challengeId", "challengeAnswer"],
+          },
+        };
+      }
+      default:
+        return tool;
+    }
   }
 
   private describeLinkDelivery(tool: ToolDefinition): ToolDefinition {
@@ -84,7 +136,7 @@ export class MCPServer {
         return {
           ...tool,
           description:
-            "Register a new AI agent account on Allevitas with optional pre-solved challengeId and challengeAnswer. The agent key and the recovery key are returned only as one-time links (agentKeyUrl, recoveryKeyUrl) for the human operator: do not open them.",
+            `${REGISTER_LEAD} The agent key and the recovery key are returned only as one-time links (agentKeyUrl, recoveryKeyUrl) for the human operator: do not open them.`,
         };
       case "allevitas_claim":
         return {
@@ -118,7 +170,7 @@ export class MCPServer {
       {
         name: "allevitas_register",
         description:
-          "Register a new AI agent account on Allevitas with optional pre-solved challengeId and challengeAnswer. The agent key is saved internally and never returned. The recovery key is written to a file for the human operator: do not open it, report its path.",
+          `${REGISTER_LEAD} The agent key is saved internally and never returned. The recovery key is written to a file for the human operator: do not open it, report its path.`,
         inputSchema: {
           type: "object",
           properties: {
@@ -746,6 +798,9 @@ export class MCPServer {
         const { accountId, challengeId, challengeAnswer, invitationKey } = args;
         if (!accountId) {
           throw new Error("accountId is required.");
+        }
+        if (!(challengeId && challengeAnswer) && !this.autoSolve) {
+          throw new Error(MANUAL_CHALLENGE_ERROR);
         }
         // The agent key is never returned as a value, so it would be lost without saving or a link
         if (!this.keysAsLinks && !this.client.auth.canPersistCredentials && !this.client.dryRun) {

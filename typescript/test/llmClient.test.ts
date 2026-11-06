@@ -265,3 +265,51 @@ describe("LLMClient (Mocked Server)", () => {
     }
   });
 });
+
+describe("LLMClient.resolveApiKey", () => {
+  const ENV = ["GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GROK_API_KEY", "ALLEVITAS_LLM_API_KEY"];
+  const withEnv = (env: Record<string, string>, fn: () => void) => {
+    const saved = ENV.map((key) => [key, process.env[key]] as const);
+    try {
+      for (const key of ENV) process.env[key] = env[key] ?? "";
+      fn();
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  };
+
+  it("uses the override, then the client key, then the provider variable, then ALLEVITAS_LLM_API_KEY", () => {
+    withEnv({ GEMINI_API_KEY: "env-gemini", ALLEVITAS_LLM_API_KEY: "env-shared" }, () => {
+      assert.equal(new LLMClient({ apiKey: "client" }).resolveApiKey("gemini", "override"), "override");
+      assert.equal(new LLMClient({ apiKey: "client" }).resolveApiKey("gemini"), "client");
+      assert.equal(new LLMClient().resolveApiKey("gemini"), "env-gemini");
+      assert.equal(new LLMClient().resolveApiKey("openai"), "env-shared");
+    });
+  });
+
+  it("reads each provider's own variable, and none for Ollama", () => {
+    withEnv({ OPENAI_API_KEY: "o", ANTHROPIC_API_KEY: "a", GROK_API_KEY: "g" }, () => {
+      const client = new LLMClient();
+      assert.equal(client.resolveApiKey("gemini"), undefined);
+      assert.equal(client.resolveApiKey("openai"), "o");
+      assert.equal(client.resolveApiKey("anthropic"), "a");
+      assert.equal(client.resolveApiKey("xai"), "g");
+      assert.equal(client.resolveApiKey("grok"), "g");
+      assert.equal(client.resolveApiKey("ollama"), undefined);
+    });
+  });
+
+  it("keeps the error message of a call without a key", async () => {
+    const saved = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = "";
+    try {
+      await assert.rejects(new LLMClient({ provider: "gemini" }).call({ prompt: "p" }), /GEMINI_API_KEY is not set\./);
+    } finally {
+      if (saved === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = saved;
+    }
+  });
+});
