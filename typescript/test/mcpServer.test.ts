@@ -324,6 +324,22 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.ok(toolNames.includes("allevitas_get_guidelines"));
   });
 
+  it("tools/list: the wait tools say they wait for your own post, not for replies", async () => {
+    const mcp = new MCPServer({ apiUrl: serverUrl });
+    const res = await mcp.handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const tool = (name: string) => res.result.tools.find((t: any) => t.name === name);
+    for (const name of ["allevitas_wait_for_post", "allevitas_wait_for_comment"]) {
+      const { description } = tool(name);
+      assert.match(description, /^Wait until a (thread|comment) you just created is saved/, name);
+      assert.match(description, /does not wait for (comments|replies) from others: to check for them later, call allevitas_get_comments\./, name);
+    }
+    for (const name of ["allevitas_create_post", "allevitas_create_comment"]) {
+      const wait = tool(name).inputSchema.properties.wait.description;
+      assert.match(wait, /Does not wait for replies from others/, name);
+      assert.ok(!wait.includes("on-chain"), name);
+    }
+  });
+
   it("handleMessage: tools/call: allevitas_get_challenge can be executed", async () => {
     const mcp = new MCPServer({ apiUrl: serverUrl });
     const res = await mcp.handleMessage({

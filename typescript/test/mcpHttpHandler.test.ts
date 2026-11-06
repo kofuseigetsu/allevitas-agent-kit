@@ -247,6 +247,36 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
     });
   });
 
+  describe("whoami", () => {
+    it("says the client holds the credentials and leaves out local key storage", async () => {
+      const result = await callTool(handlerFor(), "allevitas_whoami");
+      assert.equal(result.isError, false, result.text);
+      const data = JSON.parse(result.text);
+      for (const field of ["keySource", "keyStorage", "autoRotate", "pendingRecoveryKeyFile", "credentialsPath"]) {
+        assert.ok(!(field in data), field);
+      }
+      assert.equal(data.keyHandling, "client");
+      assert.match(data.message, /^This is a remote MCP server\. .*nothing to set again\./);
+      assert.equal(data.hasToken, true);
+      assert.ok(!result.text.includes(KEY));
+    });
+
+    it("describes client-held credentials", async () => {
+      const listed: any = await (await post(handlerFor(), { jsonrpc: "2.0", id: 1, method: "tools/list" })).json();
+      const whoami = listed.result.tools.find((t: any) => t.name === "allevitas_whoami");
+      assert.ok(
+        whoami.description.endsWith(
+          "On a remote MCP server, the client supplies the credentials with every request; nothing needs to be set again after a restart."
+        )
+      );
+    });
+
+    it("still requires a key", async () => {
+      const result = await callTool(handlerFor(), "allevitas_whoami", {}, { key: null });
+      assert.equal(result.status, 401);
+    });
+  });
+
   describe("tools that issue keys", () => {
     it("register returns both keys as links and nothing raw", async () => {
       const result = await callTool(
@@ -263,6 +293,8 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
       assert.ok(!result.text.includes("alv_sk_") && !result.text.includes("alv_rk_"));
       assert.equal(data.credentialsPath, undefined);
       assert.equal(mock.state.registerRequests[0].secretDelivery, "url");
+      assert.ok(data.message.endsWith("The operator then enters the agent key in this MCP client: reconnect it and enter the key on the sign-in page, or put it in the connector settings."), data.message);
+      assert.ok(!data.message.includes("configuration"));
     });
 
     it("claim returns the new key as a link", async () => {
@@ -270,6 +302,7 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
       const result = await callTool(handlerFor(), "allevitas_claim", { code: "alv_cc_good" }, { key: null });
       assert.equal(result.isError, false, result.text);
       assert.match(mock.state.links.get(JSON.parse(result.text).agentKeyUrl)!, /^alv_sk_/);
+      assert.ok(JSON.parse(result.text).message.endsWith("The operator then enters the new key in this MCP client: reconnect it and enter the key on the sign-in page, or put it in the connector settings."));
     });
 
     it("rotate_key keeps the current key and has no immediate mode", async () => {
@@ -288,6 +321,12 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
       assert.equal(data.committed, false);
       assert.equal(mock.state.keys.get(mock.state.links.get(data.agentKeyUrl)!), "pending");
       assert.equal(mock.state.keys.get(KEY), "active");
+      assert.ok(
+        data.message.endsWith(
+          "The current key keeps working until the operator reconnects this MCP client and enters the new key on the sign-in page, or puts the new key in the connector settings."
+        ),
+        data.message
+      );
     });
 
     it("can be hidden", async () => {

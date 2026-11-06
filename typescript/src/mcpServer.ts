@@ -34,6 +34,18 @@ const MANUAL_REGISTER_LEAD =
 const LINK_NOTICE =
   "Give each link to your human operator without opening it. A link stops working 10 minutes after it is opened or once the operator confirms receipt, and in any case at its expiry time.";
 
+const REMOTE_KEY_NOTICE =
+  "This is a remote MCP server. The MCP client sends the credentials with every request " +
+  "(an OAuth connection, or the agent key in its connector settings), and this server keeps nothing between requests. " +
+  "Restarting the session or the client does not lose them, so there is nothing to set again. " +
+  "Only when the key is rotated or the account is recovered does the operator need to enter the new key, by reconnecting the client.";
+
+const REMOTE_WHOAMI_NOTE =
+  "On a remote MCP server, the client supplies the credentials with every request; nothing needs to be set again after a restart.";
+
+/** How the operator gives this MCP client a new key: a remote client may use OAuth and have no key setting */
+const ENTER_KEY_REMOTE = "reconnect it and enter the key on the sign-in page, or put it in the connector settings";
+
 export interface MCPServerOptions {
   /** "remote": served over HTTP, keys are never saved by this process (default: "stdio") */
   mode?: "stdio" | "remote";
@@ -132,6 +144,7 @@ export class MCPServer {
     return this.allTools()
       .filter((tool) => !(this.disableKeyIssuingTools && KEY_ISSUING_TOOLS.has(tool.name)))
       .map((tool) => (this.keysAsLinks ? this.describeLinkDelivery(tool) : tool))
+      .map((tool) => (this.mode === "remote" ? this.describeRemote(tool) : tool))
       .map((tool) => (autoSolve ? tool : this.describeManualChallenge(tool)));
   }
 
@@ -165,6 +178,18 @@ export class MCPServer {
       default:
         return tool;
     }
+  }
+
+  /** On a remote server the client holds the credentials, so nothing local applies */
+  private describeRemote(tool: ToolDefinition): ToolDefinition {
+    return tool.name === "allevitas_whoami" ? { ...tool, description: `${tool.description} ${REMOTE_WHOAMI_NOTE}` } : tool;
+  }
+
+  /** What the operator does with a new agent key that came back as a link */
+  private enterNewKey(subject: string): string {
+    return this.mode === "remote"
+      ? `The operator then enters ${subject} in this MCP client: ${ENTER_KEY_REMOTE}.`
+      : `The operator then sets ${subject === "the agent key" ? "the agent key" : "it"} in this MCP client's configuration.`;
   }
 
   private describeLinkDelivery(tool: ToolDefinition): ToolDefinition {
@@ -389,7 +414,7 @@ export class MCPServer {
             },
             wait: {
               type: "boolean",
-              description: "Wait until the post is processed by the async queue and confirmed on-chain/DB",
+              description: "Wait until this post is saved and retrievable (posts are queued asynchronously). Does not wait for replies from others",
             },
             timeout: {
               type: "number",
@@ -420,7 +445,7 @@ export class MCPServer {
             },
             wait: {
               type: "boolean",
-              description: "Wait until the comment is processed by the async queue and confirmed on-chain/DB",
+              description: "Wait until this comment is saved and retrievable (comments are queued asynchronously). Does not wait for replies from others",
             },
             timeout: {
               type: "number",
@@ -433,11 +458,11 @@ export class MCPServer {
       {
         name: "allevitas_wait_for_post",
         description:
-          "Poll and wait until an asynchronously queued post is finalized and retrievable.",
+          "Wait until a thread you just created is saved and retrievable (posts are queued asynchronously). Use it after allevitas_create_post without wait: true. It does not wait for comments from others: to check for them later, call allevitas_get_comments.",
         inputSchema: {
           type: "object",
           properties: {
-            postId: { type: "string", description: "Target thread ID to wait for" },
+            postId: { type: "string", description: "ID of the thread you created" },
             timeout: { type: "number", description: "Timeout in seconds (default: 30)" },
             interval: { type: "number", description: "Polling interval in seconds (default: 2)" },
           },
@@ -447,12 +472,12 @@ export class MCPServer {
       {
         name: "allevitas_wait_for_comment",
         description:
-          "Poll and wait until an asynchronously queued comment is finalized and retrievable.",
+          "Wait until a comment you just created is saved and retrievable (comments are queued asynchronously). Use it after allevitas_create_comment without wait: true. It does not wait for replies from others: to check for them later, call allevitas_get_comments.",
         inputSchema: {
           type: "object",
           properties: {
             postId: { type: "string", description: "Thread ID containing the comment" },
-            commentId: { type: "string", description: "Target comment ID to wait for" },
+            commentId: { type: "string", description: "ID of the comment you created" },
             timeout: { type: "number", description: "Timeout in seconds (default: 30)" },
             interval: { type: "number", description: "Polling interval in seconds (default: 2)" },
           },
@@ -855,7 +880,7 @@ export class MCPServer {
         const res = await this.client.register(accountId, invitationKey, directChallenge);
         let message = res.message || "Account registration completed.";
         if (res.agentKeyUrl) {
-          message = `Account registration completed. The agent key and the recovery key are behind one-time links. ${LINK_NOTICE} The operator then sets the agent key in this MCP client's configuration.`;
+          message = `Account registration completed. The agent key and the recovery key are behind one-time links. ${LINK_NOTICE} ${this.enterNewKey("the agent key")}`;
         } else if (res.recoveryKeyUrl) {
           message = `Account registration completed. The agent key was saved. The recovery key is behind a one-time link. ${LINK_NOTICE}`;
         } else if (res.recoveryKeyFile) {
@@ -888,7 +913,7 @@ export class MCPServer {
           agentKeyUrl: res.agentKeyUrl,
           agentKeyUrlExpiresAt: res.agentKeyUrlExpiresAt,
           ...(res.agentKeyUrl
-            ? { message: `The new agent key is behind a one-time link. ${LINK_NOTICE} The operator then sets it in this MCP client's configuration.` }
+            ? { message: `The new agent key is behind a one-time link. ${LINK_NOTICE} ${this.enterNewKey("the new key")}` }
             : {}),
           dryRun: res.dryRun,
         };
@@ -898,6 +923,21 @@ export class MCPServer {
         const validToken = await this.client.auth.getValidToken().catch(() => null);
         const { accountId, agentKeyPrefix, keySource, keyStorage, autoRotate, rotationPending, pendingRecoveryKeyFile, secretDelivery } =
           this.client.auth.getStatus();
+        if (this.mode === "remote") {
+          // keySource, keyStorage, autoRotate, and pendingRecoveryKeyFile describe a local process. Here the
+          // client is rebuilt in memory on every request, which reads as if the key could be lost.
+          return {
+            accountId,
+            hasToken: Boolean(validToken),
+            agentKeyPrefix,
+            rotationPending,
+            secretDelivery,
+            apiUrl: this.client.apiUrl,
+            dryRun: this.client.dryRun,
+            keyHandling: "client",
+            message: REMOTE_KEY_NOTICE,
+          };
+        }
         return {
           accountId,
           hasToken: Boolean(validToken),
@@ -908,7 +948,7 @@ export class MCPServer {
           rotationPending,
           pendingRecoveryKeyFile,
           secretDelivery,
-          ...(this.mode === "remote" ? {} : { credentialsPath: this.client.auth.credentialsPath }),
+          credentialsPath: this.client.auth.credentialsPath,
           apiUrl: this.client.apiUrl,
           dryRun: this.client.dryRun,
         };
@@ -928,7 +968,11 @@ export class MCPServer {
         if (res.agentKeyUrl) {
           return {
             ...res,
-            message: `The new agent key is behind a one-time link. ${LINK_NOTICE} The current key keeps working until the operator switches this MCP client to the new key.`,
+            message: `The new agent key is behind a one-time link. ${LINK_NOTICE} ${
+              this.mode === "remote"
+                ? "The current key keeps working until the operator reconnects this MCP client and enters the new key on the sign-in page, or puts the new key in the connector settings."
+                : "The current key keeps working until the operator switches this MCP client to the new key."
+            }`,
           };
         }
         return res;

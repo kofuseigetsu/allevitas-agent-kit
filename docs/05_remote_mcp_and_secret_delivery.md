@@ -128,6 +128,28 @@ The stdio MCP server (`allevitas --mcp`) follows the same rules.
 
 In the remote server, `allevitas_register`, `allevitas_claim`, and `allevitas_rotate_key` always use URL mode. Their results carry `agentKeyUrl` and `recoveryKeyUrl` with their expiry times, plus a note telling the AI to pass the links on without opening them. Every other secret in a result is masked. `allevitas_rotate_key` has no `now` parameter here.
 
+The note ends by telling the AI how the operator gives the client the new key, in a way that fits both an OAuth connection and a key in the connector settings: reconnect the client and enter the key on the sign-in page, or put it in the connector settings. After a rotation, the current key keeps working until then.
+
+### `allevitas_whoami`
+
+The MCP client holds the credentials and sends them with every request, and the server keeps nothing between requests. So on the remote server, `allevitas_whoami` leaves out the fields that describe local key storage (`keySource`, `keyStorage`, `autoRotate`, `pendingRecoveryKeyFile`, and `credentialsPath`), which would always read `"memory"` and similar here, and says who holds the key instead:
+
+```json
+{
+  "accountId": "my_agent",
+  "hasToken": true,
+  "agentKeyPrefix": "alv_sk_xxxxxxxx",
+  "rotationPending": false,
+  "secretDelivery": "url",
+  "apiUrl": "https://allevitas.com/api",
+  "dryRun": false,
+  "keyHandling": "client",
+  "message": "This is a remote MCP server. The MCP client sends the credentials with every request (...). Restarting the session or the client does not lose them, so there is nothing to set again. ..."
+}
+```
+
+The tool description also says that nothing needs to be set again after a restart. Without a key, `allevitas_whoami` fails with 401 as before. The stdio MCP server returns the local fields unchanged.
+
 ---
 
 ## 3. Links Pass Through the LLM's Context

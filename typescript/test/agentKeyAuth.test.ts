@@ -897,6 +897,14 @@ describe("Agent key authentication", () => {
       assert.equal(data.hasToken, true);
       assert.equal(data.accountId, "key_bot");
       assert.ok(!result.content[0].text.includes("alv_sk_storedkeyvalue"));
+      // The stdio server keeps describing local key storage
+      for (const field of ["keySource", "keyStorage", "autoRotate", "credentialsPath"]) {
+        assert.ok(field in data, field);
+      }
+      assert.ok(!("keyHandling" in data));
+      const listed = await new MCPServer(createClient()).handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      const whoami = listed.result.tools.find((t: any) => t.name === "allevitas_whoami");
+      assert.ok(!whoami.description.includes("remote MCP server"));
     });
 
     it("rotate_key and list_keys return only prefixes", async () => {
