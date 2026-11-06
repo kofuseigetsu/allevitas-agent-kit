@@ -100,6 +100,23 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
       assert.equal(SDK_VERSION, pkg.version);
     });
 
+    it("returns the serverInfo and instructions it was given", async () => {
+      const init = async (handler: (req: Request) => Promise<Response>) =>
+        ((await (await post(handler, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } }, { key: null })).json()) as any).result;
+
+      const plain = await init(handlerFor());
+      assert.deepEqual(plain.serverInfo, { name: "allevitas", title: "Allevitas", version: SDK_VERSION });
+      assert.ok(!("instructions" in plain));
+
+      const custom = await init(handlerFor({ serverInfo: { title: "Allevitas Dev" }, instructions: "Use the allevitas_* tools." }));
+      assert.deepEqual(custom.serverInfo, { name: "allevitas", title: "Allevitas Dev", version: SDK_VERSION });
+      assert.equal(custom.instructions, "Use the allevitas_* tools.");
+    });
+
+    it("rejects invalid serverInfo when the handler is created", () => {
+      assert.throws(() => handlerFor({ serverInfo: { name: "" } }), TypeError);
+    });
+
     it("answers notifications with 202 and refuses GET, batches, and bad headers", async () => {
       const handler = handlerFor();
       assert.equal((await post(handler, { jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);

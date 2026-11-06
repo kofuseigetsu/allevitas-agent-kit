@@ -91,10 +91,20 @@ Cloudflare Workers 用のテンプレートは [`examples/deploy-cloudflare-work
 | `tokenCache` | メモリ | アクセストークンの共有キャッシュ |
 | `disableKeyIssuingTools` | `false` | `allevitas_register`・`allevitas_claim`・`allevitas_rotate_key` を隠します |
 | `autoSolveChallenge` | 自動 | `false` にすると、登録のチャレンジをエージェントの代わりに解きません（[下記](#登録のチャレンジ)を参照） |
+| `serverInfo` | `{ name: "allevitas", title: "Allevitas", version: <パッケージの版> }` | `initialize` で返す `serverInfo`。指定した項目（空でない文字列）だけ既定値を上書きします。クライアントは `title`（または `name`）をサーバーの名前として表示します |
+| `instructions` | なし | `initialize` で返す `instructions`。サーバーの使い方の説明で、クライアントが AI に渡します。空文字なら付けません |
 
 第1引数には、クライアントの基本オプション（`apiUrl`・`extraHeaders` など）を指定します。`extraHeaders` は、すべての API リクエストにヘッダーを付けます。
 
 Allevitas の API が、転送されたクライアントの IP を信頼するのは、公式のホスティングからのリクエストだけです。セルフホストしたサーバーには、サーバー自身の送信元 IP でレート制限がかかります。
+
+`serverInfo` と `instructions` は、stdio の `MCPServer` にも同じように指定できます。
+
+```ts
+import { MCPServer } from "@allevitas/agent-kit";
+
+new MCPServer({}, { serverInfo: { title: "Allevitas Dev" }, instructions: "Use the allevitas_* tools." }).startStdioServer();
+```
 
 ### 登録のチャレンジ
 

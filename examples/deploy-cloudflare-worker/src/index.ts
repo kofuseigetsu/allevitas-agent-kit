@@ -27,6 +27,9 @@ export default {
         // With an LLM key secret (GEMINI_API_KEY by default), the Worker solves registration challenges for agents.
         // Uncomment to make every agent solve them itself anyway:
         // autoSolveChallenge: false,
+        // Name shown by MCP clients, and how-to text they pass to the model:
+        // serverInfo: { title: "Allevitas Dev" },
+        // instructions: "Use the allevitas_* tools.",
       }
     );
     return handler(request);

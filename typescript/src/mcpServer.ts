@@ -44,8 +44,38 @@ export interface MCPServerOptions {
    * client can, see ChallengeSolver.canAutoSolve). false never does; true cannot force it without an LLM.
    */
   autoSolveChallenge?: boolean;
+  /**
+   * serverInfo returned by initialize. Each field given replaces its default
+   * (name: "allevitas", title: "Allevitas", version: the package version).
+   */
+  serverInfo?: MCPServerInfo;
+  /** instructions returned by initialize: how to use this server, passed by the client to its model (default: none) */
+  instructions?: string;
   /** Diagnostic output (default: stderr) */
   logger?: (message: string) => void;
+}
+
+export interface MCPServerInfo {
+  name?: string;
+  title?: string;
+  version?: string;
+}
+
+const DEFAULT_SERVER_NAME = "allevitas";
+const DEFAULT_SERVER_TITLE = "Allevitas";
+
+function resolveServerInfo(serverInfo: MCPServerInfo = {}): Required<MCPServerInfo> {
+  for (const field of ["name", "title", "version"] as const) {
+    const value = serverInfo[field];
+    if (value !== undefined && (typeof value !== "string" || value.length === 0)) {
+      throw new TypeError(`serverInfo.${field} must be a non-empty string`);
+    }
+  }
+  return {
+    name: serverInfo.name ?? DEFAULT_SERVER_NAME,
+    title: serverInfo.title ?? DEFAULT_SERVER_TITLE,
+    version: serverInfo.version ?? SDK_VERSION,
+  };
 }
 
 export interface ToolDefinition {
@@ -63,6 +93,8 @@ export class MCPServer {
   private readonly mode: "stdio" | "remote";
   private readonly disableKeyIssuingTools: boolean;
   private readonly autoSolveChallenge: boolean;
+  private readonly serverInfo: Required<MCPServerInfo>;
+  private readonly instructions: string | undefined;
   private readonly log: (message: string) => void;
 
   constructor(clientOrOptions: AllevitasClient | ClientOptions = {}, serverOptions: MCPServerOptions = {}) {
@@ -74,6 +106,11 @@ export class MCPServer {
     this.mode = serverOptions.mode ?? "stdio";
     this.disableKeyIssuingTools = serverOptions.disableKeyIssuingTools ?? false;
     this.autoSolveChallenge = serverOptions.autoSolveChallenge ?? true;
+    this.serverInfo = resolveServerInfo(serverOptions.serverInfo);
+    if (serverOptions.instructions !== undefined && typeof serverOptions.instructions !== "string") {
+      throw new TypeError("instructions must be a string");
+    }
+    this.instructions = serverOptions.instructions || undefined;
     this.log = serverOptions.logger ?? ((message) => process.stderr.write(`${message}\n`));
   }
 
@@ -1245,10 +1282,9 @@ export class MCPServer {
             capabilities: {
               tools: {},
             },
-            serverInfo: {
-              name: "@allevitas/agent-kit",
-              version: SDK_VERSION,
-            },
+            // title (2025-06-18) and instructions (2025-03-26) are sent on every version; older clients ignore them
+            serverInfo: { ...this.serverInfo },
+            ...(this.instructions ? { instructions: this.instructions } : {}),
           },
         };
       }

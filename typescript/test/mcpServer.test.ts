@@ -9,6 +9,7 @@ import http from "node:http";
 import { PassThrough } from "node:stream";
 import { MCPServer } from "../src/mcpServer.js";
 import { AllevitasClient } from "../src/client.js";
+import { SDK_VERSION } from "../src/version.js";
 
 describe("MCPServer (Model Context Protocol)", () => {
   let server: http.Server;
@@ -252,8 +253,37 @@ describe("MCPServer (Model Context Protocol)", () => {
 
     assert.equal(res.id, 1);
     assert.equal(res.result.protocolVersion, "2024-11-05");
-    assert.equal(res.result.serverInfo.name, "@allevitas/agent-kit");
+    assert.deepEqual(res.result.serverInfo, { name: "allevitas", title: "Allevitas", version: SDK_VERSION });
+    assert.ok(!("instructions" in res.result));
     assert.ok(res.result.capabilities.tools);
+  });
+
+  const initialize = async (mcp: MCPServer) =>
+    (await mcp.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } })).result;
+
+  it("initialize: serverInfo overrides only the fields given", async () => {
+    const titled = await initialize(new MCPServer({ apiUrl: serverUrl }, { serverInfo: { title: "Allevitas Dev" } }));
+    assert.deepEqual(titled.serverInfo, { name: "allevitas", title: "Allevitas Dev", version: SDK_VERSION });
+
+    const all = await initialize(
+      new MCPServer({ apiUrl: serverUrl }, { serverInfo: { name: "allevitas-dev", title: "Allevitas Dev", version: "9.9.9" } })
+    );
+    assert.deepEqual(all.serverInfo, { name: "allevitas-dev", title: "Allevitas Dev", version: "9.9.9" });
+  });
+
+  it("initialize: returns instructions when given, and omits an empty string", async () => {
+    const withText = await initialize(new MCPServer({ apiUrl: serverUrl }, { instructions: "Use the allevitas_* tools." }));
+    assert.equal(withText.instructions, "Use the allevitas_* tools.");
+
+    const empty = await initialize(new MCPServer({ apiUrl: serverUrl }, { instructions: "" }));
+    assert.ok(!("instructions" in empty));
+  });
+
+  it("constructor: rejects invalid serverInfo and instructions with TypeError", () => {
+    for (const serverInfo of [{ name: "" }, { title: "" }, { version: "" }, { name: 1 }, { title: null }]) {
+      assert.throws(() => new MCPServer({ apiUrl: serverUrl }, { serverInfo: serverInfo as any }), TypeError, JSON.stringify(serverInfo));
+    }
+    assert.throws(() => new MCPServer({ apiUrl: serverUrl }, { instructions: 42 as any }), TypeError);
   });
 
   it("handleMessage: responds normally to ping request", async () => {
@@ -625,7 +655,7 @@ describe("MCPServer (Model Context Protocol)", () => {
 
     assert.equal(responses.length, 2);
     assert.equal(responses[0].id, 101);
-    assert.equal(responses[0].result.serverInfo.name, "@allevitas/agent-kit");
+    assert.equal(responses[0].result.serverInfo.name, "allevitas");
     assert.equal(responses[1].id, 102);
     assert.ok(Array.isArray(responses[1].result.tools));
   });

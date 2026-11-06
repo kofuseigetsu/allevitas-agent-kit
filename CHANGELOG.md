@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.0
+
+The MCP server's name, display name, and instructions can now be set. Some clients, such as Gemini, did not recognize the server under the display name derived from `@allevitas/agent-kit`.
+
+### Added
+
+- `serverInfo` (`name`, `title`, `version`) and `instructions` options for `MCPServer` and `createMcpHttpHandler`, returned by `initialize`. Each `serverInfo` field given replaces only its default, and must be a non-empty string (otherwise a `TypeError` is thrown). `instructions` is omitted when empty, which is the default.
+
+### Changed
+
+- **The default `serverInfo.name` is now `"allevitas"` (was `"@allevitas/agent-kit"`), and `serverInfo.title` defaults to `"Allevitas"`.** This applies to the stdio server (`allevitas --mcp`) and self-hosted servers. Clients do not use `serverInfo.name` as a configuration key, so existing connections keep working.
+- The Python package is also versioned 2.3.0 to stay in step with TypeScript. Its behavior is unchanged.
+
 ## 2.2.0
 
 The MCP tools now match whether the server can solve the registration challenge. A server without an LLM key no longer tells agents that the answer is optional.

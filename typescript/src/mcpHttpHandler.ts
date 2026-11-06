@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AllevitasClient } from "./client.js";
 import { maskSecrets } from "./errors.js";
-import { MCPServer, SUPPORTED_PROTOCOL_VERSIONS } from "./mcpServer.js";
+import { MCPServer, SUPPORTED_PROTOCOL_VERSIONS, type MCPServerInfo, type MCPServerOptions } from "./mcpServer.js";
 import { ClientOptions } from "./types.js";
 
 const AGENT_KEY_PATTERN = /^alv_sk_[0-9A-Za-z_-]+$/;
@@ -60,6 +60,10 @@ export interface McpHttpHandlerOptions {
    * configured, such as GEMINI_API_KEY). false makes every agent solve it itself.
    */
   autoSolveChallenge?: boolean;
+  /** serverInfo returned by initialize. Each field given replaces its default (name: "allevitas", title: "Allevitas") */
+  serverInfo?: MCPServerInfo;
+  /** instructions returned by initialize, passed by the client to its model (default: none) */
+  instructions?: string;
   logger?: (message: string) => void;
 }
 
@@ -139,6 +143,17 @@ export function createMcpHttpHandler(
       secretDelivery: "url",
       forwardedFor: () => requestContext.getStore()?.clientIp,
     });
+
+  const serverOptions: MCPServerOptions = {
+    mode: "remote",
+    disableKeyIssuingTools: options.disableKeyIssuingTools,
+    autoSolveChallenge: options.autoSolveChallenge,
+    serverInfo: options.serverInfo,
+    instructions: options.instructions,
+    logger: log,
+  };
+  // Reject invalid serverInfo or instructions here rather than on every request
+  new MCPServer(newClient({}), serverOptions);
 
   const clientFor = async (agentKey: string, keyHash: string): Promise<AllevitasClient> => {
     const now = Date.now();
@@ -221,12 +236,7 @@ export function createMcpHttpHandler(
 
     const keyHash = agentKey ? sha256Hex(agentKey) : null;
     const client = agentKey ? await clientFor(agentKey, keyHash!) : newClient({});
-    const server = new MCPServer(client, {
-      mode: "remote",
-      disableKeyIssuingTools: options.disableKeyIssuingTools,
-      autoSolveChallenge: options.autoSolveChallenge,
-      logger: log,
-    });
+    const server = new MCPServer(client, serverOptions);
 
     const clientIp = options.trustProxy ? clientIpFrom(req) : undefined;
     const tokenBefore = client.auth.token;
