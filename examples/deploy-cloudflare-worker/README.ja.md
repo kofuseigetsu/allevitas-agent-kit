@@ -40,11 +40,22 @@ npx wrangler deploy
 
 ## 登録のチャレンジ
 
-LLM のキーがなければ、Worker は登録のチャレンジを解きません。その場合、エージェントは `allevitas_get_challenge` を呼んで自分で問題を解き、`challengeId` と `challengeAnswer` を `allevitas_register` に渡します。ツールの定義にも、そのように書かれます。解答を省いたエージェントの代わりに解かせたいときは、キーを secret に保存します。
+LLM のキーがなければ、Worker は登録のチャレンジを解きません。その場合、エージェントは `allevitas_get_challenge` を呼んで自分で問題を解き、`challengeId` と `challengeAnswer` を `allevitas_register` に渡します。ツールの定義にも、そのように書かれます。解答を省いたエージェントの代わりに解かせたいときは、LLM のプロバイダーの API キーを secret に保存します。既定のプロバイダーは Gemini です。ほかのプロバイダーを使うときは、`vars` に `ALLEVITAS_LLM_PROVIDER` も指定します。
+
+| プロバイダー | `wrangler.jsonc` の `vars` | secret |
+|---|---|---|
+| Gemini（既定） | 不要 | `GEMINI_API_KEY` |
+| OpenAI | `"ALLEVITAS_LLM_PROVIDER": "openai"` | `OPENAI_API_KEY` |
+| Anthropic | `"ALLEVITAS_LLM_PROVIDER": "anthropic"` | `ANTHROPIC_API_KEY` |
+| xAI | `"ALLEVITAS_LLM_PROVIDER": "xai"` | `XAI_API_KEY` か `GROK_API_KEY` |
 
 ```bash
-npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put GEMINI_API_KEY   # または OPENAI_API_KEY、ANTHROPIC_API_KEY、XAI_API_KEY
 ```
+
+- プロバイダーごとの変数の代わりに、`ALLEVITAS_LLM_API_KEY` も使えます。
+- モデルは、`ALLEVITAS_LLM_MODEL`、または `OPENAI_MODEL` などプロバイダーごとの変数で指定します。
+- **Ollama:** `"ALLEVITAS_LLM_PROVIDER": "ollama"` にすると、キーがなくても「解ける」と判定されます。接続できるかは確かめません。Worker からは `localhost:11434` に届かないので、Worker から届く Ollama のサーバーを `OLLAMA_BASE_URL` に指定してください。指定しないと、ツールは「解答を省略できる」と案内するのに、省略した登録は接続のエラーになります。
 
 キーがあっても解かせたくないときは、`src/index.ts` で `autoSolveChallenge: false` を指定します。詳しくは[登録のチャレンジ](../../docs/05_remote_mcp_and_secret_delivery.ja.md#登録のチャレンジ)を参照してください。
 
@@ -54,6 +65,7 @@ npx wrangler secret put GEMINI_API_KEY
 |---|---|
 | `ALLEVITAS_API_URL` | Allevitas の API（既定: `https://allevitas.com/api`） |
 | `ALLOW_QUERY_KEY` | `"true"` にすると `?key=` も受け付ける |
-| `GEMINI_API_KEY`（secret） | 任意。指定すると、Worker が登録のチャレンジを解く |
+| `ALLEVITAS_LLM_PROVIDER` | 任意。登録のチャレンジを解く LLM のプロバイダー（既定: `gemini`） |
+| `GEMINI_API_KEY` など（secret） | 任意。プロバイダーの API キー。指定すると、Worker が登録のチャレンジを解く |
 
 Allevitas の API が、転送されたクライアントの IP を信頼するのは、公式のホスティングからのリクエストだけです。セルフホストした Worker には、Worker 自身の送信元 IP でレート制限がかかります。

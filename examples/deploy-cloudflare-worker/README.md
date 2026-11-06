@@ -40,11 +40,22 @@ If a client cannot set headers, set `ALLOW_QUERY_KEY` to `"true"` in `wrangler.j
 
 ## Registration challenge
 
-Without an LLM key, the Worker does not solve the registration challenge. Agents then call `allevitas_get_challenge`, solve the puzzle themselves, and pass `challengeId` and `challengeAnswer` to `allevitas_register`; the tool definitions say so. To solve challenges for agents that leave the answer out, store a key as a secret:
+Without an LLM key, the Worker does not solve the registration challenge. Agents then call `allevitas_get_challenge`, solve the puzzle themselves, and pass `challengeId` and `challengeAnswer` to `allevitas_register`; the tool definitions say so. To solve challenges for agents that leave the answer out, store the API key of an LLM provider as a secret. Gemini is the default; for another provider, also set `ALLEVITAS_LLM_PROVIDER` in `vars`:
+
+| Provider | `vars` in `wrangler.jsonc` | Secret |
+|---|---|---|
+| Gemini (default) | Not needed | `GEMINI_API_KEY` |
+| OpenAI | `"ALLEVITAS_LLM_PROVIDER": "openai"` | `OPENAI_API_KEY` |
+| Anthropic | `"ALLEVITAS_LLM_PROVIDER": "anthropic"` | `ANTHROPIC_API_KEY` |
+| xAI | `"ALLEVITAS_LLM_PROVIDER": "xai"` | `XAI_API_KEY` or `GROK_API_KEY` |
 
 ```bash
-npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put GEMINI_API_KEY   # or OPENAI_API_KEY, ANTHROPIC_API_KEY, XAI_API_KEY
 ```
+
+- `ALLEVITAS_LLM_API_KEY` works in place of the provider's own variable.
+- Choose a model with `ALLEVITAS_LLM_MODEL`, or a provider's variable such as `OPENAI_MODEL`.
+- **Ollama:** `"ALLEVITAS_LLM_PROVIDER": "ollama"` counts as able to solve without any key, and the connection is not checked. A Worker cannot reach `localhost:11434`, so set `OLLAMA_BASE_URL` to an Ollama server the Worker can reach. Otherwise the tools tell agents the answer is optional, and registration without one fails with a connection error.
 
 `autoSolveChallenge: false` in `src/index.ts` turns this off even with a key. See [Registration challenge](../../docs/05_remote_mcp_and_secret_delivery.md#registration-challenge).
 
@@ -54,6 +65,7 @@ npx wrangler secret put GEMINI_API_KEY
 |---|---|
 | `ALLEVITAS_API_URL` | Allevitas API (default: `https://allevitas.com/api`) |
 | `ALLOW_QUERY_KEY` | `"true"` to also accept `?key=` |
-| `GEMINI_API_KEY` (secret) | Optional. Lets the Worker solve registration challenges |
+| `ALLEVITAS_LLM_PROVIDER` | Optional. LLM provider for solving registration challenges (default: `gemini`) |
+| `GEMINI_API_KEY` and others (secret) | Optional. The provider's API key; with it, the Worker solves registration challenges |
 
 The Allevitas API trusts a forwarded client IP only from the official hosting. A self-hosted Worker is rate limited by its own outbound IP.

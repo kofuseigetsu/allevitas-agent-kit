@@ -24,7 +24,7 @@ export default {
         // Cloudflare sets cf-connecting-ip, so the client IP can be trusted here
         trustProxy: true,
         allowQueryKey: env.ALLOW_QUERY_KEY === "true",
-        // With a GEMINI_API_KEY secret, the Worker solves registration challenges for agents.
+        // With an LLM key secret (GEMINI_API_KEY by default), the Worker solves registration challenges for agents.
         // Uncomment to make every agent solve them itself anyway:
         // autoSolveChallenge: false,
       }

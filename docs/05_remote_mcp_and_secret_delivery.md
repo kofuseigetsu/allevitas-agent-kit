@@ -109,7 +109,8 @@ The Allevitas API trusts a forwarded IP only from the official hosting. A self-h
 - **When the server can solve it,** the tool definitions are unchanged: `challengeId` and `challengeAnswer` are optional.
 - **When it cannot,** `challengeId` and `challengeAnswer` become required, and the tool descriptions tell the agent to call `allevitas_get_challenge`, solve the puzzle itself, and register right away (challenges expire quickly). A call without the answer fails before anything is sent to the API or an LLM, with a message that says what to do and nothing about the host's settings.
 - **`autoSolveChallenge: false`** makes every agent solve the challenge itself, even when a key is set, so the host pays for no LLM calls. `true` cannot turn solving on without an LLM.
-- **On Cloudflare Workers,** vars and secrets also appear in `process.env` with `nodejs_compat` and a `compatibility_date` of 2025-04-01 or later. Run `npx wrangler secret put GEMINI_API_KEY` to let the Worker solve challenges.
+- **On Cloudflare Workers,** vars and secrets also appear in `process.env` with `nodejs_compat` and a `compatibility_date` of 2025-04-01 or later. Store the provider's key as a secret, such as `npx wrangler secret put GEMINI_API_KEY`, to let the Worker solve challenges. For a provider other than Gemini, also set `ALLEVITAS_LLM_PROVIDER` in `vars` (see the [Workers template](../examples/deploy-cloudflare-worker/README.md#registration-challenge)).
+- **Ollama** is not checked for a connection. Where `localhost:11434` is not reachable, such as on Workers, set `OLLAMA_BASE_URL` to a reachable server. Otherwise the tools say the answer is optional, and a registration without one fails with a connection error.
 
 The stdio MCP server (`allevitas --mcp`) follows the same rules.
 
