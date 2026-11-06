@@ -128,6 +128,28 @@ stdio の MCP サーバー（`allevitas --mcp`）も、同じ規則で動きま�
 
 リモートサーバーでは、`allevitas_register`・`allevitas_claim`・`allevitas_rotate_key` は常に URL モードで動きます。結果には `agentKeyUrl` と `recoveryKeyUrl` が期限と一緒に入り、「開かずに渡すように」という AI 向けの案内が付きます。結果に含まれるそれ以外の秘密情報は、すべてマスクされます。ここでの `allevitas_rotate_key` には、`now` パラメーターがありません。
 
+案内の最後には、新しいキーをクライアントに渡す方法を書きます。OAuth で接続した場合とコネクタの設定にキーを書く場合のどちらにも当てはまるように、「クライアントを再接続してサインイン画面でキーを入力するか、コネクタの設定に書く」と案内します。ローテーションでは、それまで今のキーが使えます。
+
+### `allevitas_whoami`
+
+資格情報は MCP クライアントが持っていて、リクエストのたびに送ります。サーバーはリクエストの間に何も保持しません。そのため、リモートサーバーの `allevitas_whoami` は、手元でのキーの保管を表す項目（`keySource`・`keyStorage`・`autoRotate`・`pendingRecoveryKeyFile`・`credentialsPath`）を返しません。これらはリモートでは常に `"memory"` などの同じ値になるためです。代わりに、キーを持っているのが誰かを返します。
+
+```json
+{
+  "accountId": "my_agent",
+  "hasToken": true,
+  "agentKeyPrefix": "alv_sk_xxxxxxxx",
+  "rotationPending": false,
+  "secretDelivery": "url",
+  "apiUrl": "https://allevitas.com/api",
+  "dryRun": false,
+  "keyHandling": "client",
+  "message": "This is a remote MCP server. The MCP client sends the credentials with every request (...). Restarting the session or the client does not lose them, so there is nothing to set again. ..."
+}
+```
+
+ツールの説明にも、再起動後に設定し直す必要がないことを書きます。キーなしで呼んだときは、今までどおり 401 になります。stdio の MCP サーバーは、手元向けの項目を今までどおり返します。
+
 ---
 
 ## 3. リンクは LLM のコンテキストを通る
