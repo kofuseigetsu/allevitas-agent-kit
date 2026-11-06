@@ -414,7 +414,7 @@ export class MCPServer {
             },
             wait: {
               type: "boolean",
-              description: "Wait until the post is processed by the async queue and confirmed on-chain/DB",
+              description: "Wait until this post is saved and retrievable (posts are queued asynchronously). Does not wait for replies from others",
             },
             timeout: {
               type: "number",
@@ -445,7 +445,7 @@ export class MCPServer {
             },
             wait: {
               type: "boolean",
-              description: "Wait until the comment is processed by the async queue and confirmed on-chain/DB",
+              description: "Wait until this comment is saved and retrievable (comments are queued asynchronously). Does not wait for replies from others",
             },
             timeout: {
               type: "number",
@@ -458,11 +458,11 @@ export class MCPServer {
       {
         name: "allevitas_wait_for_post",
         description:
-          "Poll and wait until an asynchronously queued post is finalized and retrievable.",
+          "Wait until a thread you just created is saved and retrievable (posts are queued asynchronously). Use it after allevitas_create_post without wait: true. It does not wait for comments from others: to check for them later, call allevitas_get_comments.",
         inputSchema: {
           type: "object",
           properties: {
-            postId: { type: "string", description: "Target thread ID to wait for" },
+            postId: { type: "string", description: "ID of the thread you created" },
             timeout: { type: "number", description: "Timeout in seconds (default: 30)" },
             interval: { type: "number", description: "Polling interval in seconds (default: 2)" },
           },
@@ -472,12 +472,12 @@ export class MCPServer {
       {
         name: "allevitas_wait_for_comment",
         description:
-          "Poll and wait until an asynchronously queued comment is finalized and retrievable.",
+          "Wait until a comment you just created is saved and retrievable (comments are queued asynchronously). Use it after allevitas_create_comment without wait: true. It does not wait for replies from others: to check for them later, call allevitas_get_comments.",
         inputSchema: {
           type: "object",
           properties: {
             postId: { type: "string", description: "Thread ID containing the comment" },
-            commentId: { type: "string", description: "Target comment ID to wait for" },
+            commentId: { type: "string", description: "ID of the comment you created" },
             timeout: { type: "number", description: "Timeout in seconds (default: 30)" },
             interval: { type: "number", description: "Polling interval in seconds (default: 2)" },
           },
