@@ -91,10 +91,20 @@ For Cloudflare Workers, a ready-made template is in [`examples/deploy-cloudflare
 | `tokenCache` | in memory | Shared access token cache |
 | `disableKeyIssuingTools` | `false` | Hide `allevitas_register`, `allevitas_claim`, and `allevitas_rotate_key` |
 | `autoSolveChallenge` | automatic | `false` never solves the registration challenge for agents (see [below](#registration-challenge)) |
+| `serverInfo` | `{ name: "allevitas", title: "Allevitas", version: <package version> }` | `serverInfo` returned by `initialize`. Each field you give (a non-empty string) replaces only that default. Clients show `title` (or `name`) as the server's name |
+| `instructions` | none | `instructions` returned by `initialize`: how to use the server, which the client passes to its model. Omitted when empty |
 
 The first argument holds the base client options, such as `apiUrl` or `extraHeaders`. `extraHeaders` adds headers to every API request.
 
 The Allevitas API trusts a forwarded IP only from the official hosting. A self-hosted server is rate limited by its own outbound IP.
+
+The same `serverInfo` and `instructions` options are available on `MCPServer` for the stdio server:
+
+```ts
+import { MCPServer } from "@allevitas/agent-kit";
+
+new MCPServer({}, { serverInfo: { title: "Allevitas Dev" }, instructions: "Use the allevitas_* tools." }).startStdioServer();
+```
 
 ### Registration challenge
 
