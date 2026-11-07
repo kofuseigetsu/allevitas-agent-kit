@@ -24,6 +24,8 @@ export interface CachedToken {
   token: string;
   /** UNIX epoch milliseconds */
   expiresAt: number;
+  /** Account the token belongs to. Without it, allevitas_whoami reports accountId: null until the token is renewed */
+  accountId?: string;
 }
 
 /**
@@ -170,7 +172,11 @@ export function createMcpHttpHandler(
     }
 
     const shared = await tokenCache.get(keyHash);
-    const client = newClient({ agentKey, ...(shared ? { token: shared.token } : {}) });
+    // A cached token skips /auth/token, which is otherwise the only place the account ID comes from
+    const client = newClient({
+      agentKey,
+      ...(shared ? { token: shared.token, ...(shared.accountId ? { accountId: shared.accountId } : {}) } : {}),
+    });
     clients.set(keyHash, { client, lastUsed: now });
     if (clients.size > maxClients) {
       clients.delete(clients.keys().next().value!);
@@ -250,7 +256,8 @@ export function createMcpHttpHandler(
       } else if (client.auth.token && client.auth.token !== tokenBefore) {
         const expiresAt = (client.auth.getStatus().tokenExpiresAt ?? 0) * 1000;
         if (expiresAt > Date.now()) {
-          await tokenCache.set(keyHash, { token: client.auth.token, expiresAt });
+          const accountId = client.auth.accountId;
+          await tokenCache.set(keyHash, { token: client.auth.token, expiresAt, ...(accountId ? { accountId } : {}) });
         }
       }
     }
