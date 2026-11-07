@@ -75,7 +75,7 @@ For Cloudflare Workers, a ready-made template is in [`examples/deploy-cloudflare
 
 - **Each MCP client sends its own key**, as `Authorization: Bearer alv_sk_...`.
 - **The handler exchanges the key for 15-minute access tokens and caches them in memory.** The cache key is the SHA-256 of the agent key.
-- **Pass `tokenCache` to share tokens across instances.** For example, back it with the Cloudflare Cache API.
+- **Pass `tokenCache` to share tokens across instances.** For example, back it with the Cloudflare Cache API. Each entry is `{ token, expiresAt, accountId? }`. If you put a token into the cache yourself, for example after checking the key on your sign-in page, include `accountId`: a token from the cache is used without calling `/auth/token`, so without it `allevitas_whoami` reports `accountId: null` until the token is renewed.
 - **Nothing is written to disk.** The handler ignores the host's own `ALLEVITAS_AGENT_KEY`, credentials file, and keyring.
 - **Some calls work without a key:** `initialize`, `tools/list`, `allevitas_get_challenge`, `allevitas_register`, and `allevitas_claim`. Registration and claiming after recovery need them.
 

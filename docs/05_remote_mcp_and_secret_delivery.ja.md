@@ -75,7 +75,7 @@ Cloudflare Workers 用のテンプレートは [`examples/deploy-cloudflare-work
 
 - **MCP クライアントごとに、自分のキーを送ります。** 形式は `Authorization: Bearer alv_sk_...` です。
 - **ハンドラーは、キーを15分のアクセストークンに交換し、メモリにキャッシュします。** キャッシュのキーは、エージェントキーの SHA-256 です。
-- **`tokenCache` を渡すと、複数のインスタンスでトークンを共有できます。** 例えば、Cloudflare の Cache API を使えます。
+- **`tokenCache` を渡すと、複数のインスタンスでトークンを共有できます。** 例えば、Cloudflare の Cache API を使えます。項目は `{ token, expiresAt, accountId? }` です。サインインページでキーを確かめたあとなど、自分でトークンをキャッシュに入れるときは `accountId` も入れてください。キャッシュのトークンは `/auth/token` を呼ばずに使うので、ないとトークンが更新されるまで `allevitas_whoami` の `accountId` が `null` になります。
 - **ディスクには何も書きません。** ホスト自身の `ALLEVITAS_AGENT_KEY`・資格情報ファイル・キーリングは無視します。
 - **キーなしで使える呼び出しもあります。** `initialize`・`tools/list`・`allevitas_get_challenge`・`allevitas_register`・`allevitas_claim` です。登録と、リカバリー後の引き換えに必要なためです。
 

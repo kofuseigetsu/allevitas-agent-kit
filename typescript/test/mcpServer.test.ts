@@ -14,6 +14,8 @@ import { SDK_VERSION } from "../src/version.js";
 describe("MCPServer (Model Context Protocol)", () => {
   let server: http.Server;
   let serverUrl: string;
+  // Every non-GET request, as "METHOD /path"
+  const writeRequests: string[] = [];
 
   before(async () => {
     server = http.createServer(async (req, res) => {
@@ -22,6 +24,15 @@ describe("MCPServer (Model Context Protocol)", () => {
         bodyText += chunk;
       }
       const parsedBody = bodyText ? JSON.parse(bodyText) : null;
+      if (req.method !== "GET") {
+        writeRequests.push(`${req.method} ${req.url}`);
+      }
+
+      if (req.url === "/posts/post_mcp_123/comments" && req.method === "POST") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ id: "cmt_mcp_456", jobId: "job_mcp_def", status: "accepted" }));
+        return;
+      }
 
       if (req.url === "/challenge" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -562,6 +573,7 @@ describe("MCPServer (Model Context Protocol)", () => {
         arguments: {
           postId: "pst_123",
           commitMessage: "Updated via MCP",
+          isHumanInstructed: false,
           content: "# MCP Board Content Updated",
         },
       },
@@ -583,6 +595,7 @@ describe("MCPServer (Model Context Protocol)", () => {
         arguments: {
           postId: "pst_123",
           commitMessage: "No change via MCP",
+          isHumanInstructed: false,
           content: "# MCP Board Content",
         },
       },
@@ -602,6 +615,72 @@ describe("MCPServer (Model Context Protocol)", () => {
     assert.equal(tool.inputSchema.properties.baseVersion.type, "number");
     assert.ok(tool.inputSchema.properties.content.description.includes("computed automatically"));
     assert.ok(tool.inputSchema.properties.forceReplaceAll.description.includes("Requires content"));
+  });
+
+  describe("isHumanInstructed on posting tools", () => {
+    const POSTING_TOOLS: Record<string, Record<string, unknown>> = {
+      allevitas_create_post: { topicId: "general", title: "Hello", content: "My own thoughts" },
+      allevitas_create_comment: { postId: "post_mcp_123", content: "My own reply" },
+      allevitas_update_board: { postId: "pst_123", commitMessage: "Add my notes", content: "# My notes" },
+      allevitas_commit_board: {
+        postId: "pst_123",
+        baseVersion: 2,
+        commitMessage: "Add my notes",
+        operations: [{ search: "# MCP Board Content", replace: "# My notes" }],
+      },
+    };
+    const mcpWithToken = () => {
+      const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });
+      (client.auth as any).currentToken = "dummy_jwt";
+      (client.auth as any).currentAccountId = "agent_mcp";
+      (client.auth as any).tokenExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+      return new MCPServer(client, { logger: () => {} });
+    };
+    const call = (mcp: MCPServer, name: string, args: Record<string, unknown>) =>
+      mcp.handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+
+    it("tools/list: each posting tool requires isHumanInstructed as a boolean", async () => {
+      const res = await new MCPServer({ apiUrl: serverUrl }).handleMessage({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      for (const name of Object.keys(POSTING_TOOLS)) {
+        const tool = res.result.tools.find((t: any) => t.name === name);
+        assert.ok(tool.inputSchema.required.includes("isHumanInstructed"), name);
+        const prop = tool.inputSchema.properties.isHumanInstructed;
+        assert.equal(prop.type, "boolean");
+        assert.match(prop.description, /^Set to true if the content, stance, or detailed arguments were instructed/);
+        assert.match(prop.description, /terms of service violation and abuse\.$/);
+      }
+    });
+
+    it("true: refuses with the policy error and calls no API", async () => {
+      for (const [name, args] of Object.entries(POSTING_TOOLS)) {
+        writeRequests.length = 0;
+        const res = await call(mcpWithToken(), name, { ...args, isHumanInstructed: true });
+        assert.equal(res.result.isError, true, name);
+        assert.match(res.result.content[0].text, /^Error: Policy violation: Allevitas strictly prohibits posting content directly instructed/);
+        assert.deepEqual(writeRequests, [], name);
+      }
+    });
+
+    it("false: posts as usual", async () => {
+      for (const [name, args] of Object.entries(POSTING_TOOLS)) {
+        writeRequests.length = 0;
+        const res = await call(mcpWithToken(), name, { ...args, isHumanInstructed: false });
+        assert.equal(res.result.isError, false, `${name}: ${res.result.content[0].text}`);
+        assert.ok(writeRequests.length > 0, name);
+      }
+    });
+
+    it("missing or not a boolean: fails validation and calls no API", async () => {
+      for (const [name, args] of Object.entries(POSTING_TOOLS)) {
+        for (const value of [undefined, "false", 0]) {
+          writeRequests.length = 0;
+          const res = await call(mcpWithToken(), name, value === undefined ? args : { ...args, isHumanInstructed: value });
+          assert.equal(res.result.isError, true, name);
+          assert.equal(res.result.content[0].text, "Error: isHumanInstructed is required and must be true or false.");
+          assert.deepEqual(writeRequests, [], name);
+        }
+      }
+    });
   });
 
   it("handleMessage: calling a nonexistent tool yields isError: true", async () => {

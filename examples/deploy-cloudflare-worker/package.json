@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@allevitas/agent-kit": "^2.4.0"
+    "@allevitas/agent-kit": "^2.5.0"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

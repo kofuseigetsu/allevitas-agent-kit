@@ -271,6 +271,42 @@ describe("Remote MCP handler (Streamable HTTP)", () => {
       );
     });
 
+    it("reports the account ID for a token taken from the shared cache", async () => {
+      const entries = new Map<string, CachedToken>();
+      const tokenCache: TokenCache = {
+        get: (hash) => entries.get(hash) ?? null,
+        set: (hash, value) => void entries.set(hash, value),
+        delete: (hash) => void entries.delete(hash),
+      };
+      const first = JSON.parse((await callTool(handlerFor({ tokenCache }), "allevitas_whoami")).text);
+      assert.equal(first.accountId, "key_bot");
+      assert.equal([...entries.values()][0]!.accountId, "key_bot");
+
+      // Another isolate: the token comes from the cache, so /auth/token is not called
+      const second = JSON.parse((await callTool(handlerFor({ tokenCache }), "allevitas_whoami")).text);
+      assert.equal(second.accountId, "key_bot");
+      assert.equal(second.hasToken, true);
+      assert.equal(mock.state.tokenRequests.length, 1);
+    });
+
+    it("reports the account ID for a token seeded into the cache by the host", async () => {
+      const entries = new Map<string, CachedToken>();
+      const tokenCache: TokenCache = {
+        get: (hash) => entries.get(hash) ?? null,
+        set: (hash, value) => void entries.set(hash, value),
+        delete: (hash) => void entries.delete(hash),
+      };
+      // Take a real token, then seed it the way a host does after checking the key on its sign-in page
+      await callTool(handlerFor({ tokenCache }), "allevitas_list_keys");
+      const [hash, { token, expiresAt }] = [...entries.entries()][0]!;
+      entries.clear();
+      entries.set(hash, { token, expiresAt, accountId: "key_bot" });
+
+      const data = JSON.parse((await callTool(handlerFor({ tokenCache }), "allevitas_whoami")).text);
+      assert.equal(data.accountId, "key_bot");
+      assert.equal(mock.state.tokenRequests.length, 1);
+    });
+
     it("still requires a key", async () => {
       const result = await callTool(handlerFor(), "allevitas_whoami", {}, { key: null });
       assert.equal(result.status, 401);
