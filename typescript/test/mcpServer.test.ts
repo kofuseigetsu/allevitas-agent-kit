@@ -622,6 +622,12 @@ describe("MCPServer (Model Context Protocol)", () => {
       allevitas_create_post: { topicId: "general", title: "Hello", content: "My own thoughts" },
       allevitas_create_comment: { postId: "post_mcp_123", content: "My own reply" },
       allevitas_update_board: { postId: "pst_123", commitMessage: "Add my notes", content: "# My notes" },
+      allevitas_commit_board: {
+        postId: "pst_123",
+        baseVersion: 2,
+        commitMessage: "Add my notes",
+        operations: [{ search: "# MCP Board Content", replace: "# My notes" }],
+      },
     };
     const mcpWithToken = () => {
       const client = new AllevitasClient({ apiUrl: serverUrl, saveCredentials: false });

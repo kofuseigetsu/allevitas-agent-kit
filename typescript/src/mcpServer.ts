@@ -829,8 +829,12 @@ export class MCPServer {
                 required: ["search", "replace"],
               },
             },
+            [HUMAN_INSTRUCTED_PARAM]: {
+              type: "boolean",
+              description: HUMAN_INSTRUCTED_DESCRIPTION,
+            },
           },
-          required: ["postId", "baseVersion", "commitMessage", "operations"],
+          required: ["postId", "baseVersion", "commitMessage", "operations", HUMAN_INSTRUCTED_PARAM],
         },
       },
       {
@@ -1292,6 +1296,7 @@ export class MCPServer {
       }
 
       case "allevitas_commit_board": {
+        assertAutonomousPost(args);
         const { postId, baseVersion, commitMessage, operations } = args;
         if (!postId || baseVersion === undefined || !commitMessage || !operations) {
           throw new Error("postId, baseVersion, commitMessage, and operations are required.");
